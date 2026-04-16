@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Velocity - Redirigiendo...</title>
+    <!-- Redirección automática inmediata al Login -->
+    <meta http-equiv="refresh" content="0; url=./pages/login.html">
+    <script>
+        // Redirección por JS como fallback rápido
+        window.location.replace('./pages/login.html');
+    </script>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f9f9ff;
+            color: #081b38;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .loader {
+            border: 3px solid rgba(0, 89, 187, 0.2);
+            border-top: 3px solid #0059bb;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div style="text-align:center;">
+        <div class="loader" style="margin: 0 auto 15px auto;"></div>
+        <p style="font-weight:600; font-size:14px; opacity:0.7;">Redirigiendo a tu Espacio de Trabajo...</p>
+    </div>
+</body>
+</html>

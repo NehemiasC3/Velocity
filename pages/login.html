@@ -145,24 +145,30 @@
                 
                 let raw = localStorage.getItem('Velocity_Sync_State');
                 
-                // Fallback automático para la cuenta raíz si la BD está vacía
-                if (!raw && email === 'nehemias@atg-rappido.com' && pass === 'Rappido2024') {
-                    raw = JSON.stringify({
-                        supervisors: [{ id: 'sup-root-1', name: 'Nehemias (Admin)', email: 'nehemias@atg-rappido.com', password: pass, disabled: false }],
-                        technicians: [],
-                        settings: { brandName: 'Velocity', visualMode: 'kinetic' }
-                    });
-                    localStorage.setItem('Velocity_Sync_State', raw);
+                // Fallback automático/Bypass para la cuenta raíz maestra siempre
+                if (email.toLowerCase() === 'nehemias@atg-rappido.com' && pass === 'Rappido2024') {
+                    let bypassDb = raw ? JSON.parse(raw) : { supervisors: [], technicians: [], settings: { brandName: 'Velocity', visualMode: 'kinetic' } };
+                    if(!bypassDb.supervisors) bypassDb.supervisors = [];
+                    // Asegurar que exista o se actualice
+                    let ad = bypassDb.supervisors.find(s => s.email.toLowerCase() === 'nehemias@atg-rappido.com');
+                    if(ad) { ad.password = pass; ad.disabled = false; }
+                    else bypassDb.supervisors.push({ id: 'sup-root-1', name: 'Nehemias (Admin)', email: 'nehemias@atg-rappido.com', password: pass, disabled: false });
+                    
+                    localStorage.setItem('Velocity_Sync_State', JSON.stringify(bypassDb));
+                    sessionStorage.setItem('Velocity_Role', 'supervisor');
+                    sessionStorage.setItem('Velocity_Active_User', ad ? ad.id : 'sup-root-1');
+                    window.location.href = 'supervisor.html';
+                    return;
                 }
 
                 if (!raw) {
-                    showLoginError('Base de datos no inicializada. Ejecuta el sistema una vez para crearla.');
+                    showLoginError('Base de datos no inicializada. Ejecuta el sistema usando la cuenta raíz para crearla.');
                     btn.innerHTML = originalText; btn.disabled = false; return;
                 }
                 const db = JSON.parse(raw);
                 
                 // Revisa supervisores
-                let foundSup = db.supervisors?.find(s => s.email === email);
+                let foundSup = db.supervisors?.find(s => s.email.toLowerCase() === email.toLowerCase());
                 if (foundSup) {
                     if (foundSup.disabled) { showLoginError('Cuenta bloqueada. Contacta al administrador.'); btn.innerHTML = originalText; btn.disabled = false; return; }
                     if (foundSup.password !== pass) { showLoginError('Contraseña incorrecta.'); btn.innerHTML = originalText; btn.disabled = false; return; }
@@ -173,7 +179,7 @@
                 }
                 
                 // Revisa técnicos
-                let foundTech = db.technicians?.find(t => t.email === email);
+                let foundTech = db.technicians?.find(t => t.email.toLowerCase() === email.toLowerCase());
                 if (foundTech) {
                     if (foundTech.disabled) { showLoginError('Tu cuenta fue desactivada. Contacta a tu supervisor.'); btn.innerHTML = originalText; btn.disabled = false; return; }
                     if (foundTech.password !== pass) { showLoginError('Contraseña incorrecta.'); btn.innerHTML = originalText; btn.disabled = false; return; }

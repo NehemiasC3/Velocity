@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html class="light" lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>Velocity - Panel de Técnico</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                "background": "var(--background)",
+                "on-background": "var(--on-background)",
+                "surface": "var(--surface)",
+                "on-surface": "var(--on-surface)",
+                "surface-container": "var(--surface-container)",
+                "surface-container-low": "var(--surface-container-low)",
+                "surface-container-lowest": "var(--surface-container-lowest)",
+                "surface-container-high": "var(--surface-container-high)",
+                "surface-container-highest": "var(--surface-container-highest)",
+                "primary": "var(--primary)",
+                "on-primary": "var(--on-primary)",
+                "primary-container": "var(--primary-container)",
+                "secondary": "var(--secondary)",
+                "on-secondary": "var(--on-secondary)",
+                "secondary-container": "var(--secondary-container)",
+                "tertiary": "var(--tertiary)",
+                "on-tertiary-container": "var(--on-tertiary-container)",
+                "tertiary-fixed-dim": "var(--tertiary-fixed-dim)",
+                "outline-variant": "var(--outline-variant)",
+                "on-surface-variant": "var(--on-surface-variant)",
+                "error": "var(--error)",
+                "error-container": "var(--error-container)"
+            },
+            "fontFamily": {
+              "sans": ["Outfit", "sans-serif"]
+            }
+          }
+        }
+      }
+    </script>
+    <style>
+        /* THEME ENGINE DEFINITIONS */
+        :root, .kinetic {
+            --background: #f9f9ff;
+            --on-background: #081b38;
+            --surface: #f9f9ff;
+            --on-surface: #081b38;
+            --surface-container: #e8eeff;
+            --surface-container-low: #f1f3ff;
+            --surface-container-lowest: #ffffff;
+            --surface-container-high: #dfe8ff;
+            --surface-container-highest: #d7e2ff;
+            --primary: #031632;
+            --on-primary: #ffffff;
+            --primary-container: #1a2b48;
+            --secondary: #0059bb;
+            --on-secondary: #ffffff;
+            --secondary-container: #0070ea;
+            --tertiary: #001c04;
+            --on-tertiary-container: #29a845;
+            --tertiary-fixed-dim: #66df75;
+            --outline-variant: #c5c6ce;
+            --on-surface-variant: #44474d;
+            --error: #ba1a1a;
+            --error-container: #ffdad6;
+            --gradient: linear-gradient(135deg, #0059bb 0%, #0070ea 100%);
+        }
+
+        .nocturno {
+            --background: #081b38;
+            --on-background: #ffffff;
+            --surface: #0d2146;
+            --on-surface: #ffffff;
+            --surface-container: #1a2f5a;
+            --surface-container-low: #13274f;
+            --surface-container-lowest: #0d2146;
+            --surface-container-high: #243a6b;
+            --surface-container-highest: #2d467d;
+            --primary: #b6c7eb;
+            --on-primary: #081b38;
+            --primary-container: #374765;
+            --secondary: #adc7ff;
+            --on-secondary: #001a41;
+            --secondary-container: #004493;
+            --tertiary: #83fc8e;
+            --on-tertiary-container: #66df75;
+            --tertiary-fixed-dim: #66df75;
+            --outline-variant: #44474d;
+            --on-surface-variant: #c5c6ce;
+            --error: #ffb4ab;
+            --error-container: #93000a;
+            --gradient: linear-gradient(135deg, #1a2b48 0%, #0d2146 100%);
+        }
+
+        .operativo {
+            --background: #ffffff;
+            --on-background: #000000;
+            --surface: #f2f2f2;
+            --on-surface: #000000;
+            --surface-container: #e0e0e0;
+            --surface-container-low: #eeeeee;
+            --surface-container-lowest: #ffffff;
+            --surface-container-high: #cccccc;
+            --surface-container-highest: #bbbbbb;
+            --primary: #000000;
+            --on-primary: #ffffff;
+            --primary-container: #333333;
+            --secondary: #0033cc;
+            --on-secondary: #ffffff;
+            --secondary-container: #002299;
+            --tertiary: #008800;
+            --on-tertiary-container: #006600;
+            --tertiary-fixed-dim: #00aa00;
+            --outline-variant: #999999;
+            --on-surface-variant: #333333;
+            --error: #cc0000;
+            --error-container: #ffcccc;
+            --gradient: linear-gradient(135deg, #000000 0%, #333333 100%);
+        }
+
+        body { font-family: 'Outfit', sans-serif; min-height: max(884px, 100dvh); transition: background-color 0.3s ease, color 0.3s ease; zoom: 0.93; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .kinetic-gradient { background: var(--gradient); }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen pb-24" data-mode="connect">
+
+    <!-- TopAppBar -->
+    <nav class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-md flex justify-between items-center px-6 h-16 border-b border-surface-container-high">
+        <div class="flex items-center gap-3">
+            <div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container flex items-center justify-center branding-container">
+                <span class="material-symbols-outlined text-secondary text-sm">bolt</span>
+            </div>
+            <span class="text-xl font-black text-secondary tracking-tight">Velocity</span>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="hidden sm:flex flex-col items-end">
+                <span class="text-[10px] font-bold text-on-surface bg-tertiary-fixed-dim/30 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+                    Autenticado
+                </span>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content Canvas -->
+    <main class="pt-20 px-4 md:px-8 max-w-5xl mx-auto pb-8">
+        
+        <!-- ================= VIEW: AGENDA ================= -->
+        <div id="view-agenda" class="block animation-slide-up">
+            <header class="mb-8 mt-4">
+                <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                    <div>
+                        <span class="text-on-surface-variant font-medium tracking-wider text-[10px] uppercase" id="hero-greeting">Cargando...</span>
+                        <h1 class="text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mt-1">Tu Agenda Técnica</h1>
+                        <p class="text-on-surface-variant mt-2 max-w-md">Gestiona tus asignaciones de campo de forma segura.</p>
+                    </div>
+                    <div class="flex items-center gap-2 px-4 py-2 bg-tertiary-fixed text-on-tertiary-fixed rounded-xl self-start md:self-auto shadow-sm">
+                        <span class="material-symbols-outlined text-[20px] animate-pulse" style="font-variation-settings: 'FILL' 1;">circle</span>
+                        <span class="text-sm font-bold uppercase tracking-tighter">En Línea</span>
+                    </div>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <!-- Main Orders Column -->
+                <div class="md:col-span-2 space-y-4" id="tickets-container">
+                    <!-- Injected -->
+                </div>
+
+                <!-- Side Stats Column -->
+                <div class="space-y-6">
+                    <!-- Progress Card -->
+                    <div class="bg-primary text-white p-6 rounded-[1.5rem] shadow-lg relative overflow-hidden">
+                        <div class="relative z-10">
+                            <span class="text-[10px] font-bold uppercase tracking-widest opacity-70" id="progress-name">Rendimiento</span>
+                            <h3 class="text-4xl font-black mt-2" id="progress-percentage">0%</h3>
+                            <p class="text-sm opacity-90 mt-1" id="progress-text">0 de 0 tareas completadas</p>
+                            <div class="w-full bg-white/10 h-2 rounded-full mt-4 overflow-hidden">
+                                <div class="bg-tertiary-fixed h-full transition-all duration-500 ease-out" id="progress-bar" style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <div class="absolute -right-4 -bottom-4 opacity-10">
+                            <span class="material-symbols-outlined text-9xl">speed</span>
+                        </div>
+                    </div>
+
+                    <!-- Next Stop Insight -->
+                    <div class="bg-surface-container-high/40 p-5 rounded-[1.5rem] border border-surface-container-high relative flex flex-col justify-end" id="next-stop-container">
+                        <!-- Injected -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VIEW: STOCK ================= -->
+        <div id="view-stock" class="hidden animation-slide-up">
+            <header class="mb-8 mt-4">
+                <h1 class="text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mt-1">Stock de Vehículo</h1>
+                <p class="text-on-surface-variant mt-2 max-w-md">Control de tu equipamiento móvil. Registra consumos en tiempo real para evitar quiebres.</p>
+            </header>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] flex flex-col" id="inventory-container">
+                    <!-- Injected by JS -->
+                </div>
+                <div class="bg-surface-container-low p-6 rounded-[1.5rem] flex flex-col justify-center items-center text-center">
+                    <span class="material-symbols-outlined text-secondary text-5xl mb-4">box</span>
+                    <h3 class="font-bold text-lg text-on-surface mb-2">Directivas de Almacén</h3>
+                    <p class="text-sm text-on-surface-variant max-w-xs">
+                        Tus ONUs se calculan automáticamente con base en tus instalaciones activas del día. Para el resto de materiales, utiliza los controles de uso y envíale tu reporte a Maydelin Ojo.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= VIEW: PERFIL ================= -->
+        <div id="view-perfil" class="hidden animation-slide-up">
+            <header class="mb-8 mt-4">
+                <h1 class="text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mt-1">Mi Cuenta</h1>
+                <p class="text-on-surface-variant mt-2 max-w-md">Ajusta tus parámetros personales y credenciales de acceso.</p>
+            </header>
+
+            <div class="max-w-xl space-y-6">
+                <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] flex flex-col gap-6">
+                    <div class="flex items-center gap-4 border-b border-surface-container-highest pb-6">
+                        <div class="w-16 h-16 rounded-full overflow-hidden bg-surface-container flex items-center justify-center">
+                            <span class="material-symbols-outlined text-secondary text-3xl">account_circle</span>
+                        </div>
+                        <div>
+                            <h2 class="text-xl font-black text-on-surface" id="profile-name-tag">Técnico</h2>
+                            <p class="text-xs font-bold text-tertiary-fixed-dim uppercase tracking-widest mt-1">Cuenta Activa</p>
+                        </div>
+                    </div>
+                    <div class="space-y-4">
+                        <label class="block">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant ml-1">Nombre Mostrado</span>
+                            <input type="text" id="profile-name-input" class="w-full mt-1 bg-surface border border-outline-variant/50 focus:border-secondary focus:ring-0 rounded-xl px-4 py-3 text-sm text-on-surface transition-colors" value="Cargando...">
+                        </label>
+                        <label class="block opacity-70">
+                            <span class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant ml-1">ID de Operador (Bloqueado)</span>
+                            <input type="text" class="w-full mt-1 bg-surface-container border border-transparent rounded-xl px-4 py-3 text-sm text-on-surface-variant" value="OP-1004" readonly>
+                        </label>
+                    </div>
+                    <div class="flex flex-wrap gap-3 mt-2">
+                        <button onclick="window.saveProfile()" class="kinetic-gradient text-white px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-transform active:scale-95">Guardar Cambios</button>
+                        <button onclick="window.forgotPassword()" class="border border-outline-variant text-on-surface px-5 py-2.5 rounded-xl font-bold text-xs uppercase tracking-widest transition-all hover:bg-surface-container-low active:scale-95">Olvidé Contraseña</button>
+                    </div>
+                </div>
+                 
+                <div class="bg-error-container/30 border border-error/20 p-5 rounded-[1.5rem]">
+                   <button onclick="window.logout()" class="text-error font-bold text-xs uppercase tracking-widest flex items-center justify-center w-full gap-2 transition-transform active:scale-95">
+                       <span class="material-symbols-outlined text-[18px]">logout</span> Cerrar Sesión y Salir
+                   </button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- BottomNavBar -->
+    <nav class="fixed bottom-0 left-0 w-full flex justify-around items-center px-4 pb-6 pt-3 bg-surface/90 backdrop-blur-md border-t border-surface-container shadow-[0_-4px_20px_rgba(26,43,72,0.05)] z-50 rounded-t-3xl sm:px-12 sm:justify-center sm:gap-16">
+        <button id="nav-agenda" onclick="window.switchTab('agenda')" class="nav-tab text-secondary flex flex-col items-center justify-center px-5 py-2 transition-all active:scale-90 group">
+            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">assignment</span>
+            <span class="font-bold text-[10px] uppercase tracking-wider mt-1">Agenda</span>
+        </button>
+        <button id="nav-stock" onclick="window.switchTab('stock')" class="nav-tab text-on-surface-variant flex flex-col items-center justify-center px-5 py-2 transition-transform duration-200 active:scale-90 hover:text-secondary focus:outline-none">
+            <span class="material-symbols-outlined cursor-pointer">inventory_2</span>
+            <span class="font-bold text-[10px] uppercase tracking-wider mt-1 cursor-pointer">Stock</span>
+        </button>
+        <button id="nav-perfil" onclick="window.switchTab('perfil')" class="nav-tab text-on-surface-variant flex flex-col items-center justify-center px-5 py-2 transition-transform duration-200 active:scale-90 hover:text-secondary focus:outline-none">
+            <span class="material-symbols-outlined cursor-pointer">person</span>
+            <span class="font-bold text-[10px] uppercase tracking-wider mt-1 cursor-pointer">Perfil</span>
+        </button>
+    </nav>
+
+    <script src="./config.js"></script>
+    <script src="./technician.js"></script>
+
+    <!-- Modal Confirmación Logout -->
+    <div id="logout-modal" class="hidden fixed inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 text-center">
+                <div class="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
+                    <span class="material-symbols-outlined text-red-500 text-3xl">logout</span>
+                </div>
+                <h3 class="font-black text-gray-900 text-lg mb-1">¿Cerrar sesión?</h3>
+                <p class="text-sm text-gray-500">Serás redirigido al inicio de sesión.</p>
+            </div>
+            <div class="flex border-t border-gray-100">
+                <button onclick="document.getElementById('logout-modal').classList.add('hidden')"
+                    class="flex-1 py-4 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-colors">
+                    Cancelar
+                </button>
+                <div class="w-px bg-gray-100"></div>
+                <button onclick="sessionStorage.clear(); window.location.href='login.html';"
+                    class="flex-1 py-4 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors">
+                    Cerrar sesión
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

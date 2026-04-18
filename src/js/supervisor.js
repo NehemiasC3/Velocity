@@ -52,9 +52,17 @@ const state = {
     napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all' },
     orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
     issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc' },
+    orderSearch:  '',
+    orderSort:    { key: 'id', dev: 'desc' },
     isSyncing:    false,
     lastSync:     0,
-    pollTimer:    null
+    pollTimer:    null,
+    // Estado para Reportes Mensuales
+    monthlyReport: {
+        isFetching: false,
+        results:    null, // { month, year, issues: [], stats: { byCategory, totals } }
+        progress:   0
+    }
 };
 window.appState = state; // Expuesto temporalmente para debug
 
@@ -73,6 +81,14 @@ async function apiFetch(path, opts = {}) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status} ${path}`);
     return res.json();
+}
+
+function debounce(fn, wait) {
+    let timeout;
+    return (...args) => {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn.apply(this, args), wait);
+    };
 }
 
 async function apiPages(endpoint, maxPages = 10) {
@@ -172,17 +188,20 @@ async function loadTodayOrders(force = false) {
     const d = await res.json();
     const items = d.data || [];
 
-    // Filtrar: hoy + pendientes + con técnico
+    // Filtrar: hoy + activas (no finalizadas/canceladas) + con técnico
     const todayOrders = items.filter(o => {
         const day   = (o.start_at || '').slice(0, 10);
-        const state = (o.state || '').toLowerCase();
-        return day === todayStr && state === 'pending' && !!o.employee_id;
+        const st    = (o.state || '').toLowerCase();
+        const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta'].includes(st);
+        return day === todayStr && isActive && !!o.employee_id;
     });
 
-    // Filtrar finalizadas de hoy y ayer
+    // Filtrar finalizadas de hoy
     const finishedOrdersRaw = items.filter(o => {
         const st = (o.state || '').toLowerCase();
-        if ((st === 'finalizada' || st === 'finalizado') && !!o.employee_id) {
+        const isFinished = ['finalizada', 'finalizado', 'finalized', 'closed'].includes(st);
+        
+        if (isFinished && !!o.employee_id) {
             const dStr = o.end_at || o.updated_at || '';
             const day = dStr.slice(0, 10);
             return day === todayStr;
@@ -254,6 +273,7 @@ async function loadTodayOrders(force = false) {
                     }
                     
                     contractMap[cid] = {
+                        clientId: realClientId,
                         name:    client?.name || '',
                         address: [c.address_street, c.address_number, c.address_city].filter(Boolean).join(', ') || client?.address || '',
                         zone:    client?.zone || c.address_city || '',
@@ -280,6 +300,10 @@ async function loadTodayOrders(force = false) {
         return {
             id:           o.sequential_id || o.id?.slice(0, 8),
             rawId:        o.id,
+            clientId:     resolved.clientId || null,
+            ticketable_id: o.ticketable_id || null,
+            ticketable_type: o.ticketable_type || null,
+            orderable_id: o.orderable_id || o.orderable_uuid || o.target_id || null,
             kind:         o.kind,
             typeLabel:    typeCfg.label,
             typeColor:    typeCfg.color,
@@ -297,6 +321,8 @@ async function loadTodayOrders(force = false) {
             marquilla:    override.marquilla || null,
             description:  o.description || '',
             endDay:       (o.end_at || o.updated_at || '').slice(0, 10),
+            rawStart:     startDate ? startDate.getTime() : null,
+            rawEnd:       endDate ? endDate.getTime() : null,
             trackData
         };
     }
@@ -379,12 +405,223 @@ function saveTrackedNaps() {
     localStorage.setItem('Velocity_NAPs', JSON.stringify(state.trackedNaps));
 }
 
-// ── POLLING ───────────────────────────────────────────────────────────────
+window.setOrderSearch = function(val) {
+    state.orderSearch = val;
+    // No redibujar todo instantáneo, usamos debounce
+    debouncedSearch();
+};
+
+const debouncedSearch = debounce(() => {
+    if (state.tab === 'orders') renderTab('orders');
+}, 300);
+
+window.setOrderSort = function(key) {
+    if (state.orderSort.key === key) {
+        state.orderSort.dev = state.orderSort.dev === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.orderSort.key = key;
+        state.orderSort.dev = 'desc';
+    }
+    renderTab('orders');
+};
+
+// ── GESTIÓN DE ZONAS EXPRESS ──────────────────────────────────────────────
+window.showZonePicker = function(clientId, currentZone) {
+    if (!clientId) { alert("No se puede identificar el ID del cliente para asignar zona."); return; }
+    
+    // Remover picker anterior si existe
+    const old = document.getElementById('zone-picker-overlay');
+    if (old) old.remove();
+
+    const zones = ['Metetí', 'Santa Fe', 'Yaviza', 'Tortí', 'Chepo', 'Panamá'];
+    const options = zones.map(z => `
+        <button onclick="window.confirmZoneUpdate('${clientId}', '${z}')" 
+            class="w-full text-left p-4 hover:bg-surface-container-high transition-all font-black text-sm text-on-surface border-b border-outline-variant/10 last:border-0">
+            ${z}
+            ${currentZone === z ? '<span class="material-symbols-outlined text-success float-right" style="font-size:18px;">check_circle</span>' : ''}
+        </button>
+    `).join('');
+
+    const html = `
+    <div id="zone-picker-overlay" onclick="this.remove()" class="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm flex items-center justify-center animate-fade-in">
+        <div onclick="event.stopPropagation()" class="bg-surface-container-lowest w-full max-w-sm rounded-[2.5rem] shadow-2xl overflow-hidden border border-outline-variant/20 animate-scale-up">
+            <div class="kinetic-gradient p-6 text-white">
+                <h3 class="font-black text-lg tracking-tight">Asignar Zona</h3>
+                <p class="text-[10px] font-black uppercase opacity-60 tracking-[0.2em] mt-1">Sincronización directa con Wispro</p>
+            </div>
+            <div class="max-h-[60vh] overflow-y-auto">
+                ${options}
+                <button onclick="const z = prompt('Ingresa el nombre de la zona:','${currentZone||''}'); if(z) window.confirmZoneUpdate('${clientId}', z)" 
+                    class="w-full text-left p-4 hover:bg-primary/10 transition-all font-black text-sm text-primary">
+                    <span class="material-symbols-outlined align-middle mr-2" style="font-size:18px;">add_circle</span> Personalizada...
+                </button>
+            </div>
+            <div class="p-3 bg-surface-container-low flex justify-end">
+                <button onclick="document.getElementById('zone-picker-overlay').remove()" class="px-6 py-2 rounded-2xl text-[10px] font-black uppercase text-on-surface-variant hover:bg-surface-container-high transition-all">Cancelar</button>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.confirmZoneUpdate = async function(clientId, zoneName) {
+    const overlay = document.getElementById('zone-picker-overlay');
+    if (overlay) overlay.remove();
+
+    try {
+        // 1. Notificar en UI (Show a small loader or toast if we had one)
+        console.log(`Actualizando zona para ${clientId} a ${zoneName}...`);
+        
+        // 2. WiSPRO API PUT
+        const res = await apiFetch(`/clients/${clientId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ client: { zone_name: zoneName } })
+        });
+
+        if (res) {
+            // 3. Actualizar Estado Local
+            if (state.clients[clientId]) {
+                state.clients[clientId].zone = zoneName;
+            }
+            
+            // Actualizar órdenes en memoria para no esperar al polling
+            state.orders.forEach(o => { if (o.clientId === clientId) o.zone = zoneName; });
+            state.finishedOrders.forEach(o => { if (o.clientId === clientId) o.zone = zoneName; });
+            
+            // 4. Salvar en Caché estática
+            cacheSet('static', {
+                clients:    state.clients,
+                techs:      state.techs,
+                categories: state.categories
+            }, CFG.cacheTTL.static);
+
+            // 5. Re-renderizar vista actual
+            renderTab(state.tab);
+            
+            // Notificación ligera (consola por ahora)
+            console.log("¡Wispro actualizado exitosamente!");
+        }
+    } catch (e) {
+        console.error("Error al actualizar zona en Wispro:", e);
+        alert("Error al actualizar Wispro: " + e.message);
+    }
+};
+
+// ── REPORTES MENSUALES ENGINE ─────────────────────────────────────────────
+async function fetchMonthlyIssues(month, year) {
+    state.monthlyReport.isFetching = true;
+    state.monthlyReport.progress = 0;
+    renderTab('reports');
+
+    const startDate = new Date(year, month - 1, 1);
+    const endDate   = new Date(year, month, 0, 23, 59, 59);
+    
+    let all = [];
+    let keepGoing = true;
+
+    try {
+        // 1. Descubrimiento: Obtener total de páginas (Carga ascendente por defecto en Wispro)
+        const discoveryRaw = `${CFG.base}/help_desk/issues?per_page=100&page=1`;
+        const discoveryUrl = CFG.proxy + encodeURIComponent(discoveryRaw);
+        const dRes = await fetch(discoveryUrl, {
+            headers: { 'Authorization': CFG.token, 'Accept': 'application/json' }
+        });
+        const dJson = await dRes.json();
+        let currentPage = dJson.meta?.pagination?.total_pages || 1;
+        const totalPages = currentPage;
+
+        // 2. Bucle Inverso: Desde el final (más recientes) hacia atrás
+        let fetchedPages = 0;
+        
+        while (keepGoing && currentPage >= 1) {
+            const raw = `${CFG.base}/help_desk/issues?per_page=100&page=${currentPage}`;
+            const url = CFG.proxy + encodeURIComponent(raw);
+            
+            const res = await fetch(url, {
+                headers: { 'Authorization': CFG.token, 'Accept': 'application/json' }
+            });
+            if (!res.ok) throw new Error(`Error API: ${res.status}`);
+            
+            const d = await res.json();
+            const items = d.data || [];
+            
+            if (items.length === 0) break;
+
+            // Procesar items (vienen ASC, pero estamos en la página del final)
+            // Los items de la página final son los más nuevos.
+            // Los ordenamos DESC localmente para procesar cronológicamente hacia atrás
+            const sortedItems = [...items].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+
+            for (const item of sortedItems) {
+                const created = new Date(item.created_at);
+                
+                if (created < startDate) {
+                    keepGoing = false;
+                    break;
+                }
+                if (created <= endDate) {
+                    all.push(item);
+                }
+            }
+
+            // Actualizar progreso
+            fetchedPages++;
+            state.monthlyReport.progress = Math.min(95, Math.round((fetchedPages / Math.min(totalPages, 50)) * 100));
+            renderTab('reports');
+            
+            currentPage--;
+            if (fetchedPages > 50) break; // Límite de seguridad
+        }
+
+        // Análisis de datos
+        const stats = { byCategory: {}, total: all.length };
+        all.forEach(i => {
+            const catName = state.categories[i.category_id] || 'Otras / Sin Categoría';
+            stats.byCategory[catName] = (stats.byCategory[catName] || 0) + 1;
+        });
+
+        state.monthlyReport.results = {
+            month, year,
+            issues: all,
+            stats: stats
+        };
+
+    } catch (e) {
+        console.error("Error en reporte mensual:", e);
+        alert("Error al descargar datos: " + e.message);
+    } finally {
+        state.monthlyReport.isFetching = false;
+        state.monthlyReport.progress = 100;
+        renderTab('reports');
+    }
+}
+
+window.runMonthlyAudit = function() {
+    const month = parseInt(document.getElementById('audit-month').value);
+    const year  = parseInt(document.getElementById('audit-year').value);
+    fetchMonthlyIssues(month, year);
+};
+
+function getRelativeTime(timestamp) {
+    if (!timestamp) return 'Nunca';
+    const diff = Math.floor((Date.now() - timestamp) / 1000);
+    if (diff < 60) return 'Hace un momento';
+    const mins = Math.floor(diff / 60);
+    return `Hace ${mins} ${mins === 1 ? 'min' : 'min'}`;
+}
+
 function startPolling() {
     stopPolling();
+    // Ticker para tiempos relativos y SLA (cada 30 seg)
+    setInterval(() => {
+        if (state.tab === 'orders') renderTab('orders');
+    }, 30000);
+
     state.pollTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
         await loadTodayOrders(true);
+        state.lastSync = Date.now();
         if (state.tab === 'orders' || state.tab === 'dashboard') renderTab(state.tab);
     }, CFG.pollMs);
 }
@@ -455,7 +692,7 @@ window.switchTab = function(tab) {
     });
 
     // Título
-    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', users: 'Cuentas', settings: 'Ajustes' };
+    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes' };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
@@ -465,7 +702,24 @@ window.switchTab = function(tab) {
 function renderTab(tab) {
     const el = document.getElementById('main-content');
     if (!el) return;
+
+    // Persistencia de foco y cursor
+    const activeId = document.activeElement ? document.activeElement.id : null;
+    const start = document.activeElement.selectionStart;
+    const end = document.activeElement.selectionEnd;
+
     el.innerHTML = Views[tab] ? Views[tab]() : '<p class="p-8 text-on-surface-variant">Vista no encontrada</p>';
+
+    // Restaurar foco
+    if (activeId) {
+        const target = document.getElementById(activeId);
+        if (target) {
+            target.focus();
+            if (typeof start === 'number') {
+                target.setSelectionRange(start, end);
+            }
+        }
+    }
 }
 
 // ── VISTAS ────────────────────────────────────────────────────────────────
@@ -558,7 +812,6 @@ Views.dashboard = () => {
                 <p class="text-[10px] font-bold uppercase tracking-widest" style="color:#059669;">En curso</p>
                 <h3 class="text-4xl font-black mt-1" style="color:#059669;">${activeCount}</h3>
                 <p class="text-xs text-on-surface-variant mt-1">técnicos activos</p>
-                <span class="material-symbols-outlined absolute right-2 top-4 text-3xl opacity-20 animate-pulse" style="color:#059669;">timer</span>
             </div>
             <div class="bg-surface-container-lowest border border-error/20 p-5 rounded-2xl relative overflow-hidden">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-error">Sin NAP</p>
@@ -579,7 +832,7 @@ Views.dashboard = () => {
         </div>
 
         <!-- Grid técnicos -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             ${techCards}
         </div>
     </div>`;
@@ -588,15 +841,86 @@ Views.dashboard = () => {
 // ── ÓRDENES ───────────────────────────────────────────────────────────────
 Views.orders = () => {
     const { type, tech, zone } = state.orderFilter;
+    
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const fToday = state.finishedOrders.filter(o => o.endDay === todayStr);
 
-    // Tabs
+    // 1. Filtrar Activas
+    let filteredActive = type === 'no_nap'
+        ? state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
+        : type === 'all' ? [...state.orders] : state.orders.filter(o => o.kind === type);
+
+    if (tech !== 'all') filteredActive = filteredActive.filter(o => o.techName?.toLowerCase().includes(tech.split(' ')[0].toLowerCase()));
+    if (zone !== 'all') filteredActive = filteredActive.filter(o => o.zone === zone);
+
+    // 2. Filtrar Finalizadas (Mismos criterios)
+    let filteredFinished = type === 'no_nap'
+        ? fToday.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
+        : type === 'all' ? [...fToday] : fToday.filter(o => o.kind === type);
+
+    if (tech !== 'all') filteredFinished = filteredFinished.filter(o => o.techName?.toLowerCase().includes(tech.split(' ')[0].toLowerCase()));
+    if (zone !== 'all') filteredFinished = filteredFinished.filter(o => o.zone === zone);
+
+    // Recopilar técnicos y zonas para filtros dinámicos (de ambas listas)
+    const baseForFilters = [...state.orders, ...fToday];
+    const techs = [...new Set(baseForFilters.map(o => o.techName).filter(isActiveTech))].sort();
+    const zones = [...new Set(baseForFilters.map(o => o.zone).filter(Boolean))].sort();
+
+    // 3. Aplicar Búsqueda Global
+    const search = state.orderSearch.toLowerCase().trim();
+    if (search) {
+        const filterFn = o => 
+            o.client.toLowerCase().includes(search) || 
+            String(o.id).includes(search) || 
+            o.address.toLowerCase().includes(search) || 
+            o.techName.toLowerCase().includes(search);
+            
+        filteredActive = filteredActive.filter(filterFn);
+        filteredFinished = filteredFinished.filter(filterFn);
+    }
+
+    // 4. Aplicar Ordenamiento Dinámico
+    const sortKey = state.orderSort.key;
+    const sortDev = state.orderSort.dev;
+    const sortFn = (a, b) => {
+        let vA = a[sortKey];
+        let vB = b[sortKey];
+        if (typeof vA === 'string') vA = vA.toLowerCase();
+        if (typeof vB === 'string') vB = vB.toLowerCase();
+        if (vA < vB) return sortDev === 'asc' ? -1 : 1;
+        if (vA > vB) return sortDev === 'asc' ? 1 : -1;
+        return 0;
+    };
+    filteredActive.sort(sortFn);
+    filteredFinished.sort(sortFn);
+
+    // KPI Calculations
+    const totalDay = state.orders.length + fToday.length;
+    const completionRate = totalDay > 0 ? Math.round((fToday.length / totalDay) * 100) : 0;
+    const criticalNoNap = state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
+    
+    // Time computation (Solo exitosas con tiempos válidos)
+    const timed = fToday.filter(o => o.rawStart && o.rawEnd && o.result === 'success');
+    const avgMs = timed.length > 0 ? timed.reduce((a, b) => a + (b.rawEnd - b.rawStart), 0) / timed.length : 0;
+    const avgMin = Math.round(avgMs / 60000);
+
+    // Tech Workload Logic
+    const techStats = techs.map(name => {
+        const tOrders = [...state.orders, ...fToday].filter(o => o.techName === name);
+        const tDone = tOrders.filter(o => ['finalizada','finalizado','closed'].includes(o.state.toLowerCase())).length;
+        const tPending = tOrders.length - tDone;
+        return { name, done: tDone, pending: tPending, total: tOrders.length };
+    }).sort((a,b) => b.total - a.total);
+
+    // Tabs / Pills Logic
     const counts = {
         all:          state.orders.length,
         technical:    state.orders.filter(o => o.kind === 'technical').length,
         installation: state.orders.filter(o => o.kind === 'installation').length,
         feasibility:  state.orders.filter(o => o.kind === 'feasibility').length,
         resignation:  state.orders.filter(o => o.kind === 'resignation').length,
-        no_nap:       state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length
+        no_nap:       state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length,
+        finished:     fToday.length
     };
 
     const tabs = [
@@ -607,22 +931,6 @@ Views.orders = () => {
         { id: 'resignation',  label: `Baja (${counts.resignation})` },
         { id: 'no_nap',       label: `Sin NAP (${counts.no_nap})`, alert: true }
     ];
-
-    // Filtrar
-    let filtered = type === 'no_nap'
-        ? state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
-        : type === 'all' ? [...state.orders] : state.orders.filter(o => o.kind === type);
-
-    if (tech !== 'all') filtered = filtered.filter(o => o.techName?.toLowerCase().includes(tech.split(' ')[0].toLowerCase()));
-    if (zone !== 'all') filtered = filtered.filter(o => o.zone === zone);
-
-    // Técnicos y zonas únicos
-    const baseForFilters = type === 'no_nap'
-        ? state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
-        : type === 'all' ? state.orders : state.orders.filter(o => o.kind === type);
-
-    const techs = [...new Set(baseForFilters.map(o => o.techName).filter(isActiveTech))].sort();
-    const zones = [...new Set(baseForFilters.map(o => o.zone).filter(Boolean))].sort();
 
     const tabsHtml = tabs.map(t => {
         const active = type === t.id;
@@ -636,154 +944,290 @@ Views.orders = () => {
         const active = tech === n;
         const color  = techColor(n);
         const first  = n.split(' ')[0];
-        const cnt    = baseForFilters.filter(o => o.techName?.toLowerCase().includes(first.toLowerCase())).length;
-        return `<button onclick="window.setOrderFilter('tech','${n}')" style="${active ? `background:${color};color:white;` : 'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;">
-            ${first} <span style="font-size:16px;font-weight:800;padding:0 4px;border-radius:999px;${active?'background:rgba(255,255,255,0.25);':'background:#e5e7eb;'}">${cnt}</span>
-        </button>`;
+        return `<button onclick="window.setOrderFilter('tech','${n}')" style="${active ? `background:${color};color:white;` : 'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;">${first}</button>`;
     }).join('');
 
     const zonePills = zones.map(z => {
         const active = zone === z;
-        const cnt    = baseForFilters.filter(o => o.zone === z).length;
-        return `<button onclick="window.setOrderFilter('zone','${z}')" style="${active ? 'background:#111827;color:white;' : 'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;display:flex;align-items:center;gap:4px;">
-            ${z} <span style="font-size:16px;font-weight:800;padding:0 4px;border-radius:999px;${active?'background:rgba(255,255,255,0.2);':'background:#e5e7eb;'}">${cnt}</span>
-        </button>`;
+        return `<button onclick="window.setOrderFilter('zone','${z}')" style="${active ? 'background:#111827;color:white;' : 'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;">${z}</button>`;
     }).join('');
 
-    const renderRows = (collection, emptyMsg) => {
-        if (!collection.length) return `<tr><td colspan="6" style="text-align:center;padding:48px;color:#9ca3af;"><span style="font-size:15px;font-weight:700;text-transform:uppercase;">${emptyMsg}</span></td></tr>`;
-        return collection.map(o => {
+    const renderTable = (collection, emptyMsg, extraClass = '') => {
+        if (!collection.length) return `<div class="p-12 text-center text-on-surface-variant/40 bg-surface-container/20 rounded-2xl border border-dashed border-outline-variant/30"><span class="material-symbols-outlined text-4xl mb-2">inbox</span><p class="font-bold text-sm uppercase">${emptyMsg}</p></div>`;
+        
+        const rows = collection.map(o => {
             const color    = o.typeColor;
             const tColor   = techColor(o.techName);
             const initials = techInitials(o.techName);
             const napBadge = (o.kind === 'technical' || o.kind === 'installation')
                 ? (o.nap
-                    ? `<span style="background:#f0fdf4;color:#059669;font-size:16px;font-weight:700;padding:3px 9px;border-radius:999px;">✓ ${o.nap}</span>`
-                    : `<button onclick="window.openNapModal('${o.id}')" style="background:#fee2e2;color:#dc2626;font-size:16px;font-weight:700;padding:3px 9px;border-radius:999px;border:none;cursor:pointer;">Sin NAP</button>`)
+                    ? `<span style="background:#f0fdf4;color:#059669;font-size:14px;font-weight:700;padding:3px 9px;border-radius:999px;">✓ ${o.nap}</span>`
+                    : `<button onclick="window.openNapModal('${o.id}')" style="background:#fee2e2;color:#dc2626;font-size:14px;font-weight:700;padding:3px 9px;border-radius:999px;border:none;cursor:pointer;">Sin NAP</button>`)
                 : '';
 
             return `
-            <tr onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background='white'" style="border-bottom:1px solid #f3f4f6;">
-                <td style="padding:12px 14px;min-width:180px;">
-                    <div style="display:flex;align-items:flex-start;gap:6px;">
-                        <div style="width:3px;height:32px;background:${color};border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
-                        <div>
-                            <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                                <span style="font-weight:800;color:#111827;font-size:15px;">#${o.id}</span>
-                                <span style="background:${color}18;color:${color};font-size:15px;font-weight:700;padding:1px 6px;border-radius:999px;">${o.typeLabel}</span>
+            <tr class="border-b border-surface-container-high/50 hover:bg-surface-container-low/30 transition-colors">
+                <td class="p-4">
+                    <div class="flex items-start gap-3">
+                        <div class="w-1 h-8 rounded-full flex-shrink-0" style="background:${color}"></div>
+                        <div class="min-w-0">
+                            <div class="flex items-center gap-2 mb-0.5">
+                                <span class="font-black text-on-surface text-sm">#${o.id}</span>
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${color}15;color:${color}">${o.typeLabel}</span>
                             </div>
-                            <p style="font-size:16px;color:#374151;font-weight:600;margin-top:2px;">${o.client}</p>
+                            <p class="font-bold text-on-surface text-sm truncate">${o.client}</p>
                         </div>
                     </div>
                 </td>
-                <td style="padding:12px 14px;min-width:160px;">
-                    <p style="font-size:16px;color:#374151;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;">${o.address || '—'}</p>
-                    ${o.zone ? `<span style="font-size:16px;color:#0059bb;font-weight:700;">${o.zone}</span>` : ''}
+                <td class="p-4 hidden lg:table-cell">
+                    <p class="text-[13px] text-on-surface-variant truncate max-w-[180px] mb-1.5">${o.address || '—'}</p>
+                    <button onclick="window.showZonePicker('${o.clientId}', '${o.zone}')" 
+                        class="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all border
+                        ${o.zone ? 'bg-secondary/10 text-secondary border-secondary/20 hover:bg-secondary hover:text-white' : 'bg-error/10 text-error border-error/20 animate-pulse hover:bg-error hover:text-white'}">
+                        ${o.zone || 'Sin asignar'}
+                    </button>
                 </td>
-                <td style="padding:12px 14px;">
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <div style="width:28px;height:28px;border-radius:50%;background:${tColor};display:flex;align-items:center;justify-content:center;color:white;font-size:16px;font-weight:800;flex-shrink:0;" title="${o.techName}">${initials}</div>
-                        <span style="font-size:15px;color:#374151;font-weight:600;white-space:nowrap;">${o.techName.split(' ')[0]}</span>
+                <td class="p-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[11px] font-black" style="background:${tColor}">${initials}</div>
+                        <span class="text-xs font-bold text-on-surface-variant">${o.techName.split(' ')[0]}</span>
                     </div>
                 </td>
-                <td style="padding:12px 14px;white-space:nowrap;">
-                    <span style="font-size:16px;font-weight:700;color:#374151;">${o.startTime}</span>
-                    <span style="font-size:16px;color:#9ca3af;"> → ${o.endTime}</span>
+                <td class="p-4 whitespace-nowrap">
+                    <span class="text-xs font-bold text-on-surface">${o.startTime}</span>
+                    <span class="text-[10px] text-on-surface-variant opacity-60"> → ${o.endTime}</span>
                 </td>
-                <td style="padding:12px 14px;">
+                <td class="p-4">
                     ${o.trackData && o.trackData.status === 'started'
-                        ? `<span style="background:rgba(16,185,129,0.15);color:#059669;font-size:14px;font-weight:800;padding:4px 10px;border-radius:999px;border:1px solid rgba(16,185,129,0.3);animation:pulse 2s cubic-bezier(0.4,0,0.6,1) infinite;display:inline-flex;align-items:center;gap:4px;">
-                               <span class="material-symbols-outlined" style="font-size:14px;">timer</span>
-                               En curso: ${Math.floor((Date.now() - o.trackData.startTime)/60000)}m
-                           </span><style>@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }</style>`
-                        : statusBadge(o.state)}
+                        ? (() => {
+                            const diffMin = Math.floor((Date.now() - o.trackData.startTime)/60000);
+                            const isDelayed = diffMin > 90;
+                            return `<div class="flex flex-col gap-1 items-start">
+                                <span class="inline-flex items-center gap-1.5 ${isDelayed ? 'bg-amber-500/10 text-amber-600' : 'bg-emerald-500/10 text-emerald-600'} px-3 py-1 rounded-full text-[11px] font-black border ${isDelayed ? 'border-amber-500/20' : 'border-emerald-500/20'} animate-pulse">
+                                    <span class="material-symbols-outlined text-sm">${isDelayed ? 'warning' : 'timer'}</span> ${diffMin}m
+                                </span>
+                                ${isDelayed ? `<span class="text-[9px] font-black text-amber-600 uppercase tracking-tighter ml-1">Excede SLA</span>` : ''}
+                            </div>`;
+                          })()
+                        : `<div class="flex items-center gap-2">
+                                ${statusBadge(o.state)}
+                            </div>`}
                 </td>
-                <td style="padding:12px 14px;">${napBadge}</td>
+                <td class="p-4">${napBadge}</td>
+                <td class="p-4">
+                    <button onclick="window.openFeedbackModal('${o.id}')" class="w-9 h-9 flex items-center justify-center hover:bg-secondary/10 text-secondary rounded-xl border border-secondary/10 transition-all active:scale-95 shadow-sm" title="Bitácora Técnica">
+                        <span class="material-symbols-outlined text-[20px]">history_edu</span>
+                    </button>
+                </td>
             </tr>`;
         }).join('');
-    };
 
-    const mainRows = renderRows(filtered, 'Sin órdenes con estos filtros');
+        const sortIcon = (key) => {
+            if (state.orderSort.key !== key) return `<span class="material-symbols-outlined text-[14px] opacity-10 group-hover:opacity-40 transition-opacity">unfold_more</span>`;
+            return `<span class="material-symbols-outlined text-[14px] text-secondary">${state.orderSort.dev === 'asc' ? 'expand_less' : 'expand_more'}</span>`;
+        };
 
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const fToday = state.finishedOrders.filter(o => o.endDay === todayStr);
-
-    function renderFinishedTable(collection, title) {
-        if (!collection.length) return '';
         return `
-        <div style="margin-top:24px;">
-            <p style="font-size:15px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
-                <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span> ${title} (${collection.length})
-            </p>
-            <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;min-width:700px;opacity:0.85;filter:grayscale(30%);">
-                    <thead>
-                        <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;text-align:left;">
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;"># Cliente</th>
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Dirección / Zona</th>
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Técnico</th>
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Hora</th>
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Estado</th>
-                            <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">NAP</th>
-                        </tr>
-                    </thead>
-                    <tbody>${renderRows(collection, '')}</tbody>
-                </table>
-            </div>
-        </div>`;
-    }
-
-    return `
-    <div>
-        <div class="flex items-center justify-between mb-4">
-            <h2 class="text-2xl font-extrabold text-on-surface">Órdenes del Día</h2>
-            <button onclick="window.syncNow()" class="flex items-center gap-1.5 border border-outline-variant/30 text-secondary px-3 py-2 rounded-xl text-xs font-bold hover:bg-surface-container transition-colors active:scale-95">
-                <span class="material-symbols-outlined text-[16px] inline-block ${state.isSyncing ? 'animate-spin' : ''}">sync</span> Actualizar
-            </button>
-        </div>
-
-        <!-- Tabs -->
-        <div style="display:flex;gap:6px;overflow-x:auto;padding-bottom:8px;margin-bottom:12px;">${tabsHtml}</div>
-
-        <!-- Filtros -->
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
-            ${techs.length > 0 ? `
-            <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px;">
-                <span style="font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;">Técnico</span>
-                <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                    <button onclick="window.setOrderFilter('tech','all')" style="${tech==='all'?'background:#0059bb;color:white;':'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;">Todos</button>
-                    ${techPills}
-                </div>
-            </div>` : ''}
-            ${zones.length > 0 ? `
-            <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:6px;flex:1;min-width:180px;">
-                <span style="font-size:16px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#6b7280;">Zona</span>
-                <div style="display:flex;flex-wrap:wrap;gap:5px;">
-                    <button onclick="window.setOrderFilter('zone','all')" style="${zone==='all'?'background:#111827;color:white;':'background:#f3f4f6;color:#374151;'}padding:6px 12px;border-radius:999px;font-size:15px;font-weight:700;border:none;cursor:pointer;">Todas</button>
-                    ${zonePills}
-                </div>
-            </div>` : ''}
-        </div>
-
-        <p style="font-size:15px;font-weight:700;color:#9ca3af;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;">${filtered.length} orden${filtered.length !== 1 ? 'es' : ''}</p>
-
-        <!-- Tabla -->
-        <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;overflow-x:auto;">
-            <table style="width:100%;border-collapse:collapse;min-width:700px;">
+        <div class="bg-surface-container-lowest border border-outline-variant/15 rounded-3xl overflow-hidden ${extraClass}">
+            <table class="w-full border-collapse">
                 <thead>
-                    <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;text-align:left;">
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;"># Cliente</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Dirección / Zona</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Técnico</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Hora</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Estado</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">NAP</th>
+                    <tr class="bg-surface-container-low/50 text-left border-b border-outline-variant/10">
+                        <th onclick="window.setOrderSort('client')" class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest cursor-pointer group hover:bg-surface-container-high/40 transition-colors">
+                            <div class="flex items-center gap-1">Cliente / ID ${sortIcon('client')}</div>
+                        </th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest hidden lg:table-cell">Dirección</th>
+                        <th onclick="window.setOrderSort('techName')" class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest cursor-pointer group hover:bg-surface-container-high/40 transition-colors">
+                            <div class="flex items-center gap-1">Técnico ${sortIcon('techName')}</div>
+                        </th>
+                        <th onclick="window.setOrderSort('startTime')" class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest cursor-pointer group hover:bg-surface-container-high/40 transition-colors">
+                            <div class="flex items-center gap-1">Horario ${sortIcon('startTime')}</div>
+                        </th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Estado</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center">NAP</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Reporte</th>
                     </tr>
                 </thead>
-                <tbody>${mainRows}</tbody>
+                <tbody class="divide-y divide-surface-container-high/30">${rows}</tbody>
             </table>
+        </div>`;
+    };
+
+    return `
+    <div class="space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="space-y-1">
+                <h2 class="text-2xl font-black text-on-surface tracking-tight">Órdenes del Día</h2>
+                <div class="flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-[10px] font-black text-on-surface-variant/60 uppercase tracking-widest">Sincronizado: ${getRelativeTime(state.lastSync)}</span>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="window.exportOrdersToCSV()" class="flex items-center gap-2 border border-outline-variant/30 text-on-surface-variant px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-[18px]">download</span> Exportar
+                </button>
+                <button onclick="window.syncNow()" class="flex items-center gap-2 border border-outline-variant/30 text-secondary px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-[18px] ${state.isSyncing ? 'animate-spin' : ''}">sync</span> Sincronizar
+                </button>
+            </div>
         </div>
-        ${renderFinishedTable(fToday, 'Órdenes Finalizadas (Hoy)')}
+
+        <!-- KPI Professional Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">query_stats</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Efectividad Global</p>
+                    <h4 class="text-2xl font-black text-emerald-600">${completionRate}%</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">${fToday.length} de ${totalDay} completadas</p>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-error/10 text-error flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">report</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Órdenes Críticas</p>
+                    <h4 class="text-2xl font-black text-error">${criticalNoNap}</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Requieren asignación de NAP</p>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4">
+                <div class="w-12 h-12 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">avg_time</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Tiempo Promedio</p>
+                    <h4 class="text-2xl font-black text-secondary">${avgMin || 0} min</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Basado en visitas exitosas</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="relative group">
+            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors">search</span>
+            <input type="text" 
+                id="global-search-input"
+                placeholder="Buscar por cliente, ID, dirección o técnico..." 
+                value="${state.orderSearch}"
+                oninput="window.setOrderSearch(this.value)"
+                class="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-secondary focus:ring-4 focus:ring-secondary/5 rounded-[2rem] pl-12 pr-6 py-4 text-sm font-medium outline-none transition-all shadow-sm placeholder:text-on-surface-variant/30"
+            >
+            ${state.orderSearch ? `
+                <button onclick="window.setOrderSearch('');renderTab('orders')" class="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-base">close</span>
+                </button>
+            ` : ''}
+        </div>
+
+        <!-- Filtros Principales (Tabs) -->
+        <div class="flex gap-2 overflow-x-auto pb-2 scrollbar-hide px-1">${tabsHtml}</div>
+
+        <!-- Filtros Secundarios (Pills) -->
+        <div class="flex flex-col gap-4">
+            ${techs.length > 0 ? `
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-2">Técnico:</span>
+                <button onclick="window.setOrderFilter('tech','all')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${tech==='all'?'bg-secondary text-white':'bg-surface-container text-on-surface-variant'}">Todos</button>
+                ${techPills}
+            </div>` : ''}
+            ${zones.length > 0 ? `
+            <div class="flex flex-wrap items-center gap-2">
+                <span class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest mr-2">Zona:</span>
+                <button onclick="window.setOrderFilter('zone','all')" class="px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${zone==='all'?'bg-primary text-white':'bg-surface-container text-on-surface-variant'}">Todas</button>
+                ${zonePills}
+            </div>` : ''}
+        </div>
+
+        <!-- Sección de Órdenes Activas -->
+        <div class="space-y-3">
+            <div class="flex items-center gap-3 px-2">
+                <div class="h-px flex-1 bg-outline-variant/20"></div>
+                <div class="bg-secondary/10 border border-secondary/30 text-secondary px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm">
+                    <span class="material-symbols-outlined text-lg">timer</span>
+                    <span class="text-xs font-black uppercase tracking-widest">En Curso / Pendientes (${filteredActive.length})</span>
+                </div>
+                <div class="h-px flex-1 bg-outline-variant/20"></div>
+            </div>
+            ${renderTable(filteredActive, 'No hay órdenes pendientes')}
+        </div>
+
+        <!-- SEPARADOR / SECCIÓN FINALIZADAS -->
+        ${filteredFinished.length > 0 ? `
+        <div class="space-y-3 pt-6">
+            <div class="flex items-center gap-3 px-2">
+                <div class="h-px flex-1 bg-outline-variant/20"></div>
+                <div class="bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 px-4 py-2 rounded-2xl flex items-center gap-2 shadow-sm">
+                    <span class="material-symbols-outlined text-lg">check_circle</span>
+                    <span class="text-xs font-black uppercase tracking-widest">Finalizadas (${filteredFinished.length})</span>
+                </div>
+                <div class="h-px flex-1 bg-outline-variant/20"></div>
+            </div>
+            ${renderTable(filteredFinished, '', 'opacity-70 grayscale-[30%]')}
+        </div>` : ''}
+
+        <!-- Distribución Operativa Profesional -->
+        <div class="pt-10 space-y-6">
+            <div class="flex items-center gap-3">
+                <span class="material-symbols-outlined text-secondary">analytics</span>
+                <h3 class="text-sm font-black text-on-surface uppercase tracking-widest">Balance de Carga y Rendimiento</h3>
+                <div class="h-px flex-1 bg-outline-variant/10"></div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Columna: Barras de Carga -->
+                <div class="bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] p-8 space-y-6">
+                    <div class="space-y-4">
+                        ${techStats.slice(0, 6).map(t => {
+                            const pct = t.total > 0 ? Math.round((t.done/t.total)*100) : 0;
+                            const color = techColor(t.name);
+                            return `
+                            <div class="space-y-2">
+                                <div class="flex justify-between items-end">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-2.5 h-2.5 rounded-full" style="background:${color}"></div>
+                                        <span class="text-xs font-black text-on-surface">${t.name}</span>
+                                    </div>
+                                    <span class="text-[10px] font-black text-on-surface-variant">${t.done} <span class="opacity-40">/ ${t.total}</span> <span class="ml-2 text-secondary">${pct}%</span></span>
+                                </div>
+                                <div class="h-3 bg-white/50 dark:bg-black/10 rounded-full overflow-hidden flex shadow-inner">
+                                    <div class="h-full kinetic-gradient transition-all duration-1000" style="width:${pct}%"></div>
+                                    ${t.pending > 0 ? `<div class="h-full bg-amber-500/20 animate-pulse transition-all duration-1000" style="width:${100-pct}%"></div>` : ''}
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+
+                <!-- Columna: Resumen Ejecutivo -->
+                <div class="bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] p-8 flex flex-col justify-between">
+                    <div class="space-y-4">
+                        <div class="w-14 h-14 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center shadow-inner mb-6">
+                            <span class="material-symbols-outlined text-3xl font-bold">query_stats</span>
+                        </div>
+                        <h4 class="text-xl font-black text-on-surface tracking-tight leading-tight">Análisis Operativo del Día</h4>
+                        <p class="text-sm text-on-surface-variant leading-relaxed">
+                            Hoy se han gestionado <span class="font-black text-on-surface">${totalDay} órdenes</span> en total. 
+                            El equipo mantiene una efectividad del <span class="font-black text-emerald-600">${completionRate}%</span> 
+                            con un tiempo de resolución promedio de <span class="font-black text-secondary">${avgMin} minutos</span>.
+                        </p>
+                    </div>
+                    
+                    <div class="pt-8 grid grid-cols-2 gap-4">
+                        <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
+                            <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Carga Activa</p>
+                            <p class="text-lg font-black text-on-surface">${state.orders.length} <span class="text-[10px] opacity-40">tickets</span></p>
+                        </div>
+                        <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
+                            <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Rendimiento</p>
+                            <p class="text-lg font-black text-on-surface">${avgMin}<span class="text-[10px] opacity-40"> min/v</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>`;
 };
 
@@ -985,8 +1429,8 @@ Views.reports = () => {
                 else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
                 else vencCol = '#059669';
             }
-            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;">
-                <div style="width:3px;height:30px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
+            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
+                <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
                 <div style="flex:1;min-width:0;">
                     <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
                         <span style="font-weight:800;color:#111827;font-size:13px;">#${issue.public_id||'—'}</span>
@@ -994,7 +1438,12 @@ Views.reports = () => {
                         <span style="font-weight:700;color:${vencCol};font-size:12px;margin-left:auto;">${vencText}</span>
                     </div>
                     <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
-                    ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`:''}
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+                        ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
+                        <button onclick="window.openFeedbackModal('${issue.id}', true)" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora">
+                            <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                        </button>
+                    </div>
                 </div>
             </div>`;
         }).join('');
@@ -1120,6 +1569,69 @@ Views.reports = () => {
                 </button>
             </div>
         </div>
+
+        <!-- Generador de Auditoría Mensual -->
+        <div class="mb-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] space-y-4">
+            <div class="flex items-center gap-3 mb-2">
+                <span class="material-symbols-outlined text-secondary">history_edu</span>
+                <h3 class="text-xs font-black text-on-surface uppercase tracking-widest">Generador de Auditoría Mensual (Mesa de Ayuda)</h3>
+            </div>
+            
+            <div class="flex flex-wrap items-center gap-4">
+                <div class="flex items-center gap-2">
+                    <select id="audit-month" class="bg-surface-container-lowest border border-outline-variant/20 rounded-xl px-4 py-2 text-sm font-bold outline-none">
+                        ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${m===(new Date().getMonth()+1)?'selected':''}>${mNames[m-1]}</option>`).join('')}
+                    </select>
+                    <select id="audit-year" class="bg-surface-container-lowest border border-outline-variant/20 rounded-xl px-4 py-2 text-sm font-bold outline-none">
+                        ${[2024,2025,2026].map(y => `<option value="${y}" ${y===new Date().getFullYear()?'selected':''}>${y}</option>`).join('')}
+                    </select>
+                </div>
+                
+                <button onclick="window.runMonthlyAudit()" 
+                    class="kinetic-gradient text-white px-6 py-2.5 rounded-2xl text-xs font-black flex items-center gap-2 shadow-md active:scale-95 transition-all ${state.monthlyReport.isFetching ? 'opacity-50 pointer-events-none' : ''}">
+                    <span class="material-symbols-outlined text-sm font-bold">${state.monthlyReport.isFetching ? 'sync' : 'search'}</span>
+                    ${state.monthlyReport.isFetching ? `Descargando... ${state.monthlyReport.progress}%` : 'Cargar Reporte del Mes'}
+                </button>
+            </div>
+
+            ${state.monthlyReport.results ? (() => {
+                const r = state.monthlyReport.results;
+                return `
+                <div class="mt-6 pt-6 border-t border-outline-variant/10 animate-fade-in">
+                    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                        <div>
+                            <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Resultados Auditoría</p>
+                            <h4 class="text-xl font-black text-on-surface">${mNames[r.month-1]} ${r.year} · <span class="text-secondary">${r.stats.total} Tickets</span></h4>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button onclick="window.exportMonthlyCSV()" class="flex items-center gap-2 border border-outline-variant/30 text-on-surface-variant px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
+                                <span class="material-symbols-outlined text-[18px]">download</span> CSV
+                            </button>
+                            <button onclick="window.generateMonthlyPDF()" class="flex items-center gap-2 bg-on-surface text-white px-4 py-2 rounded-2xl text-xs font-black hover:opacity-90 transition-all active:scale-95 shadow-md">
+                                <span class="material-symbols-outlined text-[18px]">print</span> Generar Informe PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${Object.entries(r.stats.byCategory).sort((a,b)=>b[1]-a[1]).map(([cat, count]) => {
+                            const pct = Math.round((count / r.stats.total) * 100);
+                            return `
+                            <div class="bg-surface-container-lowest/40 border border-outline-variant/5 p-4 rounded-2xl">
+                                <div class="flex justify-between items-center mb-1.5">
+                                    <span class="text-xs font-black text-on-surface truncate pr-2">${cat}</span>
+                                    <span class="text-xs font-black text-secondary">${count} <span class="text-[9px] opacity-40 font-bold ml-1">(${pct}%)</span></span>
+                                </div>
+                                <div class="h-2 bg-surface-container rounded-full overflow-hidden">
+                                    <div class="h-full kinetic-gradient" style="width:${pct}%"></div>
+                                </div>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>`;
+            })() : ''}
+        </div>
+
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
         ${allIssues.length === 0
             ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin reportes pendientes</p></div>`
@@ -1141,23 +1653,16 @@ Views.reports = () => {
                         const f = (db.technicians || []).find(t => String(t.id) === String(i.assignable_id));
                         tName = f?.name || 'Sin asignar';
                     }
-                    const col = techColor(tName);
-                    const st = i.title || i.description || '';
-                    const cn = (state.clients[i.client_id] || {}).name || st.replace(/\s*\([^)]*\)\s*/g, '').trim() || 'Desconocido';
-                    const ct = state.categories[i.category_id] || '';
-                    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #f3f4f6;background:white;">
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <div style="width:3px;height:24px;background:#10b981;border-radius:2px;"></div>
-                            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                                <span style="font-size:14px;font-weight:800;color:#111827;">#${i.public_id || ''}</span>
-                                <span style="font-size:15px;font-weight:600;color:#374151;">${cn}</span>
-                                ${ct ? `<span style="font-size:12px;color:#6b7280;background:#f3f4f6;padding:1px 6px;border-radius:4px;font-weight:600;">${ct}</span>` : ''}
-                            </div>
+                    return `
+                    <div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;gap:12px;">
+                        <div style="background:#f3f4f6;color:#9ca3af;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;min-width:45px;text-align:center;">#${i.public_id}</div>
+                        <div style="flex:1;min-width:0;">
+                            <p style="font-size:13px;font-weight:700;color:#374151;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${(state.clients[i.client_id]?.name || i.title || 'Reporte').slice(0, 30)}</p>
+                            <p style="font-size:11px;color:#9ca3af;margin:0;">Finalizado por ${tName.split(' ')[0]} a las ${formatTime(i.closed_at || i.finalized_at || i.updated_at)}</p>
                         </div>
-                        <div style="display:flex;align-items:center;gap:12px;">
-                            <span style="font-size:14px;font-weight:600;color:${col};background:${col}15;padding:2px 10px;border-radius:999px;">${tName.split(' ')[0]}</span>
-                            <span style="font-size:13px;font-weight:700;color:#9ca3af;">${formatTime(i.updated_at)}</span>
-                        </div>
+                        <button onclick="window.openFeedbackModal('${i.id}', true)" class="w-8 h-8 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all">
+                            <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                        </button>
                     </div>`;
                 }).join('');
 
@@ -1166,7 +1671,7 @@ Views.reports = () => {
                     <p style="font-size:15px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
                         <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span> ${titleText} (${coll.length})
                     </p>
-                    <div style="border:1px solid #f0f0f0;border-radius:12px;overflow:hidden;opacity:0.85;filter:grayscale(30%);box-shadow:0 1px 2px rgba(0,0,0,0.02);">
+                    <div style="border:1px solid #f0f0f0;border-radius:12px;overflow:hidden;opacity:0.85;filter:grayscale(30%);box-shadow:0 1px 2px rgba(0,0,0,0.02);padding:0 16px;">
                         ${rows}
                     </div>
                 </div>`;
@@ -2054,3 +2559,429 @@ async function initApp() {
 }
 
 window.addEventListener('DOMContentLoaded', initApp);
+
+
+// ── FEEDBACKS (RESTAURADO CON RUTA OFICIAL) ────────────────────────────────
+window.openFeedbackModal = async function(id, isIssue = false) {
+    let target = null;
+    let typeColor = '#f97316';
+    let title = '';
+    let clientName = '';
+
+    if (isIssue) {
+        target = [...state.issues, ...state.finishedIssues].find(i => String(i.id) === String(id));
+        if (!target) {
+            if (state.monthlyReport.results) {
+                target = state.monthlyReport.results.issues.find(i => String(i.id) === String(id));
+            }
+        }
+        if (target) {
+            typeColor = '#f97316'; 
+            title = `Reporte #${target.public_id || '—'}`;
+            clientName = state.clients[target.client_id]?.name || target.title || '—';
+        }
+    } else {
+        target = [...state.orders, ...state.finishedOrders].find(o => String(o.id) === String(id));
+        if (target) {
+            typeColor = target.typeColor;
+            title = `Bitácora Técnica — #${target.id}`;
+            clientName = target.client;
+        }
+    }
+
+    if (!target) { alert('No se encontró el registro seleccionado.'); return; }
+
+    // Determinar si podemos escribir en este feedback
+    // Es interactivo si es un Issue directo O si es una Orden con un ticket vinculado
+    const linkedIssueId = isIssue ? target.id : (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue') ? target.ticketable_id : null);
+    const canWrite = !!linkedIssueId;
+
+    const modalId = 'feedback-modal-v2';
+    document.getElementById(modalId)?.remove();
+
+    const html = `
+    <div id="${modalId}" class="fixed inset-0 z-[400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div class="bg-surface-container-lowest w-full max-w-2xl max-h-[95vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+            <!-- Header -->
+            <div class="p-6 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg" style="background:${typeColor}">
+                        <span class="material-symbols-outlined text-2xl">history_edu</span>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-on-surface text-xl tracking-tight">${title}</h3>
+                        <p class="text-xs text-on-surface-variant font-bold uppercase tracking-widest">${clientName}</p>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-10 h-10 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-colors">
+                    <span class="material-symbols-outlined text-on-surface-variant">close</span>
+                </button>
+            </div>
+
+            <!-- Body (Timeline) -->
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-8 space-y-6 bg-surface-container-lowest/50 min-h-[300px]">
+                <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/30">
+                    <span class="material-symbols-outlined text-5xl mb-3 animate-pulse">sync</span>
+                    <p class="font-bold text-sm tracking-widest uppercase">Consultando historial en Wispro...</p>
+                </div>
+            </div>
+
+            <!-- Comment Input (Si tiene Issue vinculado) -->
+            ${canWrite ? `
+            <div class="p-6 bg-surface-container-low/30 border-t border-outline-variant/10">
+                <div class="relative">
+                    <textarea id="issue-comment-input" rows="2" 
+                        class="w-full bg-surface-container-lowest border-2 border-outline-variant/20 rounded-2xl p-4 pr-16 text-sm font-bold text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary/30 outline-none transition-all resize-none"
+                        placeholder="Escribe un comentario técnico..."></textarea>
+                    <button onclick="window.submitIssueFeedback('${linkedIssueId}')" 
+                        id="btn-send-issue-feedback"
+                        class="absolute right-3 bottom-3 w-10 h-10 kinetic-gradient text-white rounded-xl shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
+                        <span class="material-symbols-outlined text-lg">send</span>
+                    </button>
+                </div>
+                <p class="text-[9px] font-black text-on-surface-variant/40 uppercase tracking-widest mt-2 ml-4">El comentario se sincronizará con la Mesa de Ayuda de Wispro</p>
+            </div>
+            ` : ''}
+
+            <!-- Footer -->
+            <div class="p-4 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between">
+                <p class="text-[10px] text-on-surface-variant/60 font-black uppercase tracking-widest italic ml-4">
+                    ${canWrite ? 'Historial Interactivo' : 'Solo Lectura'}
+                </p>
+                <div class="flex items-center gap-2 mr-4">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-[9px] font-bold text-on-surface-variant">Live Sync</span>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    await window.loadFeedbacks(target, isIssue);
+};
+
+window.loadFeedbacks = async function(target, isIssue = false) {
+    const timeline = document.getElementById('feedback-timeline');
+    if (!timeline) return;
+
+    try {
+        let allFeedbacks = [];
+        const mergeFeedbacks = (newOnes) => {
+            if (!newOnes || !Array.isArray(newOnes)) return;
+            newOnes.forEach(f => {
+                if (!allFeedbacks.find(existing => existing.id === f.id)) {
+                    allFeedbacks.push(f);
+                }
+            });
+        };
+
+        if (isIssue) {
+            try {
+                const res = await apiFetch(`/help_desk/issues/${target.id}/feedbacks`);
+                mergeFeedbacks(res.data || res);
+            } catch(e) {}
+        } else {
+            try {
+                const nestedRes = await apiFetch(`/order/orders/${target.rawId}/feedbacks`);
+                mergeFeedbacks(nestedRes.data || nestedRes);
+            } catch(e) {}
+
+            if (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue')) {
+                try {
+                    const ticketRes = await apiFetch(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
+                    mergeFeedbacks(ticketRes.data || ticketRes);
+                } catch(e) {}
+            }
+        }
+
+        if (allFeedbacks.length === 0) {
+            timeline.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/20 italic">
+                    <span class="material-symbols-outlined text-4xl mb-2">empty_dashboard</span>
+                    <p class="text-xs font-bold tracking-widest uppercase">No hay comentarios en la bitácora</p>
+                </div>`;
+            return;
+        }
+
+        allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+
+        timeline.innerHTML = allFeedbacks.map(f => {
+            const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const senderName = f.author_name || f.technician_name || f.creator_name || 'Sistema';
+            const isSelf = senderName.toLowerCase().includes('admin') || senderName.toLowerCase().includes('supervisor');
+            
+            return `
+            <div class="flex gap-4 ${isSelf ? 'flex-row-reverse' : ''}">
+                <div class="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center text-on-surface-variant/50 bg-surface-container font-black text-xs">
+                    ${senderName.charAt(0).toUpperCase()}
+                </div>
+                <div class="max-w-[85%] space-y-1 ${isSelf ? 'items-end' : ''}">
+                    <div class="flex items-center gap-2 ${isSelf ? 'flex-row-reverse' : ''}">
+                        <span class="text-[10px] font-black text-on-surface uppercase tracking-tight">${senderName}</span>
+                        <span class="text-[9px] text-on-surface-variant/40 font-bold">${date}</span>
+                    </div>
+                    <div class="p-4 rounded-2xl text-[13px] leading-relaxed ${isSelf ? 'bg-secondary text-white rounded-tr-none shadow-lg shadow-secondary/10' : 'bg-surface-container-high text-on-surface rounded-tl-none border border-outline-variant/10 shadow-sm'}">
+                        ${f.body || '—'}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+        
+        timeline.scrollTop = timeline.scrollHeight;
+
+    } catch (e) {
+        console.error("Error al cargar bitácora:", e);
+        timeline.innerHTML = `<p class="text-center text-error font-black text-[10px] uppercase p-10 opacity-50">Error al cargar bitácora</p>`;
+    }
+};
+
+window.submitIssueFeedback = async function(issueId) {
+    const input = document.getElementById('issue-comment-input');
+    const btn = document.getElementById('btn-send-issue-feedback');
+    if (!input || !btn || !input.value.trim()) return;
+
+    try {
+        const text = input.value.trim();
+        input.disabled = true;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">sync</span>`;
+
+        await apiFetch(`/help_desk/issues/${issueId}/feedbacks`, {
+            method: 'POST',
+            body: JSON.stringify({ feedback: { body: text } })
+        });
+
+        input.value = '';
+        // Buscar el target para refrescar (puede ser un Issue o una Orden vinculada)
+        let target = [...state.issues, ...state.finishedIssues].find(i => String(i.id) === String(issueId));
+        let wasIssue = true;
+
+        if (!target) {
+            target = [...state.orders, ...state.finishedOrders].find(o => String(o.ticketable_id) === String(issueId));
+            wasIssue = false;
+        }
+
+        if (!target && state.monthlyReport.results) {
+            target = state.monthlyReport.results.issues.find(i => String(i.id) === String(issueId));
+            wasIssue = true;
+        }
+
+        if (target) await window.loadFeedbacks(target, wasIssue);
+
+    } catch (e) {
+        alert("Error al enviar comentario: " + e.message);
+    } finally {
+        input.disabled = false;
+        btn.disabled = false;
+        btn.innerHTML = `<span class="material-symbols-outlined text-lg">send</span>`;
+    }
+};
+
+
+
+window.exportOrdersToCSV = function() {
+    const all = [...state.orders, ...state.finishedOrders];
+    if (all.length === 0) { alert('No hay datos para exportar'); return; }
+
+    const headers = ['ID', 'Tipo', 'Cliente', 'Direccion', 'Zona', 'Tecnico', 'Inicio', 'Fin', 'Estado', 'NAP'];
+    const rows = all.map(o => [
+        o.id,
+        o.typeLabel,
+        o.client.replace(/,/g, ''),
+        (o.address || '').replace(/,/g, ''),
+        o.zone,
+        o.techName,
+        o.startTime,
+        o.endTime,
+        o.state,
+        o.nap || ''
+    ]);
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Velocity_Reporte_${new Date().toLocaleDateString('en-CA')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+};
+
+
+// ── EXPORTACIÓN MENSUAL ────────────────────────────────────────────────────
+window.exportMonthlyCSV = function() {
+    const r = state.monthlyReport.results;
+    if (!r) return;
+
+    const headers = ['ID', 'Fecha', 'Cliente', 'Categoría', 'Estado', 'Prioridad', 'Descripción'];
+    const rows = r.issues.map(i => {
+        const c = state.clients[i.client_id] || {};
+        const cat = state.categories[i.category_id] || '';
+        return [
+            i.public_id,
+            (i.created_at || '').slice(0, 10),
+            (c.name || 'Desconocido').replace(/,/g, ''),
+            cat.replace(/,/g, ''),
+            i.state,
+            i.priority,
+            (i.description || '').replace(/,/g, '').replace(/\n/g, ' ')
+        ];
+    });
+
+    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
+    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Reporte_Mensual_Tickets_${r.month}_${r.year}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+window.generateMonthlyPDF = function() {
+    const r = state.monthlyReport.results;
+    if (!r) return;
+
+    const win = window.open('', '_blank');
+    const monthsNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const mName = monthsNames[r.month-1];
+    
+    // Logo Rappido (referencia local)
+    const logoSrc = './uploaded_media_1776452368925.img';
+
+    const categoryRows = Object.entries(r.stats.byCategory)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([cat, count]) => {
+            const pct = Math.round((count / r.stats.total) * 100);
+            return `<tr>
+                <td style="padding:12px;border-bottom:1px solid #edf2f7;font-weight:600;color:#2d3748;">${cat}</td>
+                <td style="padding:12px;border-bottom:1px solid #edf2f7;text-align:center;font-weight:700;">${count}</td>
+                <td style="padding:12px;border-bottom:1px solid #edf2f7;text-align:right;color:#4a5568;">${pct}%</td>
+            </tr>`;
+        }).join('');
+
+    const html = `
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Reporte de Auditoría - Velocity Rappido</title>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+            * { box-sizing: border-box; }
+            body { font-family: 'Inter', sans-serif; padding: 50px; color: #1a202c; max-width: 900px; margin: 0 auto; background: white; }
+            
+            .header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 30px; border-bottom: 3px solid #ebf8ff; margin-bottom: 40px; }
+            .logo-container { display: flex; align-items: center; gap: 15px; }
+            .logo { height: 60px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.05)); }
+            
+            .title-section { text-align: right; }
+            .title-section h1 { margin: 0; color: #2b6cb0; font-size: 26px; font-weight: 800; letter-spacing: -0.02em; }
+            .title-section p { margin: 4px 0 0; color: #a0aec0; font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+
+            .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 40px; }
+            .stat-card { background: #f7fafc; padding: 25px; border-radius: 20px; border: 1px solid #e2e8f0; }
+            .stat-card label { display: block; font-size: 10px; font-weight: 800; color: #718096; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; }
+            .stat-card value { display: block; font-size: 32px; font-weight: 800; color: #2d3748; }
+
+            .table-container { background: white; border: 1px solid #e2e8f0; border-radius: 20px; overflow: hidden; margin-top: 20px; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #f8fafc; padding: 15px; font-size: 11px; font-weight: 800; text-transform: uppercase; color: #4a5568; text-align: left; border-bottom: 2px solid #edf2f7; }
+            
+            .legal-box { margin-top: 50px; background: #fffaf0; border: 1px solid #feebc8; padding: 30px; border-radius: 20px; color: #7b341e; position: relative; overflow: hidden; }
+            .legal-box::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 6px; background: #f6ad55; }
+            .legal-box h4 { margin: 0 0 10px; font-weight: 800; font-size: 15px; }
+            .legal-box p { margin: 0; font-size: 13px; line-height: 1.6; }
+
+            .signature-section { margin-top: 80px; display: flex; justify-content: space-between; padding: 0 40px; }
+            .sig-box { text-align: center; width: 220px; }
+            .sig-line { border-top: 1px solid #cbd5e0; margin-bottom: 10px; }
+            .sig-box p { margin: 0; font-size: 12px; font-weight: 800; color: #4a5568; }
+            .sig-box span { font-size: 10px; color: #a0aec0; }
+
+            .footer { margin-top: 60px; text-align: center; border-top: 1px solid #edf2f7; padding-top: 20px; font-size: 10px; color: #a0aec0; font-weight: 600; }
+
+            @media print {
+                body { padding: 0; background: white; }
+                .stat-card { background: #f7fafc !important; -webkit-print-color-adjust: exact; }
+                .legal-box { background: #fffaf0 !important; -webkit-print-color-adjust: exact; }
+                .no-print { display: none; }
+            }
+        </style>
+    </head>
+    <body onload="window.print()">
+        <header class="header">
+            <div class="logo-container">
+                <img src="${logoSrc}" class="logo" alt="Velocity Logo" onerror="this.src='https://via.placeholder.com/150?text=VELOCITY'">
+            </div>
+            <div class="title-section">
+                <h1>Reporte de Gestión</h1>
+                <p>Auditoría Mensual de Mesa de Ayuda</p>
+            </div>
+        </header>
+
+        <section class="stats-grid">
+            <div class="stat-card">
+                <label>Periodo Fiscal</label>
+                <value>${mName} ${r.year}</value>
+            </div>
+            <div class="stat-card">
+                <label>Volumen Total</label>
+                <value>${r.stats.total} Tickets</value>
+            </div>
+            <div class="stat-card">
+                <label>Estatus Reporte</label>
+                <value style="font-size:20px; color:#2f855a;">✓ Certificado</value>
+            </div>
+        </section>
+
+        <h3>Desglose por Categoría de Problema</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 50%;">Descripción de Incidencia</th>
+                        <th style="text-align:center;">Volumen</th>
+                        <th style="text-align:right;">Participación</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${categoryRows}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="legal-box">
+            <h4>Declaración de Integridad de Datos</h4>
+            <p>
+                Este documento resume la actividad operativa de la Mesa de Ayuda durante el mes de ${mName} de ${r.year}. 
+                Los datos han sido extraídos directamente de los registros de Wispro Cloud mediante el protocolo de auditoría 
+                de Velocity Rappido. Este informe es confidencial y ha sido preparado para la gerencia de operaciones.
+            </p>
+        </div>
+
+        <div class="signature-section">
+            <div class="sig-box">
+                <div class="sig-line"></div>
+                <p>Supervisor de Mesa de Ayuda</p>
+                <span>Responsable de Auditoría</span>
+            </div>
+            <div class="sig-box">
+                <div class="sig-line"></div>
+                <p>Gerencia de Operaciones</p>
+                <span>Velocity Rappido Panama</span>
+            </div>
+        </div>
+
+        <footer class="footer">
+            GENERADO AUTOMÁTICAMENTE POR VELOCITY DASHBOARD — ID: ${Math.random().toString(36).substr(2, 9).toUpperCase()} — FECHA DE EMISIÓN: ${new Date().toLocaleString()}
+        </footer>
+    </body>
+    </html>`;
+
+    win.document.write(html);
+    win.document.close();
+};
+
+

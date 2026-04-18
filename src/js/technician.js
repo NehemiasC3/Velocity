@@ -213,7 +213,9 @@ async function loadMyOrders() {
                 nap:       resolved.nap || null,
                 startTime: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
                 endTime:   endDate   ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })   : '--:--',
-                description: o.description || ''
+                description: o.description || '',
+                ticketable_id: o.ticketable_id || null,
+                ticketable_type: o.ticketable_type || null
             };
         }).sort((a, b) => a.startTime.localeCompare(b.startTime));
 
@@ -395,6 +397,12 @@ function renderOrderCard(o) {
         </a>` : ''}
 
         ${napInfo}
+        <div class="flex items-center justify-between mt-4">
+            <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-secondary/10 hover:bg-secondary/5 transition-all active:scale-95">
+                <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                Bitácora
+            </button>
+        </div>
         ${buttons}
     </div>`;
 }
@@ -597,6 +605,172 @@ window.finishOrder = function(id) {
     } catch(e) { console.error('Error al finalizar orden:', e); }
 };
 
+
+
+// ── BITÁCORA (SINCRONIZADA CON WISPRO) ────────────────────────────────────
+window.openFeedbackModal = async function(id) {
+    const order = techState.orders.find(o => String(o.id) === String(id));
+    if (!order) { alert('No se encontró la orden seleccionada.'); return; }
+
+    // Determinar si es interactivo (tiene ticket vinculado)
+    const linkedIssueId = (order.ticketable_id && order.ticketable_type?.toLowerCase().includes('issue')) ? order.ticketable_id : null;
+    const canWrite = !!linkedIssueId;
+
+    const modalId = 'tech-feedback-modal';
+    document.getElementById(modalId)?.remove();
+
+    const html = `
+    <div id="${modalId}" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div class="bg-surface-container-lowest w-full max-w-lg max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+            <!-- Header -->
+            <div class="p-5 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white" style="background:${order.typeColor}">
+                        <span class="material-symbols-outlined">history_edu</span>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-on-surface text-base">Bitácora #${order.id}</h3>
+                        <p class="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest truncate max-w-[180px]">${order.client}</p>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-8 h-8 rounded-full hover:bg-surface-container-high flex items-center justify-center">
+                    <span class="material-symbols-outlined text-on-surface-variant text-xl">close</span>
+                </button>
+            </div>
+
+            <!-- Body (Timeline) -->
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-5 space-y-4 bg-surface-container-lowest/50">
+                <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant/30">
+                    <span class="material-symbols-outlined text-4xl mb-2 animate-spin">sync</span>
+                    <p class="font-bold text-[10px] uppercase tracking-widest">Sincronizando...</p>
+                </div>
+            </div>
+
+            <!-- Input (Solo si hay vínculo) -->
+            ${canWrite ? `
+            <div class="p-4 bg-surface-container-low/30 border-t border-outline-variant/10">
+                <div class="relative">
+                    <textarea id="issue-comment-input" rows="2" 
+                        class="w-full bg-surface-container-lowest border-2 border-outline-variant/20 rounded-2xl p-3 pr-14 text-sm font-bold text-on-surface placeholder:text-on-surface-variant/40 focus:border-secondary outline-none transition-all resize-none shadow-inner"
+                        placeholder="Escribe un comentario..."></textarea>
+                    <button onclick="window.submitIssueFeedback('${linkedIssueId}')" 
+                        id="btn-send-issue-feedback"
+                        class="absolute right-2 bottom-2 w-10 h-10 kinetic-gradient text-white rounded-xl shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
+                        <span class="material-symbols-outlined text-lg">send</span>
+                    </button>
+                </div>
+            </div>
+            ` : ''}
+
+            <!-- Footer -->
+            <div class="px-5 py-3 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between">
+                <span class="text-[9px] font-black uppercase text-on-surface-variant/50 italic">${canWrite ? 'Interactivo' : 'Solo Lectura'}</span>
+                <div class="flex items-center gap-1.5 opacity-60">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span class="text-[9px] font-bold text-on-surface-variant">Live Sync Wispro</span>
+                </div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+    await window.loadFeedbacks(order);
+};
+
+window.loadFeedbacks = async function(target) {
+    const timeline = document.getElementById('feedback-timeline');
+    if (!timeline) return;
+
+    try {
+        let allFeedbacks = [];
+        
+        // 1. Feedbacks de la Orden (Solo lectura generalmente)
+        try {
+            const orderRes = await tFetch(`/order/orders/${target.rawId}/feedbacks`);
+            if (orderRes.data) allFeedbacks.push(...orderRes.data);
+            else if (Array.isArray(orderRes)) allFeedbacks.push(...orderRes);
+        } catch(e) {}
+
+        // 2. Feedbacks del Ticket vinculado (Mesa de Ayuda)
+        if (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue')) {
+            try {
+                const issueRes = await tFetch(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
+                if (issueRes.data) {
+                    issueRes.data.forEach(f => {
+                        if (!allFeedbacks.find(existing => existing.id === f.id)) allFeedbacks.push(f);
+                    });
+                }
+            } catch(e) {}
+        }
+
+        if (allFeedbacks.length === 0) {
+            timeline.innerHTML = `
+                <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant/20 italic">
+                    <span class="material-symbols-outlined text-4xl mb-2">auto_stories</span>
+                    <p class="text-[10px] font-bold tracking-widest uppercase">Sin historial de eventos</p>
+                </div>`;
+            return;
+        }
+
+        allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+
+        timeline.innerHTML = allFeedbacks.map(f => {
+            const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const sender = f.author_name || f.technician_name || f.creator_name || 'Sistema';
+            const isMe = sender.toLowerCase().includes(techState.profile?.name?.split(' ')[0].toLowerCase());
+            
+            return `
+            <div class="flex gap-3 ${isMe ? 'flex-row-reverse' : ''}">
+                <div class="w-8 h-8 rounded-lg bg-surface-container flex-shrink-0 flex items-center justify-center text-[10px] font-black text-on-surface-variant/50">
+                    ${sender.slice(0,2).toUpperCase()}
+                </div>
+                <div class="max-w-[85%] ${isMe ? 'items-end flex flex-col' : ''}">
+                    <div class="flex items-center gap-2 mb-1">
+                        <span class="text-[9px] font-black text-on-surface uppercase">${sender}</span>
+                        <span class="text-[8px] text-on-surface-variant opacity-50">${date}</span>
+                    </div>
+                    <div class="p-3 rounded-2xl text-xs leading-relaxed ${isMe ? 'bg-secondary text-white rounded-tr-none shadow-sm shadow-secondary/20' : 'bg-surface-container-high text-on-surface rounded-tl-none border border-outline-variant/10'}">
+                        ${f.body || f.comment || ''}
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        timeline.scrollTop = timeline.scrollHeight;
+
+    } catch(e) {
+        timeline.innerHTML = `<p class="text-center text-error font-black text-[9px] uppercase p-10 opacity-50">Error de conexión</p>`;
+    }
+};
+
+window.submitIssueFeedback = async function(issueId) {
+    const input = document.getElementById('issue-comment-input');
+    const btn = document.getElementById('btn-send-issue-feedback');
+    if (!input || !btn || !input.value.trim()) return;
+
+    const text = input.value.trim();
+    try {
+        input.disabled = true;
+        btn.disabled = true;
+        btn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">sync</span>`;
+
+        await tFetch(`/help_desk/issues/${issueId}/feedbacks`, {
+            method: 'POST',
+            body: JSON.stringify({ feedback: { body: text } })
+        });
+
+        input.value = '';
+        const currentOrder = techState.orders.find(o => String(o.ticketable_id) === String(issueId));
+        if (currentOrder) await window.loadFeedbacks(currentOrder);
+
+    } catch (e) {
+        alert("Error al enviar comentario: " + e.message);
+    } finally {
+        input.disabled = false;
+        btn.disabled = false;
+        btn.innerHTML = `<span class="material-symbols-outlined text-lg">send</span>`;
+    }
+};
 
 function showError(msg) {
     const el = document.getElementById('tickets-container');

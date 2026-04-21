@@ -5,21 +5,14 @@
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
 const CFG_T = {
-    proxy: 'https://corsproxy.io/?',
-    base:  'https://www.cloud.wispro.co/api/v1',
-    token: ''
+    server: '' // Autodetección
 };
 
-if (typeof VELOCITY_CONFIG !== 'undefined' && VELOCITY_CONFIG.wisproToken) {
-    CFG_T.token = VELOCITY_CONFIG.wisproToken;
-    CFG_T.base  = VELOCITY_CONFIG.wisproBaseUrl || CFG_T.base;
-}
-if (!CFG_T.token) {
-    try {
-        const raw = localStorage.getItem('Velocity_Sync_State');
-        if (raw) CFG_T.token = JSON.parse(raw).settings?.wisproToken || '';
-    } catch {}
-}
+// Cargar configuración desde config.js
+const CFG_T = {
+    server: '' 
+};
+
 
 // ── ESTADO ────────────────────────────────────────────────────────────────
 const techState = {
@@ -30,27 +23,66 @@ const techState = {
 };
 
 // ── SESIÓN ────────────────────────────────────────────────────────────────
-const SESSION_ROLE = sessionStorage.getItem('Velocity_Role');
-const SESSION_ID   = sessionStorage.getItem('Velocity_Active_User');
+const SESSION_ROLE  = sessionStorage.getItem('Velocity_Role');
+const SESSION_ID    = sessionStorage.getItem('Velocity_Active_User');
+const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token');
 
-if (SESSION_ROLE !== 'technician' || !SESSION_ID) {
+if (SESSION_ROLE !== 'technician' || !SESSION_TOKEN) {
     window.location.href = 'login.html';
 }
 
 // ── API ───────────────────────────────────────────────────────────────────
-async function tFetch(path, opts = {}) {
-    const url = CFG_T.proxy + encodeURIComponent(CFG_T.base + path);
-    const res = await fetch(url, {
-        ...opts,
-        headers: {
-            'Authorization': CFG_T.token,
-            'Accept':        'application/json',
-            'Content-Type':  'application/json',
-            ...(opts.headers || {})
-        }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+async function tFetch(path, opts = {}, silent = false) {
+    try {
+        // Nueva construcción de URL para el proxy local
+        const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+        const url = VELOCITY_CONFIG.proxy + cleanPath;
+        
+        const res = await fetch(url, {
+            ...opts,
+            headers: {
+                'Authorization': SESSION_TOKEN, // Usar token de sesión
+                'Accept': 'application/json',
+                'Content-Type': 'application/json',
+                ...(opts.headers || {})
+            },
+            body: opts.body || (['POST', 'PUT', 'PATCH'].includes(opts.method) ? JSON.stringify(opts.data) : undefined)
+        });
+
+        if (res.ok) return await res.json();
+        if (silent && res.status === 404) return null;
+        
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+    } catch (e) {
+        if (!silent) console.error('[Velocity-Tech] API Error:', e.message);
+        throw e;
+    }
+}
+
+
+// ── SISTEMA DE LATIDO (HEARTBEAT) ──────────────────────────────────────────
+function startHeartbeat() {
+    if (!techState.profile || !techState.profile.wisproId) return;
+    
+    const sendPulse = async () => {
+        try {
+            await fetch(VELOCITY_CONFIG.heartbeatPath, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': SESSION_TOKEN // También protegido
+                },
+                body: JSON.stringify({
+                    techId: techState.profile.wisproId
+                })
+            });
+        } catch (e) { console.warn('[Velocity-Tech] Heartbeat failed'); }
+    };
+
+
+    sendPulse();
+    setInterval(sendPulse, 30000); // Cada 30 segundos
 }
 
 // ── TIPOS ─────────────────────────────────────────────────────────────────
@@ -97,17 +129,9 @@ function defaultInventory() {
 }
 
 async function loadMyOrders() {
-    if (!CFG_T.token) return;
-
     try {
-        const todayStr = new Date().toLocaleDateString('en-CA');
-        const raw = `${CFG_T.base}/order/orders?per_page=1000&q%5Bs%5D=start_at+desc`;
-        const url = CFG_T.proxy + encodeURIComponent(raw);
-        const res = await fetch(url, {
-            headers: { 'Authorization': CFG_T.token, 'Accept': 'application/json' }
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const d = await res.json();
+
+        const d = await tFetch('/order/orders?per_page=1000&q%5Bs%5D=start_at+desc');
 
         // Buscar el employee_id del técnico en Wispro
         const empData = await tFetch('/employees?per_page=1000');
@@ -214,6 +238,7 @@ async function loadMyOrders() {
                 startTime: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
                 endTime:   endDate   ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })   : '--:--',
                 description: o.description || '',
+                feedbacksCount: o.feedbacks_count || 0,
                 ticketable_id: o.ticketable_id || null,
                 ticketable_type: o.ticketable_type || null
             };
@@ -241,6 +266,10 @@ function updateGreeting() {
     const greet = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
     const el = document.getElementById('hero-greeting');
     if (el) el.textContent = `${greet}, ${techState.profile?.name?.split(' ')[0] || 'Técnico'}`;
+    
+    // Navbar name display
+    const nameEl = document.getElementById('active-user-name');
+    if (nameEl) nameEl.textContent = techState.profile?.name || 'Técnico';
 }
 
 function renderProgress() {
@@ -279,9 +308,16 @@ function renderAgenda() {
 
     if (!techState.orders.length) {
         container.innerHTML = `
-            <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant opacity-50">
-                <span class="material-symbols-outlined text-6xl mb-3">inbox</span>
-                <p class="font-bold text-sm uppercase tracking-widest">Sin órdenes asignadas hoy</p>
+            <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant text-center px-6">
+                <span class="material-symbols-outlined text-6xl mb-4 opacity-20">inventory_2</span>
+                <p class="font-bold text-sm uppercase tracking-widest mb-1">Sin órdenes para hoy</p>
+                <p class="text-xs opacity-60 mb-6">No tienes tareas asignadas en Wispro con fecha de hoy.</p>
+                
+                <!-- Botón de Simulación para QA -->
+                <button onclick="window.loadDemoOrders()" class="flex items-center gap-2 px-6 py-3 bg-secondary text-white rounded-2xl font-bold text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-sm">rocket_launch</span>
+                    Activar Órdenes de Prueba
+                </button>
             </div>`;
     } else {
         container.innerHTML = techState.orders.map(o => renderOrderCard(o)).join('');
@@ -398,10 +434,17 @@ function renderOrderCard(o) {
 
         ${napInfo}
         <div class="flex items-center justify-between mt-4">
-            <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-secondary/10 hover:bg-secondary/5 transition-all active:scale-95">
-                <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                Bitácora
-            </button>
+            <div class="relative inline-block">
+                <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-secondary/10 hover:bg-secondary/5 transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                    Bitácora
+                </button>
+                ${o.feedbacksCount > 0 ? `
+                    <div class="absolute -top-1.5 -right-1.5 bg-secondary text-white text-[9px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[15px] text-center">
+                        ${o.feedbacksCount}
+                    </div>
+                ` : ''}
+            </div>
         </div>
         ${buttons}
     </div>`;
@@ -605,16 +648,83 @@ window.finishOrder = function(id) {
     } catch(e) { console.error('Error al finalizar orden:', e); }
 };
 
+// ── SIMULACIÓN (MODO QA) ──────────────────────────────────────────────────
+window.loadDemoOrders = function() {
+    const demo = [
+        {
+            id: 'DEMO-101',
+            rawId: 'demo-ins-01',
+            kind: 'installation',
+            typeLabel: 'Instalación',
+            typeColor: '#0059bb',
+            typeIcon: 'wifi',
+            state: 'pending',
+            result: 'not_set',
+            client: 'FAMILIA RODRIGUEZ (DEMO)',
+            address: 'Calle 50, Edificio F&F, Piso 20',
+            zone: 'CIUDAD DE PANAMÁ',
+            phone: '6600-0000',
+            nap: 'NAP-S5-P12',
+            startTime: '09:00 AM',
+            endTime: '11:00 AM',
+            description: 'Instalación de alta velocidad. Cliente VIP.',
+            feedbacksCount: 2
+        },
+        {
+            id: 'DEMO-102',
+            rawId: 'demo-tech-01',
+            kind: 'technical',
+            typeLabel: 'Visita Técnica',
+            typeColor: '#7c3aed',
+            typeIcon: 'build',
+            state: 'pending',
+            result: 'not_set',
+            client: 'SUPERMERCADOS REY (DEMO)',
+            address: 'Albrook Mall, Pasillo del Koala',
+            zone: 'ALBROOK',
+            phone: '200-1234',
+            nap: null,
+            startTime: '01:30 PM',
+            endTime: '02:30 PM',
+            description: 'Revisión de lentitud en caja 4.',
+            feedbacksCount: 0
+        },
+        {
+            id: 'DEMO-103',
+            rawId: 'demo-feas-01',
+            kind: 'feasibility',
+            typeLabel: 'Factibilidad',
+            typeColor: '#059669',
+            typeIcon: 'search',
+            state: 'pending',
+            result: 'not_set',
+            client: 'RESIDENCIAL ALTOS (DEMO)',
+            address: 'Altos de Panamá, Casa #45',
+            zone: 'CENTRO',
+            phone: '300-4567',
+            nap: 'PROXIMIDAD: NAP-09',
+            startTime: '04:00 PM',
+            endTime: '04:30 PM',
+            description: 'Verificar distancias para posteo.',
+            feedbacksCount: 1
+        }
+    ];
+
+    techState.orders = demo;
+    renderApp();
+    showNotification('Prueba Activada', 'Órdenes de simulación cargadas correctamente.', 'success');
+};
+
+function showNotification(title, msg, type) {
+    alert(`${title}: ${msg}`);
+}
+
 
 
 // ── BITÁCORA (SINCRONIZADA CON WISPRO) ────────────────────────────────────
 window.openFeedbackModal = async function(id) {
-    const order = techState.orders.find(o => String(o.id) === String(id));
-    if (!order) { alert('No se encontró la orden seleccionada.'); return; }
-
-    // Determinar si es interactivo (tiene ticket vinculado)
-    const linkedIssueId = (order.ticketable_id && order.ticketable_type?.toLowerCase().includes('issue')) ? order.ticketable_id : null;
-    const canWrite = !!linkedIssueId;
+    const order = techState.orders.find(o => String(o.id) === String(id)) || techState.orders.find(o => String(o.rawId) === String(id));
+    if (!order) { return; }
 
     const modalId = 'tech-feedback-modal';
     document.getElementById(modalId)?.remove();
@@ -646,28 +756,12 @@ window.openFeedbackModal = async function(id) {
                 </div>
             </div>
 
-            <!-- Input (Solo si hay vínculo) -->
-            ${canWrite ? `
-            <div class="p-4 bg-surface-container-low/30 border-t border-outline-variant/10">
-                <div class="relative">
-                    <textarea id="issue-comment-input" rows="2" 
-                        class="w-full bg-surface-container-lowest border-2 border-outline-variant/20 rounded-2xl p-3 pr-14 text-sm font-bold text-on-surface placeholder:text-on-surface-variant/40 focus:border-secondary outline-none transition-all resize-none shadow-inner"
-                        placeholder="Escribe un comentario..."></textarea>
-                    <button onclick="window.submitIssueFeedback('${linkedIssueId}')" 
-                        id="btn-send-issue-feedback"
-                        class="absolute right-2 bottom-2 w-10 h-10 kinetic-gradient text-white rounded-xl shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
-                        <span class="material-symbols-outlined text-lg">send</span>
-                    </button>
-                </div>
-            </div>
-            ` : ''}
-
             <!-- Footer -->
             <div class="px-5 py-3 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between">
-                <span class="text-[9px] font-black uppercase text-on-surface-variant/50 italic">${canWrite ? 'Interactivo' : 'Solo Lectura'}</span>
+                <span class="text-[9px] font-black uppercase text-on-surface-variant/50 italic">Historial Integrado Wispro • Sólo Lectura</span>
                 <div class="flex items-center gap-1.5 opacity-60">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span class="text-[9px] font-bold text-on-surface-variant">Live Sync Wispro</span>
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                    <span class="text-[9px] font-bold text-on-surface-variant">Live Link</span>
                 </div>
             </div>
         </div>
@@ -682,26 +776,36 @@ window.loadFeedbacks = async function(target) {
     if (!timeline) return;
 
     try {
-        let allFeedbacks = [];
-        
-        // 1. Feedbacks de la Orden (Solo lectura generalmente)
-        try {
-            const orderRes = await tFetch(`/order/orders/${target.rawId}/feedbacks`);
-            if (orderRes.data) allFeedbacks.push(...orderRes.data);
-            else if (Array.isArray(orderRes)) allFeedbacks.push(...orderRes);
-        } catch(e) {}
+        const endpoints = [
+            `/order/orders/${target.rawId}/feedbacks`
+        ];
 
-        // 2. Feedbacks del Ticket vinculado (Mesa de Ayuda)
-        if (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue')) {
-            try {
-                const issueRes = await tFetch(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
-                if (issueRes.data) {
-                    issueRes.data.forEach(f => {
-                        if (!allFeedbacks.find(existing => existing.id === f.id)) allFeedbacks.push(f);
+        if (target.kind === 'installation' && target.orderable_id) {
+            endpoints.push(`/installation_orders/${target.orderable_id}/feedbacks`);
+        }
+
+        if (target.ticketable_id) {
+            endpoints.push(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
+        }
+
+        const results = await Promise.allSettled(endpoints.map(ep => tFetch(ep)));
+        
+        let allFeedbacks = [];
+        const seenIds = new Set();
+
+        results.forEach(res => {
+            if (res.status === 'fulfilled' && res.value) {
+                const data = res.value.data || res.value;
+                if (Array.isArray(data)) {
+                    data.forEach(f => {
+                        if (!seenIds.has(f.id)) {
+                            allFeedbacks.push(f);
+                            seenIds.add(f.id);
+                        }
                     });
                 }
-            } catch(e) {}
-        }
+            }
+        });
 
         if (allFeedbacks.length === 0) {
             timeline.innerHTML = `
@@ -743,34 +847,7 @@ window.loadFeedbacks = async function(target) {
     }
 };
 
-window.submitIssueFeedback = async function(issueId) {
-    const input = document.getElementById('issue-comment-input');
-    const btn = document.getElementById('btn-send-issue-feedback');
-    if (!input || !btn || !input.value.trim()) return;
 
-    const text = input.value.trim();
-    try {
-        input.disabled = true;
-        btn.disabled = true;
-        btn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">sync</span>`;
-
-        await tFetch(`/help_desk/issues/${issueId}/feedbacks`, {
-            method: 'POST',
-            body: JSON.stringify({ feedback: { body: text } })
-        });
-
-        input.value = '';
-        const currentOrder = techState.orders.find(o => String(o.ticketable_id) === String(issueId));
-        if (currentOrder) await window.loadFeedbacks(currentOrder);
-
-    } catch (e) {
-        alert("Error al enviar comentario: " + e.message);
-    } finally {
-        input.disabled = false;
-        btn.disabled = false;
-        btn.innerHTML = `<span class="material-symbols-outlined text-lg">send</span>`;
-    }
-};
 
 function showError(msg) {
     const el = document.getElementById('tickets-container');
@@ -792,21 +869,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         </div>`;
 
     await loadTechData();
-    renderApp();
-    switchTab('agenda');
-    // Reportar como "Online"
-    function updateOnlineStatus() {
-        if(!SESSION_ID) return;
-        const statusObj = JSON.parse(localStorage.getItem('Velocity_Online_Status') || '{}');
-        statusObj[SESSION_ID] = Date.now();
-        localStorage.setItem('Velocity_Online_Status', JSON.stringify(statusObj));
-    }
-    updateOnlineStatus();
+    startHeartbeat(); // Iniciar latido para que el servidor nos vea online
+    renderAgenda();
+});
 
-    // Refrescar cronómetros En Curso cada minuto y reportar estado Online
-    setInterval(() => {
-        updateOnlineStatus();
-        if(techState.view === 'agenda') {
+async function initApp() {
+    await loadTechData();
+    startHeartbeat();
+    renderAgenda();
+}
             const hasStarted = JSON.stringify(localStorage.getItem('Velocity_Order_Tracking') || '{}').includes('started');
             if(hasStarted) renderAgenda();
         }

@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Fondo con Gradiente Premium -->
+  <defs>
+    <linearGradient id="velocityGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0059bb;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#001b3d;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#velocityGrad)"/>
+  
+  <!-- Círculo Exterior (Inspirado en el logo Rappido) -->
+  <circle cx="256" cy="256" r="180" stroke="white" stroke-width="24" stroke-opacity="0.2"/>
+  
+  <!-- Rayo de Velocidad (Sleek Tech) -->
+  <path d="M280 120L160 300H240L220 400L340 220H260L280 120Z" fill="white" filter="drop-shadow(0 4px 10px rgba(0,0,0,0.3))"/>
+  
+  <!-- Texto Velocity (Bold Italic) -->
+  <text x="50%" y="460" text-anchor="middle" fill="white" font-family="Outfit, sans-serif" font-weight="900" font-size="64" letter-spacing="4">VELOCITY</text>
+</svg>

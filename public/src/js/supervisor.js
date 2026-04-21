@@ -1,22 +1,17 @@
 /**
  * VELOCITY — Panel de Supervisor
  * Arquitectura limpia con cache inteligente y polling ligero
+ * Versión: 2.0.0-PRO (Updated Node Proxy)
  */
+console.log('🚀 Velocity Supervisor v2.0.0-PRO cargado correctamente');
 
 // ── CONFIGURACIÓN ─────────────────────────────────────────────────────────
-const CFG = {
-    proxy:    'https://corsproxy.io/?',
-    base:     'https://www.cloud.wispro.co/api/v1',
-    token:    '',
-    pollMs:   5 * 60 * 1000,   // 5 min
-    cacheTTL: { static: 24*60*60*1000, orders: 5*60*1000, issues: 10*60*1000 }
-};
+// Cargar configuración desde config.js
+// Cargar configuración desde config.js
+const CFG = VELOCITY_CONFIG;
 
-// Cargar token desde config.js
-if (typeof VELOCITY_CONFIG !== 'undefined' && VELOCITY_CONFIG.wisproToken) {
-    CFG.token   = VELOCITY_CONFIG.wisproToken;
-    CFG.base    = VELOCITY_CONFIG.wisproBaseUrl || CFG.base;
-}
+
+
 
 // ── PALETAS ───────────────────────────────────────────────────────────────
 const TECH_PALETTE = {
@@ -57,6 +52,8 @@ const state = {
     isSyncing:    false,
     lastSync:     0,
     pollTimer:    null,
+    knownOrderIds: new Set(), // IDs de órdenes finalizadas ya notificadas
+    knownIssueIds: new Set(), // IDs de issues ya notificados
     // Estado para Reportes Mensuales
     monthlyReport: {
         isFetching: false,
@@ -67,21 +64,97 @@ const state = {
 window.appState = state; // Expuesto temporalmente para debug
 
 
-// ── API HELPER ────────────────────────────────────────────────────────────
-async function apiFetch(path, opts = {}) {
-    const url = CFG.proxy + encodeURIComponent(CFG.base + path);
-    const res = await fetch(url, {
-        ...opts,
-        headers: {
-            'Authorization': CFG.token,
-            'Accept':        'application/json',
-            'Content-Type':  'application/json',
-            ...(opts.headers || {})
+// ── SESIÓN ────────────────────────────────────────────────────────────────
+const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token');
+
+// Cola de peticiones para evitar bloqueo de Wispro
+let apiPromise = Promise.resolve();
+
+async function apiFetch(path, opts = {}, silent = false) {
+    if (!SESSION_TOKEN) return null;
+
+    const isLocalApi = !path.includes(CFG.proxy) && (path.startsWith('/api/') || path.startsWith('api/'));
+    
+    const executeFetch = async () => {
+        try {
+            const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+            const url = path.startsWith('http') ? path : (path.startsWith('/') ? path : CFG.proxy + cleanPath);
+            
+            const res = await fetch(url, {
+                ...opts,
+                headers: {
+                    'Authorization': SESSION_TOKEN,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    ...(opts.headers || {})
+                },
+                body: opts.body || (['POST', 'PUT', 'PATCH'].includes(opts.method) ? JSON.stringify(opts.data) : undefined)
+            });
+
+            if (res.ok) return await res.json();
+            if (silent && res.status === 404) return null;
+            const errorData = await res.json().catch(() => ({}));
+            throw new Error(errorData.error || `HTTP ${res.status}`);
+        } catch (e) {
+            if (!silent) console.warn('[Velocity] Fetch Error:', e.message, path);
+            throw e;
         }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} ${path}`);
-    return res.json();
+    };
+
+    // Si es una ruta local del servidor, no la encolamos para máxima velocidad
+    if (isLocalApi) return executeFetch();
+
+    // Si es para Wispro, mantenemos la cola secuencial
+    return apiPromise = apiPromise.then(executeFetch);
 }
+
+
+// ── SINCRONIZACIÓN CON SERVIDOR ───────────────────────────────────────────
+async function serverSync() {
+    try {
+        updateSystemStatus(true);
+        // 1. Descargar estado actual del servidor
+        const remoteState = await apiFetch('/api/sync', { method: 'GET' }, true);
+        if (remoteState) {
+            localStorage.setItem('Velocity_Sync_State', JSON.stringify(remoteState));
+            console.log('[Velocity] Estado sincronizado desde el servidor');
+        }
+    } catch (e) {
+        console.warn('[Velocity] Error de sincronización:', e.message);
+        updateSystemStatus(false);
+    }
+}
+
+// Enviar cambios al servidor
+async function serverPush(newState) {
+    try {
+        await apiFetch('/api/sync', {
+            method: 'POST',
+            body: JSON.stringify(newState)
+        });
+    } catch (e) { console.error('[Velocity] Falló el guardado en servidor'); }
+}
+
+
+function updateSystemStatus(online) {
+    const text = document.getElementById('status-text');
+    const icon = document.getElementById('status-icon');
+    const container = document.getElementById('system-status-container');
+    if (!text || !icon || !container) return;
+
+    if (online) {
+        text.textContent = 'Conectado';
+        icon.textContent = 'verified_user';
+        container.classList.remove('bg-error-container/30', 'text-error');
+        container.classList.add('bg-tertiary-fixed-dim/30');
+    } else {
+        text.textContent = 'Desconectado';
+        icon.textContent = 'error';
+        container.classList.remove('bg-tertiary-fixed-dim/30');
+        container.classList.add('bg-error-container/30', 'text-error');
+    }
+}
+
 
 function debounce(fn, wait) {
     let timeout;
@@ -124,7 +197,6 @@ function cacheClear() {
     ['static','orders','issues'].forEach(k => localStorage.removeItem('V_' + k));
 }
 
-// ── CARGA DE DATOS ────────────────────────────────────────────────────────
 async function loadStaticData(force = false) {
     const cached = !force && cacheGet('static');
     if (cached) {
@@ -134,67 +206,131 @@ async function loadStaticData(force = false) {
         return;
     }
 
-    const [rawClients, rawTechs, rawCats] = await Promise.all([
-        apiPages('clients'),
-        apiFetch('/employees?per_page=1000'),
-        apiFetch('/help_desk/categories?per_page=200').catch(() => ({ data: [] }))
-    ]);
+    try {
+        const [rawClients, rawTechs, rawCats] = await Promise.all([
+            apiPages('clients').catch(() => []),
+            apiFetch('/employees?per_page=1000').catch(() => ({ data: [] })),
+            apiFetch('/help_desk/categories?per_page=200').catch(() => ({ data: [] }))
+        ]);
 
-    rawClients.forEach(c => {
-        state.clients[c.id] = {
-            name:    c.name || '',
-            zone:    c.zone_name || '',
-            address: c.address || c.street || '',
-            phone:   c.phone_mobile || c.phone || ''
-        };
-    });
+        rawClients.forEach(c => {
+            state.clients[c.id] = {
+                name:    c.name || '',
+                zone:    c.zone_name || '',
+                address: c.address || c.street || '',
+                phone:   c.phone_mobile || c.phone || '',
+                lat:     c.latitude || c.gps_point?.latitude || null,
+                lng:     c.longitude || c.gps_point?.longitude || null
+            };
+        });
 
-    (Array.isArray(rawTechs.data) ? rawTechs.data : []).forEach(t => {
-        state.techs[t.id] = t.name;
-    });
+        (Array.isArray(rawTechs.data) ? rawTechs.data : []).forEach(t => {
+            state.techs[t.id] = t.name;
+        });
 
-    (Array.isArray(rawCats.data) ? rawCats.data : []).forEach(c => {
-        state.categories[c.id] = c.name;
-    });
+        (Array.isArray(rawCats.data) ? rawCats.data : []).forEach(c => {
+            state.categories[c.id] = c.name;
+        });
 
-    cacheSet('static', {
-        clients:    state.clients,
-        techs:      state.techs,
-        categories: state.categories
-    }, CFG.cacheTTL.static);
+        cacheSet('static', {
+            clients:    state.clients,
+            techs:      state.techs,
+            categories: state.categories
+        }, CFG.cacheTTL.static);
+    } catch (e) {
+        console.warn('[Velocity] Error cargando datos estáticos:', e.message);
+    }
+}
+
+
+// ── SISTEMA DE NOTIFICACIONES ─────────────────────────────────────────────
+function showNotification(title, message, type = 'info') {
+    const containerId = 'velocity-notifications';
+    let container = document.getElementById(containerId);
+    if (!container) {
+        container = document.createElement('div');
+        container.id = containerId;
+        container.className = 'fixed top-6 right-6 z-[200] flex flex-col gap-3 min-w-[320px] pointer-events-none';
+        document.body.appendChild(container);
+
+        // Estilos para las animaciones
+        const style = document.createElement('style');
+        style.innerHTML = `
+            @keyframes slideIn { from { transform: translateX(120%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+            @keyframes slideOut { from { transform: translateX(0); opacity: 1; } to { transform: translateX(120%); opacity: 0; } }
+            .toast-enter { animation: slideIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
+            .toast-exit { animation: slideOut 0.3s ease-in forwards; }
+        `;
+        document.head.appendChild(style);
+    }
+
+    const toast = document.createElement('div');
+    const color = type === 'success' ? 'bg-emerald-500' : type === 'issue' ? 'bg-amber-500' : 'bg-secondary';
+    const icon = type === 'success' ? 'check_circle' : type === 'issue' ? 'notification_important' : 'info';
+
+    toast.className = `toast-enter pointer-events-auto bg-surface-container-lowest border-l-4 ${color.replace('bg-', 'border-')} p-4 rounded-2xl shadow-2xl flex items-start gap-4 border border-outline-variant/10`;
+    toast.innerHTML = `
+        <div class="w-10 h-10 rounded-xl ${color} flex-shrink-0 flex items-center justify-center text-white shadow-lg">
+            <span class="material-symbols-outlined text-2xl">${icon}</span>
+        </div>
+        <div class="flex-1 min-w-0 pr-2">
+            <p class="text-[10px] font-black text-on-surface-variant/40 uppercase tracking-widest mb-0.5">Velocity System</p>
+            <h4 class="font-black text-on-surface text-sm leading-tight mb-1 truncate">${title}</h4>
+            <p class="text-xs text-on-surface-variant font-medium leading-relaxed">${message}</p>
+        </div>
+        <button class="w-7 h-7 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-colors" onclick="this.parentElement.classList.add('toast-exit'); setTimeout(() => this.parentElement.remove(), 300)">
+            <span class="material-symbols-outlined text-base">close</span>
+        </button>
+    `;
+
+    container.appendChild(toast);
+
+    // Sonido
+    try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
+        audio.volume = 0.4;
+        audio.play().catch(() => console.warn('Autoplay blocked: user must interact first'));
+    } catch(e) {}
+
+    // Auto-remove
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 300);
+        }
+    }, 6000);
 }
 
 async function loadTodayOrders(force = false) {
-    const cached = !force && cacheGet('orders');
-    if (cached && cached.orders) {
-        state.orders         = cached.orders;
-        state.finishedOrders = cached.finishedOrders || [];
-        state.napOverrides   = cached.napOverrides || {};
-        return;
-    }
+    try {
+        const cached = !force && cacheGet('orders');
+        if (cached && cached.orders) {
+            state.orders         = cached.orders;
+            state.finishedOrders = cached.finishedOrders || [];
+            state.napOverrides   = cached.napOverrides || {};
+            return;
+        }
 
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yestStr = yesterday.toLocaleDateString('en-CA');
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yestStr = yesterday.toLocaleDateString('en-CA');
 
-    // Traer órdenes recientes ordenadas por start_at desc
-    const raw = `${CFG.base}/order/orders?per_page=1000&q%5Bs%5D=start_at+desc`;
-    const url = CFG.proxy + encodeURIComponent(raw);
-    const res = await fetch(url, {
-        headers: { 'Authorization': CFG.token, 'Accept': 'application/json' }
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status} /order/orders`);
-    const d = await res.json();
+        // Traer órdenes recientes ordenadas por start_at desc
+        const d = await apiFetch('/order/orders?per_page=1000&q%5Bs%5D=start_at+desc');
+
     const items = d.data || [];
 
-    // Filtrar: hoy + activas (no finalizadas/canceladas) + con técnico
+    // Filtrar: Hoy y Pasado + activas (no finalizadas/canceladas)
     const todayOrders = items.filter(o => {
         const day   = (o.start_at || '').slice(0, 10);
         const st    = (o.state || '').toLowerCase();
-        const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta'].includes(st);
-        return day === todayStr && isActive && !!o.employee_id;
+        const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta', 'open'].includes(st);
+        
+        // Incluimos TODO lo pendiente que sea para hoy o días anteriores
+        return day <= todayStr && isActive;
     });
+
 
     // Filtrar finalizadas de hoy
     const finishedOrdersRaw = items.filter(o => {
@@ -219,8 +355,10 @@ async function loadTodayOrders(force = false) {
     const targetIds = Object.keys(orderables);
     const contractMap = {};
 
-    for (let i = 0; i < targetIds.length; i += 15) {
-        await Promise.all(targetIds.slice(i, i + 15).map(async (cid) => {
+    // Procesar en lotes MUY pequeños (2 en 2) con pausa para evitar Error 429 del proxy gratuito
+    for (let i = 0; i < targetIds.length; i += 2) {
+        await Promise.all(targetIds.slice(i, i + 2).map(async (cid) => {
+
             try {
                 const kind = orderables[cid];
                 let endpointsToTry = [`/contracts/${cid}`];
@@ -231,7 +369,7 @@ async function loadTodayOrders(force = false) {
                 let c = null;
                 for (const ep of endpointsToTry) {
                     try {
-                        const r = await apiFetch(ep);
+                        const r = await apiFetch(ep, {}, true);
                         if (r) {
                             const raw = r.data || r;
                             if (raw && (raw.client_id || raw.name)) {
@@ -283,7 +421,10 @@ async function loadTodayOrders(force = false) {
                 }
             } catch {}
         }));
+        // Pequeña pausa entre lotes para no saturar el proxy
+        await new Promise(r => setTimeout(r, 800));
     }
+
 
     function mapOrder(o) {
         const resolved  = contractMap[o.orderable_id] || {};
@@ -323,23 +464,45 @@ async function loadTodayOrders(force = false) {
             endDay:       (o.end_at || o.updated_at || '').slice(0, 10),
             rawStart:     startDate ? startDate.getTime() : null,
             rawEnd:       endDate ? endDate.getTime() : null,
-            trackData
+            feedbacksCount: o.feedbacks_count || 0,
+            trackData,
+            lat:          o.latitude || o.gps_point?.latitude || resolved.lat || null,
+            lng:          o.longitude || o.gps_point?.longitude || resolved.lng || null
         };
     }
 
-    state.orders = todayOrders.map(mapOrder);
-    state.finishedOrders = finishedOrdersRaw.map(mapOrder);
+    const newOrders = todayOrders.map(mapOrder);
+    const newFinished = finishedOrdersRaw.map(mapOrder);
+
+    // Notificaciones de órdenes finalizadas
+    if (state.knownOrderIds.size > 0) {
+        newFinished.forEach(o => {
+            if (!state.knownOrderIds.has(o.id)) {
+                showNotification(`¡Orden #${o.id} Finalizada!`, `Cliente: ${o.client}\nTécnico: ${o.techName}`, 'success');
+                state.knownOrderIds.add(o.id);
+            }
+        });
+    } else {
+        newFinished.forEach(o => state.knownOrderIds.add(o.id));
+    }
+
+    state.orders = newOrders;
+    state.finishedOrders = newFinished;
 
     cacheSet('orders', { orders: state.orders, finishedOrders: state.finishedOrders, napOverrides: state.napOverrides }, CFG.cacheTTL.orders);
+    } catch (e) {
+        console.error("Error al cargar órdenes:", e);
+    }
 }
 
 async function loadIssues(force = false) {
-    const cached = !force && cacheGet('issues');
-    if (cached && cached.pending) { 
-        state.issues = cached.pending; 
-        state.finishedIssues = cached.finished || [];
-        return; 
-    } 
+    try {
+        const cached = !force && cacheGet('issues');
+        if (cached && cached.pending) { 
+            state.issues = cached.pending; 
+            state.finishedIssues = cached.finished || [];
+            return; 
+        } 
 
     const todayStr = new Date().toLocaleDateString('en-CA');
     const yesterday = new Date();
@@ -348,11 +511,7 @@ async function loadIssues(force = false) {
 
     let allPending = [], allFinished = [], page = 1;
     while (page <= 30) {
-        const raw = `${CFG.base}/help_desk/issues?per_page=1000&page=${page}&q%5Bs%5D=id+desc`;
-        const url = CFG.proxy + encodeURIComponent(raw);
-        const res = await fetch(url, { headers: { 'Authorization': CFG.token, 'Accept': 'application/json' } });
-        if (!res.ok) break;
-        const d = await res.json();
+        const d = await apiFetch(`/help_desk/issues?per_page=1000&page=${page}&q%5Bs%5D=id+desc`);
         const items = d.data || [];
         if (!items.length) break;
         
@@ -370,12 +529,35 @@ async function loadIssues(force = false) {
 
         if (items.length < 1000) break;
         page++;
+        // Pausa para evitar error 429 del proxy gratuito
+        await new Promise(r => setTimeout(r, 1200));
     }
 
-    state.issues = allPending;
-    state.finishedIssues = allFinished;
-    cacheSet('issues', { pending: allPending, finished: allFinished }, CFG.cacheTTL.issues);
+
+    const newIssues = allPending;
+    const newFinished = allFinished;
+
+    // Notificaciones de nuevos reportes
+    if (state.knownIssueIds.size > 0) {
+        newIssues.forEach(i => {
+            if (!state.knownIssueIds.has(i.id)) {
+                const client = state.clients[i.client_id]?.name || 'Nuevo Reporte';
+                showNotification(`Nuevo Reporte Detectado`, `Cliente: ${client}\nAsunto: ${i.title || 'Sin asunto'}`, 'issue');
+                state.knownIssueIds.add(i.id);
+            }
+        });
+    } else {
+        newIssues.forEach(i => state.knownIssueIds.add(i.id));
+    }
+
+    state.issues = newIssues;
+    state.finishedIssues = newFinished;
+    cacheSet('issues', { pending: newIssues, finished: newFinished }, CFG.cacheTTL.issues);
+    } catch (e) {
+        console.error("Error al cargar reportes:", e);
+    }
 }
+
 
 // ── NAPs STATE ────────────────────────────────────────────────────────────
 function loadTrackedNaps() {
@@ -521,13 +703,8 @@ async function fetchMonthlyIssues(month, year) {
     let keepGoing = true;
 
     try {
-        // 1. Descubrimiento: Obtener total de páginas (Carga ascendente por defecto en Wispro)
-        const discoveryRaw = `${CFG.base}/help_desk/issues?per_page=100&page=1`;
-        const discoveryUrl = CFG.proxy + encodeURIComponent(discoveryRaw);
-        const dRes = await fetch(discoveryUrl, {
-            headers: { 'Authorization': CFG.token, 'Accept': 'application/json' }
-        });
-        const dJson = await dRes.json();
+        // 1. Descubrimiento: Obtener total de páginas
+        const dJson = await apiFetch('/help_desk/issues?per_page=100&page=1');
         let currentPage = dJson.meta?.pagination?.total_pages || 1;
         const totalPages = currentPage;
 
@@ -535,44 +712,40 @@ async function fetchMonthlyIssues(month, year) {
         let fetchedPages = 0;
         
         while (keepGoing && currentPage >= 1) {
-            const raw = `${CFG.base}/help_desk/issues?per_page=100&page=${currentPage}`;
-            const url = CFG.proxy + encodeURIComponent(raw);
-            
-            const res = await fetch(url, {
-                headers: { 'Authorization': CFG.token, 'Accept': 'application/json' }
-            });
-            if (!res.ok) throw new Error(`Error API: ${res.status}`);
-            
-            const d = await res.json();
-            const items = d.data || [];
-            
-            if (items.length === 0) break;
-
-            // Procesar items (vienen ASC, pero estamos en la página del final)
-            // Los items de la página final son los más nuevos.
-            // Los ordenamos DESC localmente para procesar cronológicamente hacia atrás
-            const sortedItems = [...items].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
-
-            for (const item of sortedItems) {
-                const created = new Date(item.created_at);
+            try {
+                const d = await apiFetch(`/help_desk/issues?per_page=100&page=${currentPage}`);
+                const items = d.data || [];
                 
-                if (created < startDate) {
-                    keepGoing = false;
-                    break;
-                }
-                if (created <= endDate) {
-                    all.push(item);
-                }
-            }
+                if (items.length === 0) break;
 
-            // Actualizar progreso
-            fetchedPages++;
-            state.monthlyReport.progress = Math.min(95, Math.round((fetchedPages / Math.min(totalPages, 50)) * 100));
-            renderTab('reports');
+                const sortedItems = [...items].sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+
+                for (const item of sortedItems) {
+                    const created = new Date(item.created_at);
+                    
+                    if (created < startDate) {
+                        keepGoing = false;
+                        break;
+                    }
+                    if (created <= endDate) {
+                        all.push(item);
+                    }
+                }
+
+                fetchedPages++;
+                state.monthlyReport.progress = Math.min(95, Math.round((fetchedPages / Math.min(totalPages, 50)) * 100));
+                renderTab('reports');
+            } catch (err) {
+                console.warn(`Error cargando página ${currentPage}:`, err.message);
+            }
             
             currentPage--;
-            if (fetchedPages > 50) break; // Límite de seguridad
+            if (fetchedPages > 100) break; 
+            // Pausa para evitar error 429 del proxy 
+            await new Promise(r => setTimeout(r, 1200));
         }
+
+
 
         // Análisis de datos
         const stats = { byCategory: {}, total: all.length };
@@ -646,7 +819,9 @@ function techInitials(name) {
 }
 
 function isActiveTech(name) {
-    return TECNICOS_ACTIVOS.some(n => name?.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+    if (!name) return false;
+    const firstWord = name.split(' ')[0].toLowerCase();
+    return TECNICOS_ACTIVOS.some(n => n.split(' ')[0].toLowerCase() === firstWord);
 }
 
 function fmtDate(iso) {
@@ -1015,9 +1190,16 @@ Views.orders = () => {
                 </td>
                 <td class="p-4">${napBadge}</td>
                 <td class="p-4">
-                    <button onclick="window.openFeedbackModal('${o.id}')" class="w-9 h-9 flex items-center justify-center hover:bg-secondary/10 text-secondary rounded-xl border border-secondary/10 transition-all active:scale-95 shadow-sm" title="Bitácora Técnica">
-                        <span class="material-symbols-outlined text-[20px]">history_edu</span>
-                    </button>
+                    <div class="relative inline-block group">
+                        <button onclick="window.openFeedbackModal('${o.id}')" class="w-10 h-10 flex items-center justify-center hover:bg-secondary/10 text-secondary rounded-xl border border-secondary/10 transition-all active:scale-95 shadow-sm" title="Bitácora Técnica">
+                            <span class="material-symbols-outlined text-[22px]">history_edu</span>
+                        </button>
+                        ${o.feedbacksCount > 0 ? `
+                            <div class="absolute -top-2 -right-2 bg-secondary text-white text-[10px] font-black px-1.5 py-0.5 rounded-full border-2 border-surface-container-lowest shadow-md min-w-[18px] text-center animate-in zoom-in duration-300">
+                                ${o.feedbacksCount}
+                            </div>
+                        ` : ''}
+                    </div>
                 </td>
             </tr>`;
         }).join('');
@@ -1215,14 +1397,21 @@ Views.orders = () => {
                         </p>
                     </div>
                     
-                    <div class="pt-8 grid grid-cols-2 gap-4">
-                        <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
-                            <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Carga Activa</p>
-                            <p class="text-lg font-black text-on-surface">${state.orders.length} <span class="text-[10px] opacity-40">tickets</span></p>
-                        </div>
-                        <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
-                            <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Rendimiento</p>
-                            <p class="text-lg font-black text-on-surface">${avgMin}<span class="text-[10px] opacity-40"> min/v</span></p>
+                    <div class="pt-8 flex flex-col gap-4">
+                        <button onclick="window.openFieldMap()" class="w-full kinetic-gradient py-4 rounded-2xl text-white font-bold text-sm tracking-wide shadow-lg transition-all active:scale-95 flex items-center justify-center gap-3">
+                            <span class="material-symbols-outlined">map</span>
+                            Ver Mapa de Operaciones
+                        </button>
+                        
+                        <div class="grid grid-cols-2 gap-4">
+                            <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
+                                <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Carga Activa</p>
+                                <p class="text-lg font-black text-on-surface">${state.orders.length} <span class="text-[10px] opacity-40">tickets</span></p>
+                            </div>
+                            <div class="bg-white/40 p-4 rounded-3xl border border-white/20">
+                                <p class="text-[9px] font-black text-on-surface-variant uppercase tracking-widest mb-1">Rendimiento</p>
+                                <p class="text-lg font-black text-on-surface">${avgMin}<span class="text-[10px] opacity-40"> min/v</span></p>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1252,10 +1441,16 @@ Views.technicians = () => {
         <div class="bg-surface-container-lowest rounded-2xl border border-outline-variant/20 overflow-hidden hover:shadow-md transition-all">
             <div class="p-5 flex items-center justify-between">
                 <div class="flex items-center gap-3">
-                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white text-base font-black flex-shrink-0" style="background:${color};">${initials}</div>
+                    <div class="relative">
+                        <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white text-base font-black flex-shrink-0" style="background:${color};">${initials}</div>
+                        <span class="absolute -bottom-1 -right-1 w-3.5 h-3.5 rounded-full border-2 border-white ${isTechOnline(nombre) ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-outline'}"></span>
+                    </div>
                     <div>
                         <p class="font-bold text-on-surface text-base">${nombre}</p>
-                        <p class="text-[10px] text-on-surface-variant mt-0.5">${myOrders.length} órdenes · ${pending} pendientes</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <p class="text-[10px] text-on-surface-variant font-medium">${myOrders.length} órdenes · ${pending} pendientes</p>
+                            ${myOrders.find(o => o.state === 'in_course') ? `<span class="bg-amber-100 text-amber-700 text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 animate-pulse"><span class="material-symbols-outlined text-[12px]">timer</span> EN CURSO</span>` : ''}
+                        </div>
                         <div class="flex flex-wrap gap-1 mt-1.5">${badges || '<span class="text-[9px] text-on-surface-variant">Sin órdenes hoy</span>'}</div>
                     </div>
                 </div>
@@ -1497,6 +1692,100 @@ Views.reports = () => {
         globalLines.push('');
     });
     globalLines.push(`Total: ${allIssues.length} reportes`);
+    globalLines.push('— Velocity Rappido Panama');
+
+    window.exportToCSV = function() {
+        const finished = state.orders.filter(o => o.state === 'finalized');
+        if (finished.length === 0) {
+            showNotification('Exportación', 'No hay órdenes finalizadas para exportar.', 'issue');
+            return;
+        }
+
+        const headers = ['ID', 'Cliente', 'Tecnico', 'Tipo', 'Inicio', 'Fin', 'Caja NAP', 'Marquilla', 'Resultado', 'Coordenadas'];
+        const csvContent = [
+            headers.join(','),
+            ...finished.map(o => [
+                `#${o.id}`,
+                `"${o.client.replace(/"/g, '""')}"`,
+                `"${o.techName}"`,
+                `"${o.typeLabel}"`,
+                o.startTime,
+                o.endTime,
+                `"${o.nap || 'N/A'}"`,
+                `"${o.marquilla || 'N/A'}"`,
+                `"${o.result || 'Sin resultado'}"`,
+                o.lat && o.lng ? `"${o.lat}, ${o.lng}"` : 'N/A'
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `Velocity_Report_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        showNotification('Reporte Generado', 'Excel (CSV) descargado con éxito.', 'success');
+    };
+
+    window.openFieldMap = function() {
+        // Inicializar modal del mapa
+        const modal = document.getElementById('map-modal');
+        modal.classList.remove('hidden');
+        setTimeout(() => {
+            modal.classList.remove('opacity-0', 'pointer-events-none');
+            modal.querySelector('#map-modal-content').classList.remove('scale-95');
+        }, 10);
+
+        // Si el mapa ya existe en el div, no lo reinicializamos (o lo refrescamos)
+        const container = document.getElementById('map-iframe').parentElement;
+        container.innerHTML = '<div id="leaflet-map" style="height:100%; width:100%;"></div>';
+        
+        const map = L.map('leaflet-map').setView([8.983, -79.517], 12); // Panamá City
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Añadir órdenes activas con coordenadas
+        state.orders.forEach(o => {
+            if (o.lat && o.lng && (o.state === 'in_course' || o.state === 'pending')) {
+                const markerColor = o.state === 'in_course' ? '#f97316' : '#0059bb';
+                const icon = L.divIcon({
+                    className: 'custom-div-icon',
+                    html: `<div style="background-color:${markerColor}; width:12px; height:12px; border-radius:50%; border:2px solid white; box-shadow:0 0 5px rgba(0,0,0,0.3);"></div>`,
+                    iconSize: [12, 12],
+                    iconAnchor: [6, 6]
+                });
+
+                L.marker([o.lat, o.lng], {icon}).addTo(map)
+                    .bindPopup(`<b>${o.client}</b><br>${o.typeLabel}<br>Técnico: ${o.techName}`);
+            }
+        });
+
+        // Añadir NAPs registradas
+        state.trackedNaps.forEach(n => {
+            if (n.coords && n.coords.includes(',')) {
+                const [lt, lg] = n.coords.split(',').map(c => parseFloat(c.trim()));
+                L.marker([lt, lg], {
+                    icon: L.divIcon({
+                        className: 'nap-icon',
+                        html: `<span class="material-symbols-outlined" style="color:#059669; font-size:18px;">hub</span>`,
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map).bindPopup(`<b>NAP: ${n.name}</b><br>${n.zone}<br>${n.comments || ''}`);
+            }
+        });
+    };
+
+    window.closeMapModal = function() {
+        const modal = document.getElementById('map-modal');
+        modal.classList.add('opacity-0', 'pointer-events-none');
+        modal.querySelector('#map-modal-content').classList.add('scale-95');
+        setTimeout(() => modal.classList.add('hidden'), 300);
+    };
     const globalWaText = encodeURIComponent(globalLines.join('\n'));
 
     const techCards = Object.entries(byTech)
@@ -1900,18 +2189,26 @@ Views.users = () => {
             </div>
         </div>`).join('');
 
-    const techRows = technicians.map(t => `
+    const techRows = technicians.map(t => {
+        const online = isTechOnline(t.id);
+        return `
         <div class="flex items-center justify-between p-4 bg-surface-container rounded-xl">
             <div class="flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-black" style="background:${techColor(t.name)};">
                     ${techInitials(t.name)}
                 </div>
                 <div>
-                    <p class="font-bold text-on-surface text-sm">${t.name}</p>
+                    <div class="flex items-center gap-2">
+                        <p class="font-bold text-on-surface text-sm">${t.name}</p>
+                        <span class="w-2 h-2 rounded-full ${online ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' : 'bg-outline-variant'}"></span>
+                    </div>
                     <p class="text-xs text-on-surface-variant">${t.email}</p>
                 </div>
             </div>
             <div class="flex items-center gap-2">
+                <button onclick="window.toggleSimulatedOnline('${t.id}')" class="text-[9px] font-black uppercase text-secondary hover:bg-secondary/10 px-2 py-1 rounded-lg transition-all">
+                    [Simular Login]
+                </button>
                 <span class="text-[10px] font-bold px-2 py-1 rounded-full ${t.disabled ? 'bg-error-container text-error' : 'bg-tertiary-fixed-dim/30 text-on-tertiary-container'}">
                     ${t.disabled ? 'Inactivo' : 'Activo'}
                 </span>
@@ -1922,13 +2219,17 @@ Views.users = () => {
                     <span class="material-symbols-outlined text-sm">${t.disabled ? 'toggle_off' : 'toggle_on'}</span>
                 </button>
             </div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 
     return `
     <div class="space-y-6 max-w-2xl">
         <div class="flex items-center justify-between">
             <h2 class="text-2xl font-extrabold text-on-surface">Gestión de Cuentas</h2>
             <div class="flex items-center gap-3">
+                <button onclick="window.deleteInactiveUsers()" class="border border-error/50 text-error hover:bg-error/5 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-colors">
+                    <span class="material-symbols-outlined text-sm">person_remove</span> Eliminar Inactivos
+                </button>
                 <button onclick="window.autoSyncTechs()" class="border border-outline-variant/50 text-secondary hover:bg-surface-container-low px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-colors">
                     <span class="material-symbols-outlined text-sm">cloud_sync</span> Importar Wispro
                 </button>
@@ -1958,6 +2259,17 @@ Views.users = () => {
 
 
 // ── AJUSTES ───────────────────────────────────────────────────────────────
+window.setVisualMode = function(mode) {
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.settings) db.settings = {};
+    db.settings.visualMode = mode;
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    document.documentElement.className = mode;
+    renderTab('settings');
+    showNotification('Tema Actualizado', `Modo ${mode} aplicado con éxito.`, 'success');
+};
+
 Views.settings = () => {
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     const s  = db.settings || {};
@@ -1965,6 +2277,28 @@ Views.settings = () => {
     return `
     <div class="space-y-6 max-w-2xl">
         <h2 class="text-2xl font-extrabold text-on-surface">Ajustes del Sistema</h2>
+
+        <!-- Apariencia -->
+        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-secondary">palette</span>
+                <h3 class="font-bold text-on-surface">Apariencia y Tema</h3>
+            </div>
+            <div class="grid grid-cols-3 gap-3">
+                <button onclick="window.setVisualMode('kinetic')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'kinetic' || !db.settings?.visualMode ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
+                    <div class="w-10 h-10 rounded-lg bg-[#0059bb] shadow-lg group-active:scale-95 transition-transform"></div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Kinetic</span>
+                </button>
+                <button onclick="window.setVisualMode('nocturno')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'nocturno' ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
+                    <div class="w-10 h-10 rounded-lg bg-[#081b38] border border-white/10 shadow-lg group-active:scale-95 transition-transform"></div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Nocturno</span>
+                </button>
+                <button onclick="window.setVisualMode('operativo')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'operativo' ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
+                    <div class="w-10 h-10 rounded-lg bg-black shadow-lg group-active:scale-95 transition-transform"></div>
+                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Operativo</span>
+                </button>
+            </div>
+        </div>
 
         <!-- API Wispro -->
         <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
@@ -2009,28 +2343,57 @@ Views.settings = () => {
             </button>
         </div>
 
-        <!-- Gestión de Zonas -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20">
-            <div class="flex items-center gap-2 mb-4">
-                <span class="material-symbols-outlined text-secondary">location_on</span>
+        </div>
+
+        <!-- Migración y Respaldo -->
+        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-secondary">send_to_mobile</span>
                 <div>
-                    <h3 class="font-bold text-on-surface">Asignar Zona a Cliente</h3>
-                    <p class="text-xs text-on-surface-variant mt-0.5">Actualiza zone_name del cliente en Wispro</p>
+                    <h3 class="font-bold text-on-surface">Migración y Respaldo</h3>
+                    <p class="text-xs text-on-surface-variant mt-0.5">Usa esto para pasar tus datos a otro celular o PC rápidamente.</p>
                 </div>
             </div>
-            <input type="text" id="zone-search" placeholder="Buscar cliente por nombre o #ID..."
-                class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors mb-3"
-                oninput="window.searchClientZone(this.value)">
-            <div id="zone-results" class="space-y-2 max-h-48 overflow-y-auto mb-3"></div>
-            <div id="zone-form" class="hidden p-4 bg-surface-container rounded-xl space-y-3">
-                <p class="font-bold text-on-surface text-sm" id="zone-client-name"></p>
-                <p class="text-xs text-on-surface-variant" id="zone-client-current"></p>
-                <div class="flex gap-2">
-                    <input type="text" id="zone-value" placeholder="Nueva zona..." class="flex-1 bg-surface-container-lowest border border-outline-variant/30 focus:border-secondary rounded-xl px-3 py-2 text-sm">
-                    <button onclick="window.saveClientZone()" class="kinetic-gradient text-white px-4 py-2 rounded-xl font-bold text-sm active:scale-95">Guardar</button>
+            <div class="space-y-3">
+                <textarea id="migration-code" readonly placeholder="El código de migración aparecerá aquí..." 
+                    class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-[10px] font-mono text-on-surface h-24 resize-none outline-none focus:border-secondary"></textarea>
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="window.exportDatabase()" class="border border-secondary text-secondary py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-secondary/5 active:scale-95">
+                        <span class="material-symbols-outlined text-sm">content_copy</span> Exportar
+                    </button>
+                    <button onclick="window.importDatabasePrompt()" class="kinetic-gradient text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md active:scale-95">
+                        <span class="material-symbols-outlined text-sm">download</span> Importar
+                    </button>
                 </div>
-                <p id="zone-status" class="text-xs font-bold hidden"></p>
             </div>
+        </div>
+
+        <!-- Diagnóstico de Red (QA) -->
+        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-error">bug_report</span>
+                <div>
+                    <h3 class="font-bold text-on-surface">Diagnóstico de Red</h3>
+                    <p class="text-xs text-on-surface-variant mt-0.5">Ver errores técnicos si no carga la información.</p>
+                </div>
+            </div>
+            <button onclick="window.viewErrorLog()" class="w-full bg-error/10 text-error py-3 rounded-xl font-bold text-xs uppercase tracking-widest border border-error/20 hover:bg-error/20 transition-all">
+                Ver Log de Errores (${CFG.errorLog.length})
+            </button>
+        </div>
+
+        <!-- Modo Simulación Global (QA) -->
+        <div class="bg-secondary/10 p-6 rounded-2xl border border-secondary/20 space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-secondary">rocket_launch</span>
+                <div>
+                    <h3 class="font-bold text-secondary">Modo Simulación Global</h3>
+                    <p class="text-xs text-on-surface-variant mt-0.5">Inyecta datos ficticios para probar el Dashboard y KPIs.</p>
+                </div>
+            </div>
+            <button onclick="window.loadSupervisorDemo()" class="kinetic-gradient text-white w-full py-4 rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all">
+                Activar Simulación Maestro
+            </button>
         </div>
 
         <!-- Cerrar sesión -->
@@ -2097,6 +2460,161 @@ window.syncNow = async function() {
     } catch(e) { console.error(e); }
 
     icons.forEach(i => i.classList.remove('animate-spin'));
+};
+
+// ── MIGRACIÓN DE DATOS ──────────────────────────────────────────────────
+window.exportDatabase = function() {
+    try {
+        const raw = localStorage.getItem('Velocity_Sync_State');
+        if (!raw) { alert('No hay datos para exportar'); return; }
+        
+        const code = btoa(unescape(encodeURIComponent(raw)));
+        const area = document.getElementById('migration-code');
+        if (area) {
+            area.value = code;
+            area.select();
+            document.execCommand('copy');
+            showNotification('Código Copiado', 'Pasa este código al otro dispositivo y úsalo en "Importar".', 'success');
+        }
+    } catch(e) {
+        console.error('Error al exportar:', e);
+        alert('Error al generar el código de migración.');
+    }
+};
+
+window.importDatabasePrompt = function() {
+    const code = prompt('Pega aquí el código de migración que copiaste del otro dispositivo:');
+    if (!code) return;
+
+    try {
+        const decoded = decodeURIComponent(escape(atob(code.trim())));
+        // Validar que sea JSON válido
+        JSON.parse(decoded);
+        
+        if (confirm('⚠️ Esto sobrescribirá todos los datos actuales. ¿Deseas continuar?')) {
+            localStorage.setItem('Velocity_Sync_State', decoded);
+            showNotification('Importación Exitosa', 'Los datos se han cargado. La página se reiniciará.', 'success');
+            setTimeout(() => window.location.reload(), 1500);
+        }
+    } catch(e) {
+        console.error('Error al importar:', e);
+        alert('❌ Código de migración inválido. Asegúrate de haber copiado todo el texto correctamente.');
+    }
+};
+
+// ── DIAGNÓSTICO QA ──────────────────────────────────────────────────────
+window.viewErrorLog = function() {
+    const logs = CFG.errorLog.map(l => `
+        <div class="p-3 bg-surface-container border-b border-outline-variant/10 last:border-0">
+            <div class="flex justify-between text-[10px] font-black text-on-surface-variant uppercase mb-1">
+                <span>${l.time}</span>
+                <span class="text-error">${l.proxy}</span>
+            </div>
+            <p class="text-xs font-mono text-on-surface break-all">${l.error}</p>
+            <p class="text-[9px] text-secondary mt-1">${l.path}</p>
+        </div>
+    `).join('') || '<p class="text-center py-10 opacity-50 text-xs">No hay errores registrados.</p>';
+
+    const html = `
+    <div id="error-log-modal" class="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="bg-surface-container-lowest w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+            <div class="p-6 border-b border-outline-variant/10 flex items-center justify-between">
+                <h3 class="font-black text-on-surface">Log de Errores (Red)</h3>
+                <button onclick="document.getElementById('error-log-modal').remove()" class="w-8 h-8 rounded-full hover:bg-surface-container flex items-center justify-center">
+                    <span class="material-symbols-outlined text-xl">close</span>
+                </button>
+            </div>
+            <div class="max-h-96 overflow-y-auto">
+                ${logs}
+            </div>
+            <div class="p-4 bg-surface-container-low text-center">
+                <p class="text-[10px] font-bold text-on-surface-variant uppercase">Estos logs ayudan a detectar bloqueos de red en el dispositivo móvil.</p>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.toggleSimulatedOnline = function(techId) {
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.simulatedOnline) db.simulatedOnline = {};
+    
+    db.simulatedOnline[techId] = !db.simulatedOnline[techId];
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    
+    renderTab('users');
+    showNotification('Estado Simulado', 'Cambio aplicado para pruebas visuales.', 'success');
+};
+
+// Modificar isTechOnline para que respete la simulación
+function isTechOnline(techId) {
+    // Buscar id del técnico por nombre si se pasa el nombre
+    let foundId = techId;
+    if (isNaN(techId) && typeof techId === 'string') {
+        Object.entries(state.techs).forEach(([id, n]) => {
+            if (n.toLowerCase().includes(techId.toLowerCase().split(' ')[0])) foundId = id;
+        });
+    }
+
+    if (!foundId) return false;
+    
+    const lastSeen = state.onlineStatus?.[foundId];
+    if (!lastSeen) return false;
+    
+    // Un técnico está online si envió un pulso en los últimos 2.5 minutos
+    return (Date.now() - lastSeen) < (150 * 1000);
+}
+
+window.loadSupervisorDemo = async function() {
+    const msg = 'Esto inyectará órdenes de prueba para Luis y Nelson y los activará como online. ¿Continuar?';
+    if (!confirm(msg)) return;
+
+    const demoOrders = [];
+    // Ajustado para solo Luis y Nelson según pedido del usuario
+    const names = ['Luis David', 'Nelson Eduar Sagel'];
+    const types = ['installation', 'technical', 'feasibility', 'resignation'];
+    
+    // Inyectar estado online simulado
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.simulatedOnline) db.simulatedOnline = {};
+    
+    names.forEach((name, i) => {
+        db.simulatedOnline[name] = true;
+        
+        // Crear 6 órdenes por técnico para que el dashboard se vea lleno
+        for (let j = 0; j < 6; j++) {
+            const isDone = j < 4; // 66% efectividad aprox
+            const type = types[j % 4];
+            const t = TYPE_CFG[type];
+            
+            demoOrders.push({
+                id: `D-${500 + (i*6) + j}`,
+                rawId: `demo-${i}-${j}`,
+                kind: type,
+                typeLabel: t.label,
+                typeColor: t.color,
+                state: isDone ? 'finalized' : 'pending',
+                result: isDone ? 'success' : 'not_set',
+                client: `CLIENTE DE PRUEBA ${i*6 + j + 1}`,
+                address: 'Calle Principal, Metetí',
+                zone: 'METETÍ',
+                techName: name,
+                techId: `tech-${i}`,
+                startTime: `${8 + j}:30 AM`,
+                endTime: `${9 + j}:30 AM`,
+                nap: isDone ? 'NAP-W-13' : null,
+                description: 'Prueba de sincronización móvil.'
+            });
+        }
+    });
+
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    state.orders = demoOrders;
+    state.lastSync = Date.now();
+    renderTab('dashboard');
+    showNotification('📊 Simulación Luis/Nelson', 'Dashboard actualizado solo con Luis y Nelson.', 'success');
 };
 
 window.refreshIssues = async function() {
@@ -2252,6 +2770,7 @@ window.saveSettings = function() {
     db.settings.wisproToken = token;
     db.settings.isLiveMode  = live;
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
     if (token) { CFG.token = token; }
     alert('✅ Ajustes guardados');
 };
@@ -2263,21 +2782,17 @@ window.testConnection = async function() {
     resultEl.textContent = '⏳ Probando...';
     resultEl.classList.remove('hidden');
     try {
-        const url = CFG.proxy + encodeURIComponent(`${CFG.base}/employees?per_page=1`);
-        const res = await fetch(url, { headers: { 'Authorization': CFG.token, 'Accept': 'application/json' } });
-        if (res.ok) {
-            const d = await res.json();
+        const d = await apiFetch('/employees?per_page=1');
+        if (d) {
             resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-green-50 text-green-700';
             resultEl.textContent = `✅ Conexión OK — ${d.meta?.total_count || d.data?.length || '?'} empleados`;
-        } else {
-            resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-red-50 text-red-700';
-            resultEl.textContent = `❌ Error HTTP ${res.status}`;
         }
     } catch(e) {
         resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-red-50 text-red-700';
         resultEl.textContent = `❌ ${e.message}`;
     }
 };
+
 
 window.clearAllCache = function() {
     if (!confirm('¿Limpiar todo el cache? Se volverá a descargar todo de Wispro.')) return;
@@ -2327,13 +2842,12 @@ window.saveClientZone = async function() {
     if (!newZone) { alert('Escribe una zona'); return; }
 
     try {
-        const url = CFG.proxy + encodeURIComponent(`${CFG.base}/clients/${_zoneClient.id}`);
-        const res = await fetch(url, {
+        const res = await apiFetch(`/clients/${_zoneClient.id}`, {
             method: 'PUT',
-            headers: { 'Authorization': CFG.token, 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ client: { zone_name: newZone } })
+            data: { client: { zone_name: newZone } }
         });
-        if (res.ok) {
+        if (res) {
+
             state.clients[_zoneClient.id].zone = newZone;
             statusEl.textContent = `✅ Zona actualizada a "${newZone}"`;
             statusEl.className   = 'text-xs font-bold text-green-700';
@@ -2418,11 +2932,13 @@ window.saveUser = function(event) {
             // Si cambió de rol, mover
             if (role !== origRole) {
                 const user = list.splice(idx, 1)[0];
+                const ts = Date.now().toString().slice(-6);
+                const rnd = Math.random().toString(36).substr(2, 4);
                 if (role === 'supervisor') {
-                    user.id = `S${db.supervisors.length + 1}`;
+                    user.id = `S-${ts}-${rnd}`;
                     db.supervisors.push(user);
                 } else {
-                    user.id = Math.max(0, ...db.technicians.map(t => Number(t.id) || 0)) + 1;
+                    user.id = `T-${ts}-${rnd}`;
                     db.technicians.push(user);
                 }
             }
@@ -2437,17 +2953,21 @@ window.saveUser = function(event) {
             alert('❌ La contraseña debe tener al menos 6 caracteres'); return;
         }
         const newUser = { name, email, password: pass, disabled: false };
+        const ts = Date.now().toString().slice(-6);
+        const rnd = Math.random().toString(36).substr(2, 4);
+        
         if (role === 'supervisor') {
-            newUser.id = `S${db.supervisors.length + 1}`;
+            newUser.id = `S-${ts}-${rnd}`;
             db.supervisors.push(newUser);
         } else {
-            newUser.id     = Math.max(0, ...db.technicians.map(t => Number(t.id) || 0)) + 1;
+            newUser.id     = `T-${ts}-${rnd}`;
             newUser.status = 'offline';
             db.technicians.push(newUser);
         }
     }
 
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
     window.closeUserModal();
     renderTab('users');
 };
@@ -2489,12 +3009,15 @@ window.autoSyncTechs = async function() {
             // Verificar si ya existe por ID o por nombre
             const exists = db.technicians.find(t => t.wisproId === id || t.name.toLowerCase() === name.toLowerCase());
             if(!exists) {
-                // Crear correo mock basado en el nombre (ej. juan.perez@velocity.local)
+                // Crear correo mock basado en el nombre (ej. juan.perez@atg-rappido.com)
                 const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
+                const ts = Date.now().toString().slice(-6);
+                const rnd = Math.random().toString(36).substr(2, 4);
+                
                 db.technicians.push({
-                    id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                    id: `T-${ts}-${rnd}`,
                     name: name,
-                    email: `${sanitized}@velocity.local`,
+                    email: `${sanitized}@atg-rappido.com`,
                     password: 'Velocity2024',
                     disabled: false,
                     wisproId: id
@@ -2504,6 +3027,7 @@ window.autoSyncTechs = async function() {
         });
         
         localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+        serverPush(db);
         renderTab('users');
         
         alert(`Sincronización completada. Se importaron ${addedCount} técnicos nuevos. Contraseña por defecto: Velocity2024`);
@@ -2514,11 +3038,40 @@ window.autoSyncTechs = async function() {
     }
 };
 
+// ── ELIMINAR TÉCNICOS INACTIVOS ─────────────────────────────────────────────
+window.deleteInactiveUsers = function() {
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.technicians || db.technicians.length === 0) {
+        alert('No hay técnicos registrados para limpiar.');
+        return;
+    }
+
+    const inactiveTechs = db.technicians.filter(t => !isActiveTech(t.name));
+    const removedCount = inactiveTechs.length;
+
+    if (removedCount === 0) {
+        alert('Todos los técnicos actuales están en la flota activa.');
+        return;
+    }
+
+    if (confirm(`Se han detectado ${removedCount} técnicos que no pertenecen a la flota activa definida. ¿Deseas eliminarlos permanentemente?`)) {
+        db.technicians = db.technicians.filter(t => isActiveTech(t.name));
+        localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+        serverPush(db);
+        
+        showNotification('Limpieza Completada', `Se eliminaron ${removedCount} técnicos inactivos.`, 'success');
+        renderTab('users');
+    }
+};
+
 // ── INIT ──────────────────────────────────────────────────────────────────
 async function initApp() {
     // Verificar auth
     const role = sessionStorage.getItem('Velocity_Role');
     if (role !== 'supervisor') { window.location.href = 'login.html'; return; }
+    
+    // 1. Sincronizar estado base desde el servidor (Usuarios, etc)
+    await serverSync();
 
     // Mostrar loading
     const content = document.getElementById('main-content');
@@ -2542,6 +3095,8 @@ async function initApp() {
             loadIssues()
         ]);
         state.lastSync = Date.now();
+        state.knownOrderIds = new Set([...state.orders, ...state.finishedOrders].map(o => o.id));
+        state.knownIssueIds = new Set([...state.issues, ...state.finishedIssues].map(i => i.id));
     } catch(e) {
         console.error('Error en carga inicial:', e);
     }
@@ -2550,6 +3105,14 @@ async function initApp() {
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     const theme = db.settings?.visualMode || 'kinetic';
     document.documentElement.className = theme;
+
+    // Mostrar nombre del usuario activo
+    const activeUserId = sessionStorage.getItem('Velocity_Active_User');
+    const activeUser = db.supervisors?.find(s => String(s.id) === String(activeUserId));
+    if (activeUser) {
+        const nameEl = document.getElementById('active-user-name');
+        if (nameEl) nameEl.textContent = activeUser.name;
+    }
 
     // Renderizar pestaña guardada
     switchTab(state.tab);
@@ -2561,167 +3124,179 @@ async function initApp() {
 window.addEventListener('DOMContentLoaded', initApp);
 
 
-// ── FEEDBACKS (RESTAURADO CON RUTA OFICIAL) ────────────────────────────────
-window.openFeedbackModal = async function(id, isIssue = false) {
-    let target = null;
-    let typeColor = '#f97316';
-    let title = '';
-    let clientName = '';
-
-    if (isIssue) {
-        target = [...state.issues, ...state.finishedIssues].find(i => String(i.id) === String(id));
-        if (!target) {
-            if (state.monthlyReport.results) {
-                target = state.monthlyReport.results.issues.find(i => String(i.id) === String(id));
-            }
-        }
-        if (target) {
-            typeColor = '#f97316'; 
-            title = `Reporte #${target.public_id || '—'}`;
-            clientName = state.clients[target.client_id]?.name || target.title || '—';
-        }
-    } else {
-        target = [...state.orders, ...state.finishedOrders].find(o => String(o.id) === String(id));
-        if (target) {
-            typeColor = target.typeColor;
-            title = `Bitácora Técnica — #${target.id}`;
-            clientName = target.client;
-        }
+// ── BITÁCORA TÉCNICA (ÓRDENES) ───────────────────────────────────────────
+window.openFeedbackModal = async function(id) {
+    // 1. Buscar en órdenes activas o finalizadas de hoy
+    let order = [...state.orders, ...state.finishedOrders].find(o => String(o.id) === String(id) || String(o.rawId) === String(id));
+    
+    // 2. Si no está, buscar en los resultados de la auditoría mensual (Pestaña Reportes)
+    if (!order && state.monthlyReport?.results) {
+        const r = state.monthlyReport.results;
+        order = [...(r.orders || []), ...(r.issues || [])].find(o => String(o.id) === String(id) || String(o.rawId) === String(id));
     }
 
-    if (!target) { alert('No se encontró el registro seleccionado.'); return; }
+    if (!order) {
+        console.warn('[Velocity] No se encontró la orden en ningún estado local:', id);
+        // Fallback final: crear un objeto mínimo de búsqueda
+        order = { id, rawId: id, client: 'Cargando datos...', typeColor: '#6b7280' };
+    }
 
-    // Determinar si podemos escribir en este feedback
-    // Es interactivo si es un Issue directo O si es una Orden con un ticket vinculado
-    const linkedIssueId = isIssue ? target.id : (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue') ? target.ticketable_id : null);
-    const canWrite = !!linkedIssueId;
-
-    const modalId = 'feedback-modal-v2';
+    const typeColor = order.typeColor || '#6b7280';
+    const clientName = order.client || 'Cliente desconocido';
+    const modalId = 'feedback-modal';
+    
     document.getElementById(modalId)?.remove();
 
     const html = `
-    <div id="${modalId}" class="fixed inset-0 z-[400] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-        <div class="bg-surface-container-lowest w-full max-w-2xl max-h-[95vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+    <div id="${modalId}" class="fixed inset-0 z-[101] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div class="bg-surface-container-lowest w-full max-w-2xl max-h-[92vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
             <!-- Header -->
-            <div class="p-6 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
-                <div class="flex items-center gap-4">
-                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg" style="background:${typeColor}">
-                        <span class="material-symbols-outlined text-2xl">history_edu</span>
+            <div class="p-8 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
+                <div class="flex items-center gap-5">
+                    <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ring-4 ring-white/10" style="background:${typeColor}">
+                        <span class="material-symbols-outlined text-3xl">history_edu</span>
                     </div>
                     <div>
-                        <h3 class="font-black text-on-surface text-xl tracking-tight">${title}</h3>
-                        <p class="text-xs text-on-surface-variant font-bold uppercase tracking-widest">${clientName}</p>
+                        <h3 class="font-black text-on-surface text-xl">Bitácora Técnica #${order.id}</h3>
+                        <p class="text-[11px] text-on-surface-variant font-black uppercase tracking-[0.2em] opacity-60">${clientName}</p>
                     </div>
                 </div>
-                <button onclick="document.getElementById('${modalId}').remove()" class="w-10 h-10 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-colors">
-                    <span class="material-symbols-outlined text-on-surface-variant">close</span>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-12 h-12 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-all hover:rotate-90">
+                    <span class="material-symbols-outlined text-on-surface-variant text-2xl">close</span>
                 </button>
             </div>
 
             <!-- Body (Timeline) -->
-            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-8 space-y-6 bg-surface-container-lowest/50 min-h-[300px]">
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-8 space-y-6 bg-surface-container-lowest/30 custom-scrollbar scroll-smooth">
                 <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/30">
-                    <span class="material-symbols-outlined text-5xl mb-3 animate-pulse">sync</span>
-                    <p class="font-bold text-sm tracking-widest uppercase">Consultando historial en Wispro...</p>
+                    <span class="material-symbols-outlined text-5xl mb-4 animate-spin">history</span>
+                    <p class="font-black text-sm tracking-widest uppercase italic mb-1">Peinando Wispro...</p>
+                    <p class="text-[9px] font-bold opacity-40 uppercase">Búsqueda profunda en progreso (Sonda 3.6)</p>
                 </div>
             </div>
 
-            <!-- Comment Input (Si tiene Issue vinculado) -->
-            ${canWrite ? `
-            <div class="p-6 bg-surface-container-low/30 border-t border-outline-variant/10">
-                <div class="relative">
-                    <textarea id="issue-comment-input" rows="2" 
-                        class="w-full bg-surface-container-lowest border-2 border-outline-variant/20 rounded-2xl p-4 pr-16 text-sm font-bold text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary/30 outline-none transition-all resize-none"
-                        placeholder="Escribe un comentario técnico..."></textarea>
-                    <button onclick="window.submitIssueFeedback('${linkedIssueId}')" 
-                        id="btn-send-issue-feedback"
-                        class="absolute right-3 bottom-3 w-10 h-10 kinetic-gradient text-white rounded-xl shadow-lg flex items-center justify-center hover:scale-105 active:scale-95 transition-all">
-                        <span class="material-symbols-outlined text-lg">send</span>
-                    </button>
+            <!-- Footer con Enlace Directo -->
+            <div id="feedback-footer" class="px-8 py-5 bg-surface-container-low border-t border-outline-variant/5 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
+                    <span class="text-[9px] font-black text-on-surface-variant/60 uppercase tracking-widest">Live Link</span>
                 </div>
-                <p class="text-[9px] font-black text-on-surface-variant/40 uppercase tracking-widest mt-2 ml-4">El comentario se sincronizará con la Mesa de Ayuda de Wispro</p>
-            </div>
-            ` : ''}
-
-            <!-- Footer -->
-            <div class="p-4 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between">
-                <p class="text-[10px] text-on-surface-variant/60 font-black uppercase tracking-widest italic ml-4">
-                    ${canWrite ? 'Historial Interactivo' : 'Solo Lectura'}
-                </p>
-                <div class="flex items-center gap-2 mr-4">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span class="text-[9px] font-bold text-on-surface-variant">Live Sync</span>
-                </div>
+                
+                <a id="wispro-link" href="https://www.cloud.wispro.co/order/orders/${order.rawId}" target="_blank" 
+                   class="flex items-center gap-2 px-6 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-2xl transition-all group border border-primary/20 shadow-sm">
+                    <span class="text-[10px] font-black uppercase tracking-wider">Ver en Wispro</span>
+                    <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">open_in_new</span>
+                </a>
             </div>
         </div>
     </div>`;
 
     document.body.insertAdjacentHTML('beforeend', html);
-    await window.loadFeedbacks(target, isIssue);
+    await window.loadFeedbacks(order);
 };
 
-window.loadFeedbacks = async function(target, isIssue = false) {
+window.loadFeedbacks = async function(target) {
     const timeline = document.getElementById('feedback-timeline');
+    const wisproLink = document.getElementById('wispro-link');
     if (!timeline) return;
 
     try {
-        let allFeedbacks = [];
-        const mergeFeedbacks = (newOnes) => {
-            if (!newOnes || !Array.isArray(newOnes)) return;
-            newOnes.forEach(f => {
-                if (!allFeedbacks.find(existing => existing.id === f.id)) {
-                    allFeedbacks.push(f);
+        const sequentialId = (target.id && String(target.id).length < 8) ? target.id : target.sequential_id;
+        console.log(`[Velocity] Sonda 5.1 (Bloodhound) buscando #${sequentialId} y Orderable ID: ${target.orderable_id}...`);
+
+        const idsToTry = new Set();
+        if (target.rawId) idsToTry.add(target.rawId);
+        if (target.orderable_id) idsToTry.add(target.orderable_id);
+        if (target.ticketable_id) idsToTry.add(target.ticketable_id);
+
+        // 1. Búsqueda Dinámica por Secuencial en múltiples modelos
+        const searchModels = ['/order/orders', '/installation_orders', '/help_desk/issues', '/sale_desk/tickets'];
+        const searchQueries = searchModels.map(m => apiFetch(`${m}?q[sequential_id_eq]=${sequentialId}`, {}, true));
+        
+        const searchResults = await Promise.allSettled(searchQueries);
+        searchResults.forEach(res => {
+            if (res.status === 'fulfilled' && res.value) {
+                const items = res.value.data || res.value;
+                if (Array.isArray(items) && items.length > 0) {
+                    items.forEach(item => {
+                        if (item.id) idsToTry.add(item.id);
+                        if (item.uuid) idsToTry.add(item.uuid);
+                        // Actualizar link de Wispro si encontramos el UUID correcto
+                        if (wisproLink && item.id && item.id.length > 10) {
+                            wisproLink.href = `https://www.cloud.wispro.co/order/orders/${item.id}`;
+                        }
+                    });
                 }
-            });
-        };
-
-        if (isIssue) {
-            try {
-                const res = await apiFetch(`/help_desk/issues/${target.id}/feedbacks`);
-                mergeFeedbacks(res.data || res);
-            } catch(e) {}
-        } else {
-            try {
-                const nestedRes = await apiFetch(`/order/orders/${target.rawId}/feedbacks`);
-                mergeFeedbacks(nestedRes.data || nestedRes);
-            } catch(e) {}
-
-            if (target.ticketable_id && target.ticketable_type?.toLowerCase().includes('issue')) {
-                try {
-                    const ticketRes = await apiFetch(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
-                    mergeFeedbacks(ticketRes.data || ticketRes);
-                } catch(e) {}
             }
+        });
+
+        // 2. Preparar Endpoints con los IDs descubiertos
+        const endpoints = [];
+        idsToTry.forEach(id => {
+            if (!id) return;
+            endpoints.push(`/order/orders/${id}/feedbacks`);
+            endpoints.push(`/installation_orders/${id}/feedbacks`);
+            endpoints.push(`/help_desk/issues/${id}/feedbacks`);
+            endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
+            endpoints.push(`/help_desk/issues/${id}/comments`);
+        });
+
+        // 3. Ejecución por lotes (Batching)
+        const results = [];
+        const batchSize = 3;
+        for (let i = 0; i < endpoints.length; i += batchSize) {
+            const batch = endpoints.slice(i, i + batchSize);
+            const batchRes = await Promise.allSettled(batch.map(ep => apiFetch(ep, {}, true)));
+            results.push(...batchRes);
+            if (i + batchSize < endpoints.length) await new Promise(r => setTimeout(r, 200));
         }
+        
+        let allFeedbacks = [];
+        const seenBodies = new Set();
+        results.forEach(res => {
+            if (res.status === 'fulfilled' && res.value) {
+                const data = res.value.data || res.value;
+                if (Array.isArray(data)) {
+                    data.forEach(f => {
+                        const body = (f.body || f.comment || '').trim();
+                        if (body && !seenBodies.has(body)) {
+                            allFeedbacks.push(f);
+                            seenBodies.add(body);
+                        }
+                    });
+                }
+            }
+        });
 
         if (allFeedbacks.length === 0) {
             timeline.innerHTML = `
-                <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/20 italic">
-                    <span class="material-symbols-outlined text-4xl mb-2">empty_dashboard</span>
-                    <p class="text-xs font-bold tracking-widest uppercase">No hay comentarios en la bitácora</p>
+                <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/15 italic text-center px-10">
+                    <span class="material-symbols-outlined text-6xl mb-4">search_off</span>
+                    <p class="text-xs font-black tracking-widest uppercase mb-1">Cero resultados</p>
+                    <p class="text-[8px] opacity-40 uppercase">Ni por ID, ni por UUID, ni por búsqueda secuencial.</p>
                 </div>`;
             return;
         }
 
-        allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+        allFeedbacks.sort((a,b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 
         timeline.innerHTML = allFeedbacks.map(f => {
-            const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-            const senderName = f.author_name || f.technician_name || f.creator_name || 'Sistema';
+            const date = f.created_at ? new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--:--';
+            const senderName = f.author_name || f.technician_name || f.creator_name || f.user_name || 'Sistema';
             const isSelf = senderName.toLowerCase().includes('admin') || senderName.toLowerCase().includes('supervisor');
             
             return `
-            <div class="flex gap-4 ${isSelf ? 'flex-row-reverse' : ''}">
-                <div class="w-10 h-10 rounded-xl flex-shrink-0 flex items-center justify-center text-on-surface-variant/50 bg-surface-container font-black text-xs">
+            <div class="flex gap-4 ${isSelf ? 'flex-row-reverse' : ''} animate-in slide-in-from-bottom-2 duration-300">
+                <div class="w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center text-on-surface-variant/40 bg-surface-container-high font-black text-sm border border-outline-variant/10 shadow-sm">
                     ${senderName.charAt(0).toUpperCase()}
                 </div>
-                <div class="max-w-[85%] space-y-1 ${isSelf ? 'items-end' : ''}">
-                    <div class="flex items-center gap-2 ${isSelf ? 'flex-row-reverse' : ''}">
-                        <span class="text-[10px] font-black text-on-surface uppercase tracking-tight">${senderName}</span>
-                        <span class="text-[9px] text-on-surface-variant/40 font-bold">${date}</span>
+                <div class="max-w-[80%] space-y-1.5 ${isSelf ? 'items-end' : ''}">
+                    <div class="flex items-center gap-2 ${isSelf ? 'flex-row-reverse' : ''} px-1">
+                        <span class="text-[10px] font-black text-on-surface uppercase tracking-wider">${senderName}</span>
+                        <span class="text-[9px] text-on-surface-variant/30 font-bold">${date}</span>
                     </div>
-                    <div class="p-4 rounded-2xl text-[13px] leading-relaxed ${isSelf ? 'bg-secondary text-white rounded-tr-none shadow-lg shadow-secondary/10' : 'bg-surface-container-high text-on-surface rounded-tl-none border border-outline-variant/10 shadow-sm'}">
-                        ${f.body || '—'}
+                    <div class="p-5 rounded-[1.5rem] text-[13px] leading-relaxed shadow-sm ${isSelf ? 'bg-secondary text-white rounded-tr-none shadow-secondary/10' : 'bg-white text-on-surface rounded-tl-none border border-outline-variant/10'}">
+                        ${f.body || f.comment || '—'}
                     </div>
                 </div>
             </div>`;
@@ -2730,52 +3305,12 @@ window.loadFeedbacks = async function(target, isIssue = false) {
         timeline.scrollTop = timeline.scrollHeight;
 
     } catch (e) {
-        console.error("Error al cargar bitácora:", e);
-        timeline.innerHTML = `<p class="text-center text-error font-black text-[10px] uppercase p-10 opacity-50">Error al cargar bitácora</p>`;
+        console.error('[Velocity] Sonda 5.0 fallida:', e);
+        timeline.innerHTML = `<p class="text-center text-error font-black text-[10px] uppercase p-10 opacity-50">Fallo en búsqueda dinámica</p>`;
     }
 };
 
-window.submitIssueFeedback = async function(issueId) {
-    const input = document.getElementById('issue-comment-input');
-    const btn = document.getElementById('btn-send-issue-feedback');
-    if (!input || !btn || !input.value.trim()) return;
 
-    try {
-        const text = input.value.trim();
-        input.disabled = true;
-        btn.disabled = true;
-        btn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">sync</span>`;
-
-        await apiFetch(`/help_desk/issues/${issueId}/feedbacks`, {
-            method: 'POST',
-            body: JSON.stringify({ feedback: { body: text } })
-        });
-
-        input.value = '';
-        // Buscar el target para refrescar (puede ser un Issue o una Orden vinculada)
-        let target = [...state.issues, ...state.finishedIssues].find(i => String(i.id) === String(issueId));
-        let wasIssue = true;
-
-        if (!target) {
-            target = [...state.orders, ...state.finishedOrders].find(o => String(o.ticketable_id) === String(issueId));
-            wasIssue = false;
-        }
-
-        if (!target && state.monthlyReport.results) {
-            target = state.monthlyReport.results.issues.find(i => String(i.id) === String(issueId));
-            wasIssue = true;
-        }
-
-        if (target) await window.loadFeedbacks(target, wasIssue);
-
-    } catch (e) {
-        alert("Error al enviar comentario: " + e.message);
-    } finally {
-        input.disabled = false;
-        btn.disabled = false;
-        btn.innerHTML = `<span class="material-symbols-outlined text-lg">send</span>`;
-    }
-};
 
 
 

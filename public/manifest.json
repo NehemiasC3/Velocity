@@ -1,0 +1,18 @@
+{
+  "name": "Velocity Ops",
+  "short_name": "Velocity",
+  "description": "Sistema de Gestión ISP Rappido Panamá",
+  "start_url": "index.html",
+  "display": "standalone",
+  "background_color": "#001b3d",
+  "theme_color": "#0059bb",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "logo-velocity.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
+  ]
+}

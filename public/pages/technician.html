@@ -4,9 +4,27 @@
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <title>Velocity - Panel de Técnico</title>
+    <!-- CACHE KILLER (EMERGENCY) -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+                for(let registration of registrations) { registration.unregister(); }
+            });
+        }
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                for (let name of names) caches.delete(name);
+            });
+        }
+    </script>
+
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <link rel="manifest" href="../manifest.json">
+    <meta name="theme-color" content="#031632">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <script id="tailwind-config">
       tailwind.config = {
         darkMode: "class",
@@ -133,14 +151,14 @@
     <!-- TopAppBar -->
     <nav class="fixed top-0 w-full z-50 bg-surface/80 backdrop-blur-md flex justify-between items-center px-6 h-16 border-b border-surface-container-high">
         <div class="flex items-center gap-3">
-            <div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container flex items-center justify-center branding-container">
-                <span class="material-symbols-outlined text-secondary text-sm">bolt</span>
+            <div class="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center p-2 shadow-inner border border-secondary/20 bg-white">
+                <img src="../logo-velocity.svg" class="w-full h-full object-contain" alt="V">
             </div>
-            <span class="text-xl font-black text-secondary tracking-tight">Velocity</span>
         </div>
         <div class="flex items-center gap-4">
             <div class="hidden sm:flex flex-col items-end">
-                <span class="text-[10px] font-bold text-on-surface bg-tertiary-fixed-dim/30 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
+                <span id="active-user-name" class="text-[12px] font-black text-on-surface leading-tight mb-0.5">...</span>
+                <span class="text-[9px] font-bold text-on-surface bg-tertiary-fixed-dim/30 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1">
                     <span class="material-symbols-outlined text-[12px]" style="font-variation-settings: 'FILL' 1;">verified_user</span>
                     Autenticado
                 </span>
@@ -281,6 +299,17 @@
 
     <script src="../src/js/config.js"></script>
     <script src="../src/js/technician.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('../sw.js').then(reg => {
+                    console.log('[Velocity PWA] Tech SW registrado');
+                }).catch(err => {
+                    console.warn('[Velocity PWA] Error SW:', err);
+                });
+            });
+        }
+    </script>
 
     <!-- Modal Confirmación Logout -->
     <div id="logout-modal" class="hidden fixed inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">

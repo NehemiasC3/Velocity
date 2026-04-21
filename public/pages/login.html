@@ -87,7 +87,12 @@
                         <div class="flex justify-between items-center ml-1">
                             <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant">Contraseña</label>
                         </div>
-                        <input type="password" id="login-password" required autocomplete="current-password" class="w-full bg-surface-container-lowest border border-outline-variant/50 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-3 text-sm text-on-surface transition-colors" placeholder="••••••••">
+                        <div class="relative">
+                            <input type="password" id="login-password" required autocomplete="current-password" class="w-full bg-surface-container-lowest border border-outline-variant/50 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-3 text-sm text-on-surface transition-colors pr-12" placeholder="••••••••">
+                            <button type="button" onclick="togglePassVis('login-password')" class="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center text-on-surface-variant/40 hover:text-secondary transition-colors group">
+                                <span class="material-symbols-outlined text-[20px] transition-transform group-active:scale-90">visibility</span>
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Recordar sesión -->
@@ -112,8 +117,9 @@
 
     <!-- Login Logic -->
     <script>
-        // Cargar credenciales guardadas al iniciar
-        window.addEventListener('DOMContentLoaded', () => {
+        // Cargar credenciales guardadas y sincronizar con el servidor al iniciar
+        window.addEventListener('DOMContentLoaded', async () => {
+
             const saved = localStorage.getItem('V_Remember');
             if (saved) {
                 try {
@@ -124,6 +130,7 @@
                 } catch {}
             }
         });
+
         function handleLogin(event) {
             event.preventDefault();
             const btn = event.submitter;
@@ -133,65 +140,47 @@
 
             setTimeout(() => {
                 const email    = document.getElementById('login-email').value.trim();
-                const pass     = document.getElementById('login-password').value;
+                const password = document.getElementById('login-password').value;
                 const remember = document.getElementById('remember-me').checked;
 
                 // Guardar o limpiar credenciales según el checkbox
                 if (remember) {
-                    localStorage.setItem('V_Remember', JSON.stringify({ email, pass }));
+                    localStorage.setItem('V_Remember', JSON.stringify({ email, pass: password }));
                 } else {
                     localStorage.removeItem('V_Remember');
                 }
                 
-                let raw = localStorage.getItem('Velocity_Sync_State');
+                console.log('[Velocity] Intentando login remoto para:', email.toLowerCase());
                 
-                // Fallback automático/Bypass para la cuenta raíz maestra siempre
-                if (email.toLowerCase() === 'nehemias@atg-rappido.com' && pass === 'Rappido2024') {
-                    let bypassDb = raw ? JSON.parse(raw) : { supervisors: [], technicians: [], settings: { brandName: 'Velocity', visualMode: 'kinetic' } };
-                    if(!bypassDb.supervisors) bypassDb.supervisors = [];
-                    // Asegurar que exista o se actualice
-                    let ad = bypassDb.supervisors.find(s => s.email.toLowerCase() === 'nehemias@atg-rappido.com');
-                    if(ad) { ad.password = pass; ad.disabled = false; }
-                    else bypassDb.supervisors.push({ id: 'sup-root-1', name: 'Nehemias (Admin)', email: 'nehemias@atg-rappido.com', password: pass, disabled: false });
-                    
-                    localStorage.setItem('Velocity_Sync_State', JSON.stringify(bypassDb));
-                    sessionStorage.setItem('Velocity_Role', 'supervisor');
-                    sessionStorage.setItem('Velocity_Active_User', ad ? ad.id : 'sup-root-1');
-                    window.location.href = 'supervisor.html';
-                    return;
-                }
-
-                if (!raw) {
-                    showLoginError('Base de datos no inicializada. Ejecuta el sistema usando la cuenta raíz para crearla.');
-                    btn.innerHTML = originalText; btn.disabled = false; return;
-                }
-                const db = JSON.parse(raw);
-                
-                // Revisa supervisores
-                let foundSup = db.supervisors?.find(s => s.email.toLowerCase() === email.toLowerCase());
-                if (foundSup) {
-                    if (foundSup.disabled) { showLoginError('Cuenta bloqueada. Contacta al administrador.'); btn.innerHTML = originalText; btn.disabled = false; return; }
-                    if (foundSup.password !== pass) { showLoginError('Contraseña incorrecta.'); btn.innerHTML = originalText; btn.disabled = false; return; }
-                    sessionStorage.setItem('Velocity_Role', 'supervisor');
-                    sessionStorage.setItem('Velocity_Active_User', foundSup.id);
-                    window.location.href = 'supervisor.html';
-                    return;
-                }
-                
-                // Revisa técnicos
-                let foundTech = db.technicians?.find(t => t.email.toLowerCase() === email.toLowerCase());
-                if (foundTech) {
-                    if (foundTech.disabled) { showLoginError('Tu cuenta fue desactivada. Contacta a tu supervisor.'); btn.innerHTML = originalText; btn.disabled = false; return; }
-                    if (foundTech.password !== pass) { showLoginError('Contraseña incorrecta.'); btn.innerHTML = originalText; btn.disabled = false; return; }
-                    sessionStorage.setItem('Velocity_Role', 'technician');
-                    sessionStorage.setItem('Velocity_Active_User', foundTech.id.toString());
-                    window.location.href = 'technician.html';
-                    return;
-                }
-                
-                showLoginError('Usuario no encontrado. Verifica tu correo.');
-                btn.innerHTML = originalText;
-                btn.disabled = false;
+                // Petición al servidor (NUEVO)
+                fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        // Guardar información de sesión
+                        sessionStorage.setItem('Velocity_Token', data.token);
+                        sessionStorage.setItem('Velocity_Role', data.role);
+                        sessionStorage.setItem('Velocity_Active_User', data.userId);
+                        sessionStorage.setItem('Velocity_User_Name', data.name);
+                        
+                        // Redirigir según el rol devuelto por el servidor
+                        window.location.href = data.role === 'supervisor' ? 'supervisor.html' : 'technician.html';
+                    } else {
+                        showLoginError(data.error || 'Error al iniciar sesión');
+                        btn.innerHTML = originalText;
+                        btn.disabled = false;
+                    }
+                })
+                .catch(err => {
+                    console.error('Login Error:', err);
+                    showLoginError('Error de conexión con el servidor.');
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
+                });
             }, 600);
         }
 
@@ -206,6 +195,15 @@
             el.innerHTML = `<span class="material-symbols-outlined text-sm">error</span> ${msg}`;
             el.style.display = 'flex';
             setTimeout(() => { if (el) el.style.display = 'none'; }, 4000);
+        }
+
+        function togglePassVis(id) {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const isPass = input.type === 'password';
+            input.type = isPass ? 'text' : 'password';
+            const icon = input.parentElement.querySelector('.material-symbols-outlined');
+            if (icon) icon.textContent = isPass ? 'visibility_off' : 'visibility';
         }
     </script>
 </body>

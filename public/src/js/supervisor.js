@@ -78,7 +78,7 @@ async function apiFetch(path, opts = {}, silent = false) {
     const executeFetch = async () => {
         try {
             const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-            const url = path.startsWith('http') ? path : (path.startsWith('/') ? path : CFG.proxy + cleanPath);
+            const url = path.startsWith('http') ? path : (isLocalApi ? path : CFG.proxy + cleanPath);
             
             const res = await fetch(url, {
                 ...opts,
@@ -104,8 +104,8 @@ async function apiFetch(path, opts = {}, silent = false) {
     // Si es una ruta local del servidor, no la encolamos para máxima velocidad
     if (isLocalApi) return executeFetch();
 
-    // Si es para Wispro, mantenemos la cola secuencial
-    return apiPromise = apiPromise.then(executeFetch);
+    // Si es para Wispro, mantenemos la cola secuencial, pero nos aseguramos de que continúe incluso si falla una petición
+    return apiPromise = apiPromise.catch(() => {}).then(executeFetch);
 }
 
 
@@ -515,11 +515,11 @@ async function loadIssues(force = false) {
         const items = d.data || [];
         if (!items.length) break;
         
-        allPending = allPending.concat(items.filter(i => (i.state || '').toLowerCase() === 'pending'));
+        allPending = allPending.concat(items.filter(i => ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase())));
         
         allFinished = allFinished.concat(items.filter(i => {
             const st = (i.state || '').toLowerCase();
-            if (st === 'finalizada' || st === 'finalizado') {
+            if (['finalizada', 'finalizado', 'closed', 'finalized'].includes(st)) {
                 const dDate = i.updated_at || '';
                 const day = dDate.slice(0, 10);
                 return day === todayStr;

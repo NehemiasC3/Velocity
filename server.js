@@ -154,7 +154,7 @@ app.post('/api/heartbeat', (req, res) => {
 // ── PROXY SEGURO PARA WISPRO (PROTEGIDO) ─────────────────────────────────
 app.all('/api/wispro/*', validateToken, async (req, res) => {
     const apiPath = req.params[0] || '';
-    const query = new URLSearchParams(req.query).toString();
+    const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
     const token = process.env.WISPRO_API_KEY;
     const baseUrl = process.env.WISPRO_BASE_URL || 'https://www.cloud.wispro.co/api/v1';
     

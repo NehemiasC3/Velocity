@@ -34,9 +34,9 @@ if (SESSION_ROLE !== 'technician' || !SESSION_TOKEN) {
 // ── API ───────────────────────────────────────────────────────────────────
 async function tFetch(path, opts = {}, silent = false) {
     try {
-        // Nueva construcción de URL para el proxy local
+        const isLocalApi = path.startsWith('/api/') || path.startsWith('api/');
         const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-        const url = VELOCITY_CONFIG.proxy + cleanPath;
+        const url = path.startsWith('http') ? path : (isLocalApi ? path : VELOCITY_CONFIG.proxy + cleanPath);
         
         const res = await fetch(url, {
             ...opts,

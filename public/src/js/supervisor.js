@@ -194,7 +194,21 @@ function cacheSet(key, data, ttl) {
 }
 
 function cacheClear() {
-    ['static','orders','issues'].forEach(k => localStorage.removeItem('V_' + k));
+    ['static','orders','issues','clients_dynamic'].forEach(k => localStorage.removeItem('V_' + k));
+}
+
+// Carga caché de clientes resueltos dinámicamente
+function loadDynamicClients() {
+    const cached = cacheGet('clients_dynamic');
+    if (cached) {
+        Object.assign(state.clients, cached);
+    }
+}
+
+// Guarda caché de clientes resueltos dinámicamente
+function saveDynamicClients() {
+    // Solo guardamos los que NO están en el caché estático para no duplicar
+    cacheSet('clients_dynamic', state.clients, 1000 * 60 * 60 * 24); // 24 horas
 }
 
 async function loadStaticData(force = false) {
@@ -312,187 +326,158 @@ async function loadTodayOrders(force = false) {
         }
 
         const todayStr = new Date().toLocaleDateString('en-CA');
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yestStr = yesterday.toLocaleDateString('en-CA');
-
-        // Traer órdenes recientes ordenadas por start_at desc
+        
         const d = await apiFetch('/order/orders?per_page=1000&q%5Bs%5D=start_at+desc');
+        const items = d.data || [];
 
-    const items = d.data || [];
+        const todayOrders = items.filter(o => {
+            const day   = (o.start_at || '').slice(0, 10);
+            const st    = (o.state || '').toLowerCase();
+            const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta', 'open'].includes(st);
+            return day === todayStr && isActive;
+        });
 
-    // Filtrar: Hoy y Pasado + activas (no finalizadas/canceladas)
-    const todayOrders = items.filter(o => {
-        const day   = (o.start_at || '').slice(0, 10);
-        const st    = (o.state || '').toLowerCase();
-        const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta', 'open'].includes(st);
-        
-        // Incluimos TODO lo pendiente que sea para hoy o días anteriores
-        return day <= todayStr && isActive;
-    });
+        const finishedOrdersRaw = items.filter(o => {
+            const st = (o.state || '').toLowerCase();
+            const isFinished = ['finalizada', 'finalizado', 'finalized', 'closed'].includes(st);
+            if (isFinished && !!o.employee_id) {
+                return (o.end_at || o.updated_at || '').slice(0, 10) === todayStr;
+            }
+            return false;
+        });
 
+        const toResolve = {};
+        [...todayOrders, ...finishedOrdersRaw].forEach(o => {
+            if (o.orderable_id && !state.clients[o.orderable_id]) {
+                toResolve[o.orderable_id] = o.kind;
+            }
+        });
 
-    // Filtrar finalizadas de hoy
-    const finishedOrdersRaw = items.filter(o => {
-        const st = (o.state || '').toLowerCase();
-        const isFinished = ['finalizada', 'finalizado', 'finalized', 'closed'].includes(st);
-        
-        if (isFinished && !!o.employee_id) {
-            const dStr = o.end_at || o.updated_at || '';
-            const day = dStr.slice(0, 10);
-            return day === todayStr;
+        // Ejecutar resolución unificada
+        await resolveUnified(toResolve);
+
+        // Función mapeadora local
+        const mapOrder = (o) => {
+            const resolved  = state.clients[o.orderable_id] || {};
+            const techName  = state.techs[o.employee_id] || 'Sin asignar';
+            const typeCfg   = TYPE_CFG[o.kind] || { color: '#6b7280', label: o.kind || '?', icon: 'task' };
+            const nameFromDesc = o.description?.match(/\(([^)]+)\)/)?.[1] || '';
+            const startDate = o.start_at ? new Date(o.start_at) : null;
+            
+            const endDate   = o.end_at ? new Date(o.end_at) : (o.state === 'finalized' && o.updated_at ? new Date(o.updated_at) : null);
+            
+            return {
+                ...o,
+                id:           o.sequential_id || o.id?.slice(0, 8),
+                rawId:        o.id,
+                typeLabel:    typeCfg.label,
+                typeColor:    typeCfg.color,
+                typeIcon:     typeCfg.icon,
+                client:       resolved.name || nameFromDesc || `#${o.sequential_id || o.id} ${o.orderable_id ? '' : '(Sin Asignar)'}`,
+                address:      resolved.address || '',
+                zone:         resolved.zone || '',
+                phone:        resolved.phone || '',
+                techName:     techName,
+                startTime:    startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
+                endTime:      endDate ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
+                feedbacksCount: o.feedbacks_count || 0
+            };
+        };
+
+        state.orders = todayOrders.map(mapOrder).sort((a, b) => (a.start_at || '').localeCompare(b.start_at || ''));
+        state.finishedOrders = finishedOrdersRaw.map(mapOrder);
+
+        // Notificaciones
+        if (state.knownOrderIds.size > 0) {
+            state.finishedOrders.forEach(o => {
+                if (!state.knownOrderIds.has(o.id)) {
+                    showNotification(`¡Orden #${o.id} Finalizada!`, `Cliente: ${o.client}\nTécnico: ${o.techName}`, 'success');
+                    state.knownOrderIds.add(o.id);
+                }
+            });
+        } else {
+            [...state.orders, ...state.finishedOrders].forEach(o => state.knownOrderIds.add(o.id));
         }
-        return false;
-    });
 
-    // Resolver dependencias (contratos, instalaciones, tickets) en batch
-    const orderables = {};
-    const allToResolve = [...todayOrders, ...finishedOrdersRaw];
-    allToResolve.forEach(o => {
-        if (o.orderable_id) orderables[o.orderable_id] = o.kind;
-    });
+        cacheSet('orders', { orders: state.orders, finishedOrders: state.finishedOrders }, CFG.cacheTTL.orders);
 
-    const targetIds = Object.keys(orderables);
-    const contractMap = {};
+    } catch (e) {
+        console.error("Error al cargar órdenes:", e);
+    }
+}
 
-    // Procesar en lotes MUY pequeños (2 en 2) con pausa para evitar Error 429 del proxy gratuito
-    for (let i = 0; i < targetIds.length; i += 2) {
-        await Promise.all(targetIds.slice(i, i + 2).map(async (cid) => {
+async function resolveUnified(idMap) {
+    const ids = Object.keys(idMap).filter(id => !state.clients[id]);
+    if (ids.length === 0) return;
 
+    console.log(`[Velocity] Resolviendo ${ids.length} entidades de Wispro...`);
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+        const batch = ids.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (cid) => {
             try {
-                const kind = orderables[cid];
-                let endpointsToTry = [`/contracts/${cid}`];
+                const kind = idMap[cid];
+                let endpointsToTry = [`/contracts/${cid}`, `/clients/${cid}`];
                 if (kind === 'installation') {
-                    endpointsToTry = [`/installation_orders/${cid}`, `/clients/${cid}`, `/contracts/${cid}`];
+                    endpointsToTry = [`/installation_orders/${cid}`, `/sale_desk/prospects/${cid}`, `/prospects/${cid}`, `/clients/${cid}`, `/contracts/${cid}`];
                 }
 
-                let c = null;
+                let data = null;
                 for (const ep of endpointsToTry) {
                     try {
                         const r = await apiFetch(ep, {}, true);
-                        if (r) {
+                        if (r && r.status !== 404) {
                             const raw = r.data || r;
-                            if (raw && (raw.client_id || raw.name)) {
-                                c = raw;
-                                break;
+                            if (raw && (raw.id || raw.client_id || raw.name)) {
+                                data = raw;
+                                // Si ya tenemos el nombre, no seguimos buscando
+                                if (data.name) break;
                             }
                         }
                     } catch (e) {}
                 }
 
-                const realClientId = c ? (c.client_id || c.id) : null;
+                if (data) {
+                    let name = data.name || '';
+                    let realClientId = data.client_id || data.id;
 
-                if (c && realClientId) {
-                    let client = state.clients[realClientId];
-                    
-                    if (!c.client_id && c.name) {
-                        client = {
-                            name:    c.name || '',
-                            zone:    c.zone_name || '',
-                            address: c.address || c.street || '',
-                            phone:   c.phone_mobile || c.phone || ''
-                        };
-                        state.clients[realClientId] = client;
-                    } 
-                    else if (!client) {
+                    // Si no tenemos nombre pero sí client_id, intentamos traer el cliente
+                    if (!name && data.client_id) {
                         try {
-                            const clRes = await apiFetch(`/clients/${realClientId}`);
-                            if (clRes) {
-                                const clData = clRes.data || clRes;
-                                client = {
-                                    name:    clData.name || '',
-                                    zone:    clData.zone_name || '',
-                                    address: clData.address || clData.street || '',
-                                    phone:   clData.phone_mobile || clData.phone || ''
-                                };
-                                state.clients[realClientId] = client;
+                            const cl = await apiFetch(`/clients/${data.client_id}`, {}, true);
+                            if (cl) {
+                                const cld = cl.data || cl;
+                                name = cld.name || '';
                             }
-                        } catch(e) {}
+                        } catch (e) {}
                     }
-                    
-                    contractMap[cid] = {
-                        clientId: realClientId,
-                        name:    client?.name || '',
-                        address: [c.address_street, c.address_number, c.address_city].filter(Boolean).join(', ') || client?.address || '',
-                        zone:    client?.zone || c.address_city || '',
-                        phone:   client?.phone || '',
-                        nap:     c.nap_name || null
+
+                    // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo
+                    let napName = data.nap_name || null;
+                    if (!napName && data.nap_id) {
+                        try {
+                            const napRes = await apiFetch(`/naps/${data.nap_id}`, {}, true);
+                            if (napRes) {
+                                const napD = napRes.data || napRes;
+                                napName = napD.name || null;
+                            }
+                        } catch (e) {}
+                    }
+
+                    state.clients[cid] = {
+                        name:    name,
+                        zone:    data.zone_name || data.address_city || data.city || '',
+                        address: [data.address_street, data.address_number].filter(Boolean).join(' ') || data.address || data.street || '',
+                        phone:   data.phone_mobile || data.phone || '',
+                        nap:     napName,
+                        client_id: realClientId
                     };
                 }
-            } catch {}
+            } catch (e) {}
         }));
-        // Pequeña pausa entre lotes para no saturar el proxy
-        await new Promise(r => setTimeout(r, 800));
+        if (i + BATCH_SIZE < ids.length) await new Promise(r => setTimeout(r, 1000));
     }
-
-
-    function mapOrder(o) {
-        const resolved  = contractMap[o.orderable_id] || {};
-        const techName  = state.techs[o.employee_id] || 'Sin asignar';
-        const typeCfg   = TYPE_CFG[o.kind] || { color: '#6b7280', label: o.kind || '?' };
-        const override  = state.napOverrides[o.sequential_id] || {};
-        const nameFromDesc = o.description?.match(/\(([^)]+)\)/)?.[1] || '';
-        const startDate = o.start_at ? new Date(o.start_at) : null;
-        const endDate   = o.end_at   ? new Date(o.end_at)   : null;
-
-        const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
-        const trackData = tracking[o.id] || tracking[o.id?.slice(0, 8)] || tracking[o.sequential_id];
-
-        return {
-            id:           o.sequential_id || o.id?.slice(0, 8),
-            rawId:        o.id,
-            clientId:     resolved.clientId || null,
-            ticketable_id: o.ticketable_id || null,
-            ticketable_type: o.ticketable_type || null,
-            orderable_id: o.orderable_id || o.orderable_uuid || o.target_id || null,
-            kind:         o.kind,
-            typeLabel:    typeCfg.label,
-            typeColor:    typeCfg.color,
-            state:        o.state,
-            result:       o.result,
-            client:       resolved.name || nameFromDesc || `#${o.sequential_id || o.id} ${o.orderable_id ? '' : '(Sin Asignar)'}`,
-            address:      resolved.address || '',
-            zone:         resolved.zone || '',
-            phone:        resolved.phone || '',
-            techId:       o.employee_id,
-            techName,
-            startTime:    startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
-            endTime:      endDate   ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })   : '--:--',
-            nap:          override.nap || resolved.nap || null,
-            marquilla:    override.marquilla || null,
-            description:  o.description || '',
-            endDay:       (o.end_at || o.updated_at || '').slice(0, 10),
-            rawStart:     startDate ? startDate.getTime() : null,
-            rawEnd:       endDate ? endDate.getTime() : null,
-            feedbacksCount: o.feedbacks_count || 0,
-            trackData,
-            lat:          o.latitude || o.gps_point?.latitude || resolved.lat || null,
-            lng:          o.longitude || o.gps_point?.longitude || resolved.lng || null
-        };
-    }
-
-    const newOrders = todayOrders.map(mapOrder);
-    const newFinished = finishedOrdersRaw.map(mapOrder);
-
-    // Notificaciones de órdenes finalizadas
-    if (state.knownOrderIds.size > 0) {
-        newFinished.forEach(o => {
-            if (!state.knownOrderIds.has(o.id)) {
-                showNotification(`¡Orden #${o.id} Finalizada!`, `Cliente: ${o.client}\nTécnico: ${o.techName}`, 'success');
-                state.knownOrderIds.add(o.id);
-            }
-        });
-    } else {
-        newFinished.forEach(o => state.knownOrderIds.add(o.id));
-    }
-
-    state.orders = newOrders;
-    state.finishedOrders = newFinished;
-
-    cacheSet('orders', { orders: state.orders, finishedOrders: state.finishedOrders, napOverrides: state.napOverrides }, CFG.cacheTTL.orders);
-    } catch (e) {
-        console.error("Error al cargar órdenes:", e);
-    }
+    saveDynamicClients();
 }
 
 async function loadIssues(force = false) {
@@ -813,6 +798,19 @@ function techColor(name) {
     const key = TECNICOS_ACTIVOS.find(n => name?.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
     return key ? TECH_PALETTE[key] : '#6b7280';
 }
+
+window.deleteInactiveUsers = function() {
+    if(!confirm('¿Deseas limpiar las cuentas inactivas y técnicos que no están en la sincronización principal?')) return;
+    
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    // Filtrar solo los que están en la paleta activa
+    if(db.technicians) {
+        db.technicians = db.technicians.filter(t => TECNICOS_ACTIVOS.some(n => t.name.toLowerCase().includes(n.toLowerCase().split(' ')[0])));
+    }
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    showNotification('Limpieza', 'Cuentas inactivas eliminadas', 'success');
+    renderTab('users');
+};
 
 function techInitials(name) {
     return (name || '??').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
@@ -2018,11 +2016,22 @@ Views.naps = () => {
             <td style="padding:12px 14px;white-space:nowrap;font-size:14px;color:#374151;">${n.date}</td>
             <td style="padding:12px 14px;font-weight:700;color:#111827;font-size:15px;">${n.name}</td>
             <td style="padding:12px 14px;font-size:14px;color:#374151;">${n.zone}</td>
+            <td style="padding:12px 14px;font-size:13px;color:#0059bb;font-weight:600;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined text-[14px]">engineering</span>
+                    ${n.techName || '—'}
+                </div>
+            </td>
             <td style="padding:12px 14px;font-size:14px;color:#6b7280;">${latLngLink||'—'}</td>
             <td style="padding:12px 14px;font-size:14px;color:#374151;">${n.ports||'—'}</td>
-            <td style="padding:12px 14px;font-size:14px;color:#6b7280;">${n.comments||'—'}</td>
+            <td style="padding:12px 14px;font-size:14px;font-weight:800;color:#dc2626;">${n.levels||'—'}</td>
+            <td style="padding:12px 14px;font-size:13px;color:#374151;">
+                <div style="font-weight:700;color:#111827;margin-bottom:2px;">${n.action||'—'}</div>
+                <div style="font-size:11px;color:#6b7280;">${n.comments||''}</div>
+            </td>
             <td style="padding:12px 14px;text-align:right;">
                 <div style="display:flex;align-items:center;justify-content:flex-end;gap:12px;">
+                    <button onclick="window.viewNapClients('${n.id}', '${n.name}')" style="background:none;border:none;color:#0059bb;cursor:pointer;display:flex;align-items:center;opacity:0.8;hover:opacity:1;" title="Ver Clientes Conectados"><span class="material-symbols-outlined text-[18px]">group</span></button>
                     <input type="checkbox" ${n.resolved?'checked':''} onchange="window.toggleNapStatus('${n.id}')" style="width:18px;height:18px;accent-color:#10b981;cursor:pointer;" title="Marcar como revisada/resuelta">
                     <button onclick="window.editNapTracker('${n.id}')" style="background:none;border:none;color:#6b7280;cursor:pointer;display:flex;align-items:center;opacity:0.7;hover:opacity:1;" title="Editar registro"><span class="material-symbols-outlined text-[18px]">edit</span></button>
                     <button onclick="window.deleteNapTracker('${n.id}')" style="background:none;border:none;color:#ef4444;cursor:pointer;display:flex;align-items:center;opacity:0.6;hover:opacity:1;" title="Eliminar registro"><span class="material-symbols-outlined text-[18px]">delete</span></button>
@@ -2071,9 +2080,11 @@ Views.naps = () => {
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Fechas</th>
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Nombres</th>
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Zona</th>
+                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Técnico</th>
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Coordenadas</th>
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Puertos</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Comentarios</th>
+                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Niveles</th>
+                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Acción / Comentario</th>
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Opciones</th>
                     </tr>
                 </thead>
@@ -2089,6 +2100,24 @@ Views.naps = () => {
 window.openNapTrackerModal = (id = null) => {
     document.getElementById('nap-tracker-form').reset();
     document.getElementById('nt-id').value = id || Date.now().toString();
+    document.getElementById('nt-id-wispro').value = '';
+    document.getElementById('nt-validation-result').innerHTML = '';
+    
+    // Poblar técnicos en el datalist
+    const techList = document.getElementById('tech-list');
+    if (techList) {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        const techs = db.technicians || [];
+        
+        // Unir técnicos de Wispro con los 6 activos hardcoded para asegurar disponibilidad
+        const allTechNames = [...new Set([
+            ...TECNICOS_ACTIVOS,
+            ...techs.map(t => t.name)
+        ])].sort();
+
+        techList.innerHTML = allTechNames.map(name => `<option value="${name}">`).join('');
+    }
+
     if (!id) document.getElementById('nt-date').value = new Date().toLocaleDateString('en-CA');
     document.getElementById('nap-tracker-modal').classList.remove('hidden');
 };
@@ -2101,8 +2130,26 @@ window.editNapTracker = (id) => {
     document.getElementById('nt-date').value = item.date || '';
     document.getElementById('nt-name').value = item.name || '';
     document.getElementById('nt-zone').value = item.zone || '';
+    
+    // Asegurar que el datalist esté poblado
+    const techList = document.getElementById('tech-list');
+    if (techList) {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        const techs = db.technicians || [];
+        
+        const allTechNames = [...new Set([
+            ...TECNICOS_ACTIVOS,
+            ...techs.map(t => t.name)
+        ])].sort();
+
+        techList.innerHTML = allTechNames.map(name => `<option value="${name}">`).join('');
+    }
+    document.getElementById('nt-tech').value = item.techName || '';
+
     document.getElementById('nt-coords').value = item.coords || '';
     document.getElementById('nt-ports').value = item.ports || '';
+    document.getElementById('nt-levels').value = item.levels || '';
+    document.getElementById('nt-action').value = item.action || '';
     document.getElementById('nt-comments').value = item.comments || '';
     
     document.getElementById('nap-tracker-modal').classList.remove('hidden');
@@ -2113,16 +2160,35 @@ window.closeNapTrackerModal = () => document.getElementById('nap-tracker-modal')
 window.saveNapTracker = (e) => {
     e.preventDefault();
     const id = document.getElementById('nt-id').value;
+    const syncWispro = document.getElementById('nt-sync-wispro').checked;
+
     const nap = {
         id,
         date: document.getElementById('nt-date').value,
         name: document.getElementById('nt-name').value,
         zone: document.getElementById('nt-zone').value,
+        techName: document.getElementById('nt-tech').value,
+        wisproId: document.getElementById('nt-id-wispro').value,
         coords: document.getElementById('nt-coords').value,
         ports: document.getElementById('nt-ports').value,
+        levels: document.getElementById('nt-levels').value,
+        action: document.getElementById('nt-action').value,
         comments: document.getElementById('nt-comments').value,
         resolved: false
     };
+
+    if (syncWispro && nap.wisproId) {
+        showNotification('Wispro', 'Sincronizando reporte con Wispro...', 'info');
+        const detailMsg = `[Velocity Report] ${nap.date} - ${nap.techName}: Niveles ${nap.levels}. Acción: ${nap.action}. ${nap.comments}`;
+        apiFetch(`/naps/${nap.wisproId}`, {
+            method: 'PUT',
+            data: { details: detailMsg }
+        }, true).then(() => {
+            showNotification('Éxito', 'Reporte documentado en Wispro', 'success');
+        }).catch(() => {
+            showNotification('Aviso', 'No se pudo actualizar Wispro, pero el reporte se guardó localmente.', 'issue');
+        });
+    }
     
     const idx = state.trackedNaps.findIndex(n => String(n.id) === String(id));
     if(idx > -1) {
@@ -2157,6 +2223,125 @@ window.deleteNapTracker = (id) => {
 window.setNapFilter = (key, value) => {
     state.napFilter[key] = value;
     if(state.tab === 'naps') renderTab('naps');
+};
+
+// ── INTEGRACIÓN WISPRO NAPs ────────────────────────────────────────────────
+window.validateNapInWispro = async function() {
+    const name = document.getElementById('nt-name').value.trim();
+    const resEl = document.getElementById('nt-validation-result');
+    if (!name) return;
+
+    resEl.innerHTML = '<span class="text-gray-400">Buscando...</span>';
+    try {
+        // Buscamos todas las NAPs y filtramos por nombre (la API no suele tener búsqueda parcial exacta por query)
+        const allNaps = await apiPages('naps', 5); // Probamos 5 páginas
+        const found = allNaps.find(n => n.name.toLowerCase() === name.toLowerCase());
+
+        if (found) {
+            resEl.innerHTML = `<span class="text-emerald-500">✓ Encontrada (ID: ${found.public_id}) - ${found.contracts_count} contratos</span>`;
+            document.getElementById('nt-coords').value = `${found.latitude}, ${found.longitude}`;
+            // Guardamos el ID real de Wispro para futuras consultas
+            document.getElementById('nt-id-wispro').value = found.id;
+        } else {
+            resEl.innerHTML = '<span class="text-error">⚠ No encontrada en Wispro</span>';
+        }
+    } catch (e) {
+        resEl.innerHTML = '<span class="text-error">Error de conexión</span>';
+    }
+};
+
+window.viewNapClients = async function(localId, napName) {
+    // Intentamos encontrar el ID de Wispro
+    const item = state.trackedNaps.find(n => String(n.id) === String(localId));
+    let wisproId = item?.wisproId;
+
+    // Si no tenemos el ID, intentamos buscarlo por nombre primero
+    if (!wisproId) {
+        showNotification('Wispro', `Buscando ID de ${napName}...`, 'info');
+        const allNaps = await apiPages('naps', 5);
+        const found = allNaps.find(n => n.name.toLowerCase() === napName.toLowerCase());
+        if (found) wisproId = found.id;
+    }
+
+    if (!wisproId) {
+        showNotification('Error', 'No se pudo vincular con Wispro. Valida el nombre de la NAP.', 'issue');
+        return;
+    }
+
+    showNotification('Wispro', `Obteniendo clientes de ${napName}...`, 'info');
+    
+    try {
+        // Obtenemos una lista más amplia (hasta 1000) para filtrar localmente ya que la API ignora el filtro nap_id en el query
+        const [contracts, installations] = await Promise.all([
+            apiFetch(`/contracts?per_page=1000`, {}, true),
+            apiFetch(`/installation_orders?per_page=1000`, {}, true)
+        ]);
+
+        // FILTRO MANUAL: Solo los que coincidan con la NAP seleccionada
+        const cList = (contracts?.data || contracts || []).filter(c => String(c.nap_id) === String(wisproId));
+        const iList = (installations?.data || installations || []).filter(i => String(i.nap_id) === String(wisproId));
+
+        const total = cList.length + iList.length;
+        
+        let html = `
+        <div id="nap-clients-modal" class="fixed inset-0 z-[201] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+            <div class="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <div>
+                        <h3 class="font-black text-gray-900 text-xl">Clientes en ${napName}</h3>
+                        <p class="text-xs text-gray-500 font-bold uppercase tracking-widest">${total} Conexiones Detectadas</p>
+                    </div>
+                    <button onclick="document.getElementById('nap-clients-modal').remove()" class="w-10 h-10 rounded-full hover:bg-gray-200 flex items-center justify-center">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="p-6 overflow-y-auto space-y-6">
+                    <div>
+                        <h4 class="text-[10px] font-black text-secondary uppercase tracking-[0.2em] mb-3">Contratos Activos (${cList.length})</h4>
+                        <div class="space-y-2">
+                            ${cList.map(c => `
+                                <div class="flex items-center justify-between p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-lg bg-blue-500 text-white flex items-center justify-center text-[10px] font-black">#${c.public_id}</div>
+                                        <div>
+                                            <p class="text-sm font-bold text-gray-800">${state.clients[c.client_id]?.name || 'Cliente de Wispro'}</p>
+                                            <p class="text-[10px] text-gray-500">ID: ${c.id.slice(0,8)}... | IP: ${c.ip || '—'}</p>
+                                        </div>
+                                    </div>
+                                    <span class="text-[9px] font-black px-2 py-1 rounded-full bg-blue-100 text-blue-700 uppercase tracking-widest">${c.state}</span>
+                                </div>
+                            `).join('') || '<p class="text-center text-xs text-gray-400 py-4 italic">No hay contratos vinculados</p>'}
+                        </div>
+                    </div>
+                    <div>
+                        <h4 class="text-[10px] font-black text-amber-600 uppercase tracking-[0.2em] mb-3">Instalaciones Pendientes (${iList.length})</h4>
+                        <div class="space-y-2">
+                            ${iList.map(i => `
+                                <div class="flex items-center justify-between p-3 bg-amber-50/50 border border-amber-100 rounded-xl">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center text-[10px] font-black">INS</div>
+                                        <div>
+                                            <p class="text-sm font-bold text-gray-800">${state.clients[i.client_id]?.name || 'Prospecto'}</p>
+                                            <p class="text-[10px] text-gray-500">Estado: ${i.state} | Creado: ${new Date(i.created_at).toLocaleDateString()}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            `).join('') || '<p class="text-center text-xs text-gray-400 py-4 italic">No hay instalaciones en curso</p>'}
+                        </div>
+                    </div>
+                </div>
+                <div class="p-6 bg-gray-50 border-t border-gray-100 flex justify-end">
+                    <button onclick="document.getElementById('nap-clients-modal').remove()" class="px-8 py-3 bg-gray-900 text-white rounded-xl font-bold text-sm active:scale-95 transition-all">
+                        Cerrar Ventana
+                    </button>
+                </div>
+            </div>
+        </div>`;
+
+        document.body.insertAdjacentHTML('beforeend', html);
+    } catch (e) {
+        showNotification('Error', 'No se pudo obtener la información de los clientes.', 'issue');
+    }
 };
 
 // ── CUENTAS ───────────────────────────────────────────────────────────────
@@ -3088,6 +3273,7 @@ async function initApp() {
     loadTrackedNaps(); // Cargar estado de NAPs manuales
 
     try {
+        loadDynamicClients();
         // Carga paralela: datos estáticos + órdenes del día + issues
         await Promise.all([
             loadStaticData(),

@@ -523,6 +523,7 @@
             </div>
             <form id="nap-tracker-form" onsubmit="window.saveNapTracker(event)" class="p-6 space-y-4">
                 <input type="hidden" id="nt-id">
+                <input type="hidden" id="nt-id-wispro">
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Fecha</label>
@@ -530,9 +531,15 @@
                             class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
                     </div>
                     <div>
-                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Nombre NAP</label>
-                        <input type="text" id="nt-name" required placeholder="Ej. NAP W-13"
-                            class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Nombre NAP (Wispro)</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="nt-name" required placeholder="Ej. PK-50"
+                                class="flex-1 mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
+                            <button type="button" onclick="window.validateNapInWispro()" class="mt-1 px-4 bg-surface-container hover:bg-surface-container-high rounded-xl text-[10px] font-black uppercase text-secondary transition-all">
+                                Validar
+                            </button>
+                        </div>
+                        <div id="nt-validation-result" class="text-[9px] mt-1 ml-1 font-bold"></div>
                     </div>
                 </div>
                 <div class="grid grid-cols-2 gap-4">
@@ -542,20 +549,42 @@
                             class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
                     </div>
                     <div>
-                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Coordenadas</label>
-                        <input type="text" id="nt-coords" placeholder="Lat, Lng"
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Reportado por</label>
+                        <input type="text" id="nt-tech" list="tech-list" required placeholder="Nombre del técnico..."
+                            class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors bg-white">
+                        <datalist id="tech-list"></datalist>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Coordenadas</label>
+                    <input type="text" id="nt-coords" placeholder="Lat, Lng"
+                        class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Puertos (Estado)</label>
+                        <input type="text" id="nt-ports" placeholder="Ej. Lleno, Libres 0, etc."
+                            class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Niveles (dBm)</label>
+                        <input type="text" id="nt-levels" placeholder="Ej. -22.5"
                             class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
                     </div>
                 </div>
                 <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Puertos (Estado)</label>
-                    <input type="text" id="nt-ports" placeholder="Ej. Lleno, Libres 0, etc."
+                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Acción Requerida / Trabajo</label>
+                    <input type="text" id="nt-action" placeholder="Ej. Necesita reemplazo de splitter..."
                         class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors">
                 </div>
                 <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Comentarios</label>
-                    <textarea id="nt-comments" rows="2" placeholder="Ej. Niveles en -23"
+                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Comentarios Adicionales</label>
+                    <textarea id="nt-comments" rows="2" placeholder="Notas internas..."
                         class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 outline-none transition-colors resize-none"></textarea>
+                </div>
+                <div class="flex items-center gap-2 p-3 bg-blue-50/50 rounded-xl border border-blue-100">
+                    <input type="checkbox" id="nt-sync-wispro" class="w-5 h-5 accent-blue-600 cursor-pointer">
+                    <label for="nt-sync-wispro" class="text-xs font-bold text-blue-700 cursor-pointer">Documentar reporte en los detalles de Wispro</label>
                 </div>
                 <div class="flex gap-3 pt-2">
                     <button type="submit" class="flex-1 py-3 rounded-xl text-white font-bold text-sm active:scale-95 transition-transform" style="background:linear-gradient(135deg,#0059bb,#0070ea);">

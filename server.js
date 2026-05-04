@@ -133,11 +133,23 @@ app.post('/api/sync', validateToken, (req, res) => {
     const db = getDB();
     const newData = req.body;
     
-    if (newData.technicians) db.technicians = newData.technicians;
-    if (newData.supervisors) db.supervisors = newData.supervisors;
+    if (newData.technicians) {
+        newData.technicians.forEach(nt => {
+            const ext = db.technicians.find(t => t.id === nt.id);
+            if (ext && !nt.password) nt.password = ext.password;
+        });
+        db.technicians = newData.technicians;
+    }
+    if (newData.supervisors) {
+        newData.supervisors.forEach(ns => {
+            const exs = db.supervisors.find(s => s.id === ns.id);
+            if (exs && !ns.password) ns.password = exs.password;
+        });
+        db.supervisors = newData.supervisors;
+    }
     if (newData.napOverrides) db.napOverrides = newData.napOverrides;
     if (newData.trackedNaps) db.trackedNaps = newData.trackedNaps;
-    if (newData.settings) db.settings = newData.settings;
+    if (newData.settings) db.settings = { ...db.settings, ...newData.settings };
     
     persistDB();
     res.json({ success: true });

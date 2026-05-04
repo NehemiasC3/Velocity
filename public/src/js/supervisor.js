@@ -893,6 +893,14 @@ function renderTab(tab) {
             }
         }
     }
+    
+    if (tab === 'naps' && typeof window.initNapsMap === 'function') {
+        setTimeout(window.initNapsMap, 100);
+    }
+    
+    if (tab === 'technicians' && typeof window.initTechsMap === 'function') {
+        setTimeout(window.initTechsMap, 100);
+    }
 }
 
 // ── VISTAS ────────────────────────────────────────────────────────────────
@@ -1471,6 +1479,10 @@ Views.technicians = () => {
     return `
     <div>
         <h2 class="text-2xl font-extrabold text-on-surface mb-6">Flota de Técnicos</h2>
+        
+        <!-- Mapa de Técnicos -->
+        <div id="techs-map" style="width: 100%; height: 400px; border-radius: 16px; margin-bottom: 24px; z-index: 1; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);"></div>
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">${cards}</div>
 
         <!-- Modal órdenes del técnico -->
@@ -1492,6 +1504,90 @@ Views.technicians = () => {
             </div>
         </div>
     </div>`;
+};
+
+// Map Initialization for Technicians
+let techsMapInstance = null;
+window.initTechsMap = function() {
+    const mapEl = document.getElementById('techs-map');
+    if (!mapEl) return;
+    
+    if (techsMapInstance) {
+        techsMapInstance.remove();
+        techsMapInstance = null;
+    }
+
+    techsMapInstance = L.map('techs-map').setView([8.9833, -79.5167], 8);
+    L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    }).addTo(techsMapInstance);
+
+    const bounds = [];
+    
+    TECNICOS_ACTIVOS.forEach(nombre => {
+        const myOrders = state.orders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+        if (myOrders.length === 0) return;
+        
+        // Determinar ubicación: Si está 'in_course', usar esa. Si no, usar la próxima 'pending'.
+        let activeOrder = myOrders.find(o => o.state === 'in_course');
+        let statusText = "EN RUTA / OPERANDO";
+        let color = "#10b981"; // Emerald green for active
+        let pulseAnim = "pulse-active";
+        
+        if (!activeOrder) {
+            activeOrder = myOrders.find(o => o.state === 'pending');
+            statusText = "PRÓXIMO DESTINO";
+            color = "#f59e0b"; // Amber for pending
+            pulseAnim = "pulse-pending";
+        }
+        
+        if (activeOrder && activeOrder.lat && activeOrder.lng) {
+            const lat = parseFloat(activeOrder.lat);
+            const lng = parseFloat(activeOrder.lng);
+            bounds.push([lat, lng]);
+            
+            const initials = techInitials(nombre);
+            const techCol = techColor(nombre);
+            
+            const markerHtml = `
+                <style>
+                    @keyframes pulse-active { 0% { transform: scale(0.95); opacity: 0.6; } 50% { transform: scale(1.3); opacity: 0.2; } 100% { transform: scale(0.95); opacity: 0.6; } }
+                    @keyframes pulse-pending { 0% { transform: scale(0.95); opacity: 0.4; } 50% { transform: scale(1.1); opacity: 0.1; } 100% { transform: scale(0.95); opacity: 0.4; } }
+                </style>
+                <div style="position:relative; width:40px; height:40px;">
+                    <div style="background:${color}; width:100%; height:100%; border-radius:50%; position:absolute; top:0; left:0; opacity:0.3; animation: ${pulseAnim} 2s infinite;"></div>
+                    <div style="background:${techCol}; width:30px; height:30px; border-radius:50%; border:2px solid white; box-shadow:0 2px 6px rgba(0,0,0,0.4); display:flex; align-items:center; justify-content:center; color:white; font-weight:900; font-size:12px; position:absolute; top:5px; left:5px; z-index:2;">
+                        ${initials}
+                    </div>
+                </div>
+            `;
+            
+            const icon = L.divIcon({
+                html: markerHtml,
+                className: '',
+                iconSize: [40, 40],
+                iconAnchor: [20, 20]
+            });
+
+            L.marker([lat, lng], { icon }).addTo(techsMapInstance)
+                .bindPopup(`
+                    <div style="text-align:center;padding:4px;">
+                        <strong style="font-size:15px;color:#111827;">${nombre}</strong><br>
+                        <span style="font-size:10px; font-weight:900; letter-spacing: 0.5px; color:${color}; padding:3px 8px; background:${color}15; border-radius:6px; margin-top:6px; display:inline-block; border: 1px solid ${color}30;">${statusText}</span><br>
+                        <div style="margin-top:10px; font-size:12px; color:#4b5563; background:#f9fafb; padding:8px; border-radius:8px; border: 1px solid #f3f4f6; text-align:left;">
+                            <span style="font-weight:700; color:#1f2937;">Cliente:</span> ${activeOrder.client}<br>
+                            <span style="font-weight:700; color:#1f2937; margin-top:4px; display:inline-block;">Tarea:</span> ${activeOrder.typeLabel}
+                        </div>
+                    </div>
+                `);
+        }
+    });
+
+    if (bounds.length > 0) {
+        techsMapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    }
 };
 
 // ── REPORTES ──────────────────────────────────────────────────────────────
@@ -2073,6 +2169,8 @@ Views.naps = () => {
             </button>
         </div>
 
+        <div id="naps-map" style="width: 100%; height: 350px; border-radius: 16px; margin-bottom: 24px; z-index: 1; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);"></div>
+
         <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;overflow-x:auto;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
             <table style="width:100%;border-collapse:collapse;min-width:900px;">
                 <thead>
@@ -2094,6 +2192,68 @@ Views.naps = () => {
             </table>
         </div>
     </div>`;
+};
+
+// Map Initialization
+let napsMapInstance = null;
+window.initNapsMap = function() {
+    const mapEl = document.getElementById('naps-map');
+    if (!mapEl) return;
+    
+    if (napsMapInstance) {
+        napsMapInstance.remove();
+        napsMapInstance = null;
+    }
+
+    napsMapInstance = L.map('naps-map').setView([8.9833, -79.5167], 8);
+    L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps'
+    }).addTo(napsMapInstance);
+
+    const napsWithCoords = state.trackedNaps.filter(n => n.coords && n.coords.match(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/));
+    
+    if (napsWithCoords.length === 0) return;
+
+    const bounds = [];
+    napsWithCoords.forEach(n => {
+        const [lat, lng] = n.coords.split(',').map(s => parseFloat(s.trim()));
+        bounds.push([lat, lng]);
+        
+        const isResolved = n.resolved;
+        // Si hay niveles y empiezan con un número, revisar si es "alto" (por convención, si es menor o igual a -23 es malo en fibra, pero acá pueden estar en positivo o negativo, así que lo pintamos rojo si no está resuelto).
+        const color = isResolved ? '#10b981' : '#ef4444'; 
+        
+        const markerHtml = `
+            <div style="background:${color};width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:10px;">
+                <span class="material-symbols-outlined" style="font-size:14px;">router</span>
+            </div>
+        `;
+        
+        const icon = L.divIcon({
+            html: markerHtml,
+            className: '',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        L.marker([lat, lng], { icon }).addTo(napsMapInstance)
+            .bindPopup(`
+                <div style="text-align:center;padding:4px;">
+                    <strong style="font-size:14px;color:#111827;">${n.name}</strong><br>
+                    <span style="font-size:12px;color:#6b7280;">${n.zone || 'Sin zona'}</span><br>
+                    <div style="margin-top:6px;padding:4px;background:#fee2e2;border-radius:4px;color:#dc2626;font-weight:bold;font-size:12px;">
+                        Niveles: ${n.levels || 'No reportado'}
+                    </div>
+                    ${n.comments ? `<p style="font-size:11px;margin-top:6px;color:#4b5563;">${n.comments}</p>` : ''}
+                </div>
+            `);
+    });
+
+    if (bounds.length > 0) {
+        napsMapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
 };
 
 // Modal Logic

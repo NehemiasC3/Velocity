@@ -1,0 +1,59 @@
+// Cargar configuración desde config.js
+const CFG = typeof VELOCITY_CONFIG !== 'undefined' ? VELOCITY_CONFIG : {};
+
+// ── PALETAS ───────────────────────────────────────────────────────────────
+const TECH_PALETTE = {
+    'Luis David':         '#0059bb',
+    'Daniel Opua':        '#7c3aed',
+    'Edgar Abdiel':       '#059669',
+    'Jose Mendoza':       '#d97706',
+    'Mario Gonzalez':     '#dc2626',
+    'Nelson Eduar Sagel': '#0891b2'
+};
+
+const TYPE_CFG = {
+    technical:   { color: '#7c3aed', label: 'Visita Técnica' },
+    installation:{ color: '#0059bb', label: 'Instalación' },
+    feasibility: { color: '#059669', label: 'Factibilidad' },
+    resignation: { color: '#dc2626', label: 'Baja de Servicio' }
+};
+
+const TECNICOS_ACTIVOS = Object.keys(TECH_PALETTE);
+
+// ── ESTADO GLOBAL ─────────────────────────────────────────────────────────
+const state = {
+    tab:          sessionStorage.getItem('V_Tab') || 'dashboard',
+    clients:      {},   // id → {name, zone, address, phone}
+    techs:        {},   // id → name
+    categories:   {},   // id → name
+    orders:       [],   // órdenes del día
+    issues:       [],   // issues pendientes
+    finishedOrders: [], // órdenes finalizadas (hoy y ayer)
+    finishedIssues: [], // reportes finalizados (hoy y ayer)
+    napOverrides: {},   // ticketId → {nap, marquilla, lat, lng}
+    trackedNaps:  [],   // registro manual de NAPs
+    napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all' },
+    orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
+    issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc' },
+    orderSearch:  '',
+    orderSort:    { key: 'id', dev: 'desc' },
+    isSyncing:    false,
+    lastSync:     0,
+    pollTimer:    null,
+    knownOrderIds: new Set(), // IDs de órdenes finalizadas ya notificadas
+    knownIssueIds: new Set(), // IDs de issues ya notificados
+    // Estado para Reportes Mensuales
+    monthlyReport: {
+        isFetching: false,
+        results:    null, // { month, year, issues: [], stats: { byCategory, totals } }
+        progress:   0
+    }
+};
+window.appState = state; // Expuesto temporalmente para debug
+
+
+// ── SESIÓN ────────────────────────────────────────────────────────────────
+const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token');
+
+// Cola de peticiones para evitar bloqueo de Wispro
+let apiPromise = Promise.resolve();

@@ -64,9 +64,53 @@ function getDB() {
 
 function persistDB() {
     if (!dbCache) return;
+    
+    // Guardar copia local en disco
     fs.writeFile(DB_PATH, JSON.stringify(dbCache, null, 2), (err) => {
         if (err) console.error('Error saving DB:', err);
     });
+
+    // Guardar en la nube de Google Drive si está configurado
+    const url = dbCache.settings?.googleSheetUrl;
+    if (url && url.startsWith('http')) {
+        fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(dbCache)
+        })
+        .then(res => {
+            if (res.ok) console.log('[Velocity Cloud] Base de datos guardada en Google Drive.');
+            else console.warn('[Velocity Cloud] Respuesta fallida al guardar en Google Drive:', res.status);
+        })
+        .catch(err => {
+            console.error('[Velocity Cloud] Error guardando en Google Drive:', err.message);
+        });
+    }
+}
+
+async function syncFromGoogleDrive() {
+    const db = getDB();
+    const url = db.settings?.googleSheetUrl;
+    if (url && url.startsWith('http')) {
+        console.log(`[Velocity Cloud] Cargando base de datos inicial desde Google Drive: ${url}`);
+        try {
+            const res = await fetch(url);
+            if (res.ok) {
+                const cloudData = await res.json();
+                if (cloudData && (cloudData.supervisors || cloudData.technicians)) {
+                    dbCache = cloudData;
+                    fs.writeFileSync(DB_PATH, JSON.stringify(dbCache, null, 2));
+                    console.log(`[Velocity Cloud] Sincronización inicial exitosa. ${dbCache.supervisors?.length || 0} supervisores, ${dbCache.technicians?.length || 0} técnicos cargados.`);
+                } else {
+                    console.log('[Velocity Cloud] El archivo en Google Drive está vacío o no es compatible.');
+                }
+            } else {
+                console.warn('[Velocity Cloud] El servidor de Google Drive retornó error:', res.status);
+            }
+        } catch (e) {
+            console.warn('[Velocity Cloud] Error al sincronizar con Google Drive en el inicio:', e.message);
+        }
+    }
 }
 
 // ── SEGURIDAD (TOKEN) ─────────────────────────────────────────────────────
@@ -112,6 +156,7 @@ app.post('/api/login', (req, res) => {
 
 // ── VARIABLES DE ESTADO EN TIEMPO REAL ────────────────────────────────────
 let onlineStatus = {}; 
+let activeTracking = {};
 
 // ── ENDPOINTS DE SINCRONIZACIÓN (PROTEGIDOS) ───────────────────────────────
 
@@ -125,7 +170,8 @@ app.get('/api/sync', validateToken, (req, res) => {
     
     res.json({
         ...sanitizedDB,
-        onlineStatus: onlineStatus
+        onlineStatus: onlineStatus,
+        activeTracking: activeTracking
     });
 });
 
@@ -156,10 +202,31 @@ app.post('/api/sync', validateToken, (req, res) => {
 });
 
 app.post('/api/heartbeat', (req, res) => {
-    const { techId } = req.body;
+    const { techId, tracking } = req.body;
     if (!techId) return res.status(400).json({ error: 'techId missing' });
     
     onlineStatus[techId] = Date.now();
+    
+    if (tracking) {
+        // Eliminar órdenes previas pertenecientes a este técnico
+        Object.keys(activeTracking).forEach(orderId => {
+            if (String(activeTracking[orderId].empId) === String(techId)) {
+                delete activeTracking[orderId];
+            }
+        });
+        
+        // Agregar las órdenes activas en curso
+        Object.entries(tracking).forEach(([orderId, entry]) => {
+            if (entry.status === 'started') {
+                activeTracking[orderId] = {
+                    status: 'started',
+                    startTime: entry.startTime,
+                    empId: techId
+                };
+            }
+        });
+    }
+
     res.json({ success: true, timestamp: onlineStatus[techId] });
 });
 
@@ -195,6 +262,36 @@ app.all('/api/wispro/*', validateToken, async (req, res) => {
     }
 });
 
+// Endpoint para probar conexión con Google Drive / Sheets Web App
+app.post('/api/test-gdrive', validateToken, async (req, res) => {
+    const { url } = req.body;
+    if (!url || !url.startsWith('http')) {
+        return res.status(400).json({ error: 'URL de Web App inválida. Debe comenzar con http:// o https://' });
+    }
+    try {
+        console.log(`[Velocity Cloud] Probando conexión a Google Drive a través de: ${url}`);
+        const response = await fetch(url);
+        if (response.ok) {
+            const data = await response.json();
+            if (data && (data.supervisors || data.technicians)) {
+                return res.json({ 
+                    success: true, 
+                    info: `¡Conexión OK! Base de datos de Google Drive validada. Contiene ${data.supervisors?.length || 0} supervisores y ${data.technicians?.length || 0} técnicos.` 
+                });
+            } else {
+                return res.json({ 
+                    success: true, 
+                    info: '¡Conexión OK! La URL responde correctamente, pero el archivo velocity_db.json está vacío. Se inicializará con tu base de datos actual al guardar.' 
+                });
+            }
+        } else {
+            return res.status(response.status).json({ error: `Google retornó estado HTTP ${response.status}` });
+        }
+    } catch (e) {
+        return res.status(500).json({ error: `Error de conexión: ${e.message}` });
+    }
+});
+
 // Limpieza de estados online 
 setInterval(() => {
     const now = Date.now();
@@ -205,9 +302,77 @@ setInterval(() => {
     });
 }, 60000);
 
+app.post('/api/test-report-email', validateToken, async (req, res) => {
+    try {
+        console.log('[Velocity Reports] Solicitud de envío de reporte de prueba manual recibida...');
+        await sendDailyReportEmail();
+        res.json({ success: true, message: 'Reporte de prueba enviado. Revisa tu correo y logs del servidor.' });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── REPORTES DIARIOS AUTOMÁTICOS POR CORREO ─────────────────────────────
+let lastReportDay = '';
+
+async function sendDailyReportEmail() {
+    const db = getDB();
+    const url = db.settings?.googleSheetUrl;
+    if (!url || !url.startsWith('http')) {
+        console.log('[Velocity Reports] No se puede enviar reporte diario por correo: Google Apps Script URL no configurada.');
+        return;
+    }
+    
+    const recipient = db.settings?.reportRecipientEmail || (db.supervisors && db.supervisors[0] ? db.supervisors[0].email : '');
+    if (!recipient) {
+        console.log('[Velocity Reports] No se puede enviar reporte diario por correo: Email receptor no configurado.');
+        return;
+    }
+
+    console.log(`[Velocity Reports] Preparando reporte diario para enviar a: ${recipient}...`);
+
+    const payload = {
+        action: 'send_daily_report',
+        recipientEmail: recipient,
+        date: new Date().toLocaleDateString('es-ES'),
+        totalTrackedNaps: db.trackedNaps?.length || 0,
+        pendingNapsCount: db.trackedNaps?.filter(n => !n.resolved)?.length || 0
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        
+        if (response.ok) {
+            console.log('[Velocity Reports] Reporte diario enviado a Google Apps Script con éxito.');
+        } else {
+            console.warn('[Velocity Reports] Apps Script retornó error al enviar reporte:', response.status);
+        }
+    } catch (e) {
+        console.error('[Velocity Reports] Error de red al enviar reporte por correo:', e.message);
+    }
+}
+
+// Scheduler: revisar la hora cada 60 segundos
+setInterval(() => {
+    const now = new Date();
+    const hh = now.getHours();
+    const mm = now.getMinutes();
+    const todayStr = now.toISOString().split('T')[0];
+
+    if (hh === 23 && mm === 59 && lastReportDay !== todayStr) {
+        lastReportDay = todayStr;
+        sendDailyReportEmail();
+    }
+}, 60000);
+
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Velocity Server Seguro activo en puerto: ${PORT}`);
     console.log(`📂 Sirviendo archivos desde: ${path.join(__dirname, 'public')}`);
+    syncFromGoogleDrive();
 });
 
 

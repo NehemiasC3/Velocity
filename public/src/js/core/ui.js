@@ -19,9 +19,6 @@ function updateSystemStatus(online) {
     }
 }
 
-
-
-
 function debounce(fn, wait) {
     let timeout;
     return (...args) => {
@@ -29,8 +26,6 @@ function debounce(fn, wait) {
         timeout = setTimeout(() => fn.apply(this, args), wait);
     };
 }
-
-
 
 function showNotification(title, message, type = 'info') {
     const containerId = 'velocity-notifications';
@@ -89,8 +84,6 @@ function showNotification(title, message, type = 'info') {
     }, 6000);
 }
 
-
-
 function getRelativeTime(timestamp) {
     if (!timestamp) return 'Nunca';
     const diff = Math.floor((Date.now() - timestamp) / 1000);
@@ -99,28 +92,29 @@ function getRelativeTime(timestamp) {
     return `Hace ${mins} ${mins === 1 ? 'min' : 'min'}`;
 }
 
-
-
 function techColor(name) {
-    const key = TECNICOS_ACTIVOS.find(n => name?.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-    return key ? TECH_PALETTE[key] : '#6b7280';
+    if (!name) return '#6b7280';
+    const key = TECNICOS_ACTIVOS.find(n => name.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+    if (key && TECH_PALETTE[key]) return TECH_PALETTE[key];
+    
+    // Hash para generar un color HSL único pero consistente y elegante
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const h = Math.abs(hash % 360);
+    return `hsl(${h}, 60%, 45%)`;
 }
-
-
 
 function techInitials(name) {
     return (name || '??').split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 }
-
-
 
 function isActiveTech(name) {
     if (!name) return false;
     const firstWord = name.split(' ')[0].toLowerCase();
     return TECNICOS_ACTIVOS.some(n => n.split(' ')[0].toLowerCase() === firstWord);
 }
-
-
 
 function sinceBadge(iso) {
     if (!iso) return '';
@@ -129,8 +123,6 @@ function sinceBadge(iso) {
     if (days === 1) return '<span style="color:#0059bb;font-weight:700;font-size:16px;">Ayer</span>';
     return `<span style="color:#dc2626;font-weight:700;font-size:16px;">Hace ${days}d</span>`;
 }
-
-
 
 function statusBadge(s) {
     const map = {
@@ -143,17 +135,15 @@ function statusBadge(s) {
     return `<span style="background:${m.bg};color:${m.color};font-size:16px;font-weight:700;padding:3px 10px;border-radius:999px;white-space:nowrap;">${m.text}</span>`;
 }
 
-
-
 window.deleteInactiveUsers = function() {
     if(!confirm('¿Deseas limpiar las cuentas inactivas y técnicos que no están en la sincronización principal?')) return;
     
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    // Filtrar solo los que están en la paleta activa
     if(db.technicians) {
         db.technicians = db.technicians.filter(t => TECNICOS_ACTIVOS.some(n => t.name.toLowerCase().includes(n.toLowerCase().split(' ')[0])));
     }
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
     showNotification('Limpieza', 'Cuentas inactivas eliminadas', 'success');
     renderTab('users');
 }
@@ -165,7 +155,31 @@ function fmtDate(iso) {
     return `${d.getDate()} ${months[d.getMonth()]}.`;
 }
 
+window.showLoadingOverlay = function(message = 'Cargando...') {
+    const overlay = document.getElementById('loading-overlay');
+    const textEl = document.getElementById('loading-overlay-text');
+    if (overlay) {
+        if (textEl) textEl.textContent = message;
+        overlay.classList.remove('hidden');
+        // Force reflow
+        overlay.offsetWidth;
+        overlay.classList.remove('opacity-0', 'pointer-events-none');
+        overlay.classList.add('opacity-100');
+    }
+};
 
+window.hideLoadingOverlay = function() {
+    const overlay = document.getElementById('loading-overlay');
+    if (overlay) {
+        overlay.classList.remove('opacity-100');
+        overlay.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => {
+            if (overlay.classList.contains('opacity-0')) {
+                overlay.classList.add('hidden');
+            }
+        }, 300);
+    }
+};
 
 window.switchTab = function(tab) {
     state.tab = tab;
@@ -187,7 +201,12 @@ window.switchTab = function(tab) {
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
-    renderTab(tab);
+    // Elegant section loader overlay
+    window.showLoadingOverlay('Abriendo sección...');
+    setTimeout(() => {
+        renderTab(tab);
+        window.hideLoadingOverlay();
+    }, 180);
 }
 
 function renderTab(tab) {
@@ -219,5 +238,8 @@ function renderTab(tab) {
     if (tab === 'technicians' && typeof window.initTechsMap === 'function') {
         setTimeout(window.initTechsMap, 100);
     }
-}
 
+    if ((tab === 'orders' || tab === 'reports') && typeof window.loadLastCommentsForPlaceholders === 'function') {
+        setTimeout(window.loadLastCommentsForPlaceholders, 150);
+    }
+}

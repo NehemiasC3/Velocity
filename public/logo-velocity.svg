@@ -13,7 +13,4 @@
   
   <!-- Rayo de Velocidad (Sleek Tech) -->
   <path d="M280 120L160 300H240L220 400L340 220H260L280 120Z" fill="white" filter="drop-shadow(0 4px 10px rgba(0,0,0,0.3))"/>
-  
-  <!-- Texto Velocity (Bold Italic) -->
-  <text x="50%" y="460" text-anchor="middle" fill="white" font-family="Outfit, sans-serif" font-weight="900" font-size="64" letter-spacing="4">VELOCITY</text>
 </svg>

@@ -17,8 +17,9 @@ console.log('🚀 Velocity Supervisor v2.0.0-PRO cargado correctamente');
 // ── NAPs STATE ────────────────────────────────────────────────────────────
 function loadTrackedNaps() {
     try {
-        state.trackedNaps = JSON.parse(localStorage.getItem('Velocity_NAPs'));
-        if (!state.trackedNaps) {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        state.trackedNaps = db.trackedNaps;
+        if (!state.trackedNaps || !Array.isArray(state.trackedNaps)) {
             state.trackedNaps = [
                 { id:'n1', date:'2026-04-14', name:'NAP W-13', zone:'Wacuco', coords:'', ports:'Llena', comments:'', resolved:false },
                 { id:'n2', date:'2026-04-14', name:'NAP W-12', zone:'Wacuco', coords:'XG7V+P9Q Ipetí', ports:'', comments:'', resolved:false },
@@ -32,14 +33,23 @@ function loadTrackedNaps() {
                 { id:'n10', date:'2026-04-15', name:'NAP P 5', zone:'Santa Fe', coords:'8.679962, -78.141131', ports:'', comments:'Niveles en 19.95', resolved:false },
                 { id:'n11', date:'2026-04-15', name:'NAP EXP 71', zone:'Nicanor', coords:'8.554195, -78.036118', ports:'', comments:'Niveles en 23', resolved:false }
             ];
-            localStorage.setItem('Velocity_NAPs', JSON.stringify(state.trackedNaps));
+            db.trackedNaps = state.trackedNaps;
+            localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+            serverPush(db);
         }
     } catch(e) {
         state.trackedNaps = [];
     }
 }
 function saveTrackedNaps() {
-    localStorage.setItem('Velocity_NAPs', JSON.stringify(state.trackedNaps));
+    try {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        db.trackedNaps = state.trackedNaps;
+        localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+        serverPush(db);
+    } catch(e) {
+        console.error('Error saving tracked naps to sync state:', e);
+    }
 }
 
 window.setOrderSearch = function(val) {
@@ -160,7 +170,12 @@ function startPolling() {
 
     state.pollTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
-        await loadTodayOrders(true);
+        try {
+            await Promise.allSettled([
+                loadTodayOrders(true),
+                serverSync()
+            ]);
+        } catch(e) { console.error('Error en polling sync:', e); }
         state.lastSync = Date.now();
         if (state.tab === 'orders' || state.tab === 'dashboard') renderTab(state.tab);
     }, CFG.pollMs);
@@ -184,27 +199,41 @@ const Views = {};
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 Views.dashboard = () => {
-    const todayOrders = state.orders;
-    const total       = todayOrders.length;
-    const done        = todayOrders.filter(o => o.result === 'success').length;
-    const pending     = todayOrders.filter(o => o.state === 'pending').length;
-    const noNap       = todayOrders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
+    const fToday = state.finishedOrders || [];
+    const allTodayOrders = [...state.orders, ...fToday];
+    const total       = allTodayOrders.length;
+    const done        = fToday.length;
+    const pending     = state.orders.length;
+    const noNap       = state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
     
-    // Count active
-    const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
-    const activeCount = Object.values(tracking).filter(t => t.status === 'started').length;
+    const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    // Función para validar que la orden se inició hoy
+    const isToday = (timestamp) => {
+        if (!timestamp) return false;
+        const d = new Date(timestamp);
+        const today = new Date();
+        return d.getDate() === today.getDate() &&
+               d.getMonth() === today.getMonth() &&
+               d.getFullYear() === today.getFullYear();
+    };
+
+    // Para el supervisor, el estado de técnicos activos viene estrictamente del servidor
+    const tracking = dbSync.activeTracking || {};
+    const activeCount = Object.values(tracking).filter(t => t.status === 'started' && isToday(t.startTime)).length;
     const syncAgo     = state.lastSync ? Math.round((Date.now() - state.lastSync) / 1000) : null;
     const syncText    = syncAgo === null ? 'Sin sincronizar' : syncAgo < 60 ? 'Recién sincronizado' : `Hace ${Math.floor(syncAgo/60)}m`;
 
-    const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     const registeredTechs = dbSync.technicians || [];
-    const onlineStatus = JSON.parse(localStorage.getItem('Velocity_Online_Status') || '{}');
+    const onlineStatus = {
+        ...JSON.parse(localStorage.getItem('Velocity_Online_Status') || '{}'),
+        ...(dbSync.onlineStatus || {})
+    };
 
     // Tarjetas por técnico
     const techCards = TECNICOS_ACTIVOS.map(nombre => {
-        const myOrders  = todayOrders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
-        const myDone    = myOrders.filter(o => o.result === 'success').length;
-        const myPending = myOrders.filter(o => o.state === 'pending').length;
+        const myOrders  = allTodayOrders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+        const myDone    = myOrders.filter(o => ['finalizada','finalizado','closed','finalized'].includes(o.state.toLowerCase())).length;
+        const myPending = myOrders.filter(o => ['pending','started','in_progress','to_reschedule','abierta','open'].includes(o.state.toLowerCase())).length;
         const pct       = myOrders.length > 0 ? Math.round(myDone / myOrders.length * 100) : 0;
         const color     = TECH_PALETTE[nombre];
         const initials  = techInitials(nombre);
@@ -245,8 +274,15 @@ Views.dashboard = () => {
         </div>`;
     }).join('');
 
+    setTimeout(() => {
+        if (typeof window.updateDashboardCharts === 'function') {
+            window.updateDashboardCharts();
+        }
+    }, 80);
+
     return `
     <div class="space-y-6">
+
         <!-- Stats globales -->
         <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div class="bg-primary text-white p-5 rounded-2xl relative overflow-hidden">
@@ -265,15 +301,39 @@ Views.dashboard = () => {
                 <h3 class="text-4xl font-black mt-1 text-secondary">${pending}</h3>
                 <p class="text-xs text-on-surface-variant mt-1">en espera</p>
             </div>
-            <div class="bg-surface-container-lowest border border-tertiary-fixed-dim/30 p-5 rounded-2xl relative overflow-hidden" style="background:rgba(16,185,129,0.05);">
-                <p class="text-[10px] font-bold uppercase tracking-widest" style="color:#059669;">En curso</p>
+            <div onclick="window.showActiveTechsModal()" class="bg-surface-container-lowest border border-tertiary-fixed-dim/30 p-5 rounded-2xl relative overflow-hidden cursor-pointer hover:shadow-md transition-all active:scale-95 group" style="background:rgba(16,185,129,0.05);">
+                <p class="text-[10px] font-bold uppercase tracking-widest animate-pulse" style="color:#059669;">En curso</p>
                 <h3 class="text-4xl font-black mt-1" style="color:#059669;">${activeCount}</h3>
-                <p class="text-xs text-on-surface-variant mt-1">técnicos activos</p>
+                <p class="text-xs text-on-surface-variant mt-1 group-hover:text-secondary transition-colors">técnicos activos <span class="material-symbols-outlined text-xs align-middle">open_in_new</span></p>
             </div>
             <div class="bg-surface-container-lowest border border-error/20 p-5 rounded-2xl relative overflow-hidden">
                 <p class="text-[10px] font-bold uppercase tracking-widest text-error">Sin NAP</p>
                 <h3 class="text-4xl font-black mt-1 text-error">${noNap}</h3>
                 <p class="text-xs text-on-surface-variant mt-1">requieren asignación</p>
+            </div>
+        </div>
+
+        <!-- Charts Pro Dashboard -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Chart 1: Rendimiento por Técnico -->
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-[2rem] shadow-sm flex flex-col h-[340px]">
+                <h4 class="font-black text-on-surface text-sm mb-4 flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-secondary text-lg">bar_chart</span>
+                    Rendimiento por Técnico (Órdenes de Hoy)
+                </h4>
+                <div class="flex-1 relative min-h-0">
+                    <canvas id="chart-tech-performance"></canvas>
+                </div>
+            </div>
+            <!-- Chart 2: Distribución por Tipo de Trabajo -->
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-[2rem] shadow-sm flex flex-col h-[340px]">
+                <h4 class="font-black text-on-surface text-sm mb-4 flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-secondary text-lg">donut_large</span>
+                    Distribución de Labores del Día
+                </h4>
+                <div class="flex-1 relative min-h-0">
+                    <canvas id="chart-job-distribution"></canvas>
+                </div>
             </div>
         </div>
 
@@ -299,8 +359,9 @@ Views.dashboard = () => {
 Views.orders = () => {
     const { type, tech, zone } = state.orderFilter;
     
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const fToday = state.finishedOrders.filter(o => o.endDay === todayStr);
+    // state.finishedOrders ya viene filtrado por el día de hoy desde loadTodayOrders
+    const fToday = state.finishedOrders || [];
+    const allTodayOrders = [...state.orders, ...fToday];
 
     // 1. Filtrar Activas
     let filteredActive = type === 'no_nap'
@@ -319,7 +380,7 @@ Views.orders = () => {
     if (zone !== 'all') filteredFinished = filteredFinished.filter(o => o.zone === zone);
 
     // Recopilar técnicos y zonas para filtros dinámicos (de ambas listas)
-    const baseForFilters = [...state.orders, ...fToday];
+    const baseForFilters = allTodayOrders;
     const techs = [...new Set(baseForFilters.map(o => o.techName).filter(isActiveTech))].sort();
     const zones = [...new Set(baseForFilters.map(o => o.zone).filter(Boolean))].sort();
 
@@ -352,7 +413,7 @@ Views.orders = () => {
     filteredFinished.sort(sortFn);
 
     // KPI Calculations
-    const totalDay = state.orders.length + fToday.length;
+    const totalDay = allTodayOrders.length;
     const completionRate = totalDay > 0 ? Math.round((fToday.length / totalDay) * 100) : 0;
     const criticalNoNap = state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
     
@@ -363,7 +424,7 @@ Views.orders = () => {
 
     // Tech Workload Logic
     const techStats = techs.map(name => {
-        const tOrders = [...state.orders, ...fToday].filter(o => o.techName === name);
+        const tOrders = allTodayOrders.filter(o => o.techName === name);
         const tDone = tOrders.filter(o => ['finalizada','finalizado','closed'].includes(o.state.toLowerCase())).length;
         const tPending = tOrders.length - tDone;
         return { name, done: tDone, pending: tPending, total: tOrders.length };
@@ -416,6 +477,7 @@ Views.orders = () => {
             const color    = o.typeColor;
             const tColor   = techColor(o.techName);
             const initials = techInitials(o.techName);
+            const isFinished = ['finalizada', 'finalizado', 'closed', 'finalized'].includes((o.state || '').toLowerCase());
             const napBadge = (o.kind === 'technical' || o.kind === 'installation')
                 ? (o.nap
                     ? `<span style="background:#f0fdf4;color:#059669;font-size:14px;font-weight:700;padding:3px 9px;border-radius:999px;">✓ ${o.nap}</span>`
@@ -433,6 +495,7 @@ Views.orders = () => {
                                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background:${color}15;color:${color}">${o.typeLabel}</span>
                             </div>
                             <p class="font-bold text-on-surface text-sm truncate">${o.client}</p>
+                            ${isFinished ? `<div data-last-comment-order-id="${o.rawId || o.id}" class="text-[11px] text-secondary mt-1 font-semibold italic flex items-center gap-1 opacity-90"><span class="material-symbols-outlined text-[12px] animate-spin">sync</span><span>Obteniendo nota de cierre...</span></div>` : ''}
                         </div>
                     </div>
                 </td>
@@ -527,7 +590,7 @@ Views.orders = () => {
                 </div>
             </div>
             <div class="flex items-center gap-3">
-                <button onclick="window.exportOrdersToCSV()" class="flex items-center gap-2 border border-outline-variant/30 text-on-surface-variant px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
+                <button onclick="window.openExportOrdersModal()" class="flex items-center gap-2 border border-outline-variant/30 text-on-surface-variant px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
                     <span class="material-symbols-outlined text-[18px]">download</span> Exportar
                 </button>
                 <button onclick="window.syncNow()" class="flex items-center gap-2 border border-outline-variant/30 text-secondary px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
@@ -942,7 +1005,8 @@ Views.reports = () => {
             const client = state.clients[issue.client_id] || {};
             const title  = issue.title || issue.description || '';
             const zm = title.match(/\(([^)]+)\)/);
-            const zone = client.zone || (zm ? zm[1] : '') || 'Sin zona';
+            // Priorizamos el nombre en paréntesis sobre la zona del cliente
+            const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
             if (!byZone[zone]) byZone[zone] = [];
             byZone[zone].push(issue);
         });
@@ -981,7 +1045,7 @@ Views.reports = () => {
             const client   = state.clients[issue.client_id] || {};
             const title    = issue.title || issue.description || 'Sin titulo';
             const zm       = title.match(/\(([^)]+)\)/);
-            const zoneName = zm ? zm[1] : (client.zone || '');
+            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
             const cleanT   = title.replace(/\s*\([^)]*\)\s*/g,'').trim();
             const category = state.categories[issue.category_id] || '';
             const vencDate = issue.expires_at ? new Date(issue.expires_at) : null;
@@ -1025,11 +1089,6 @@ Views.reports = () => {
                         <p style="font-size:14.5px;font-weight:700;color:#4b5563;margin-top:4px;">${issues.length} reporte${issues.length!==1?'s':''}</p>
                     </div>
                 </div>
-                ${techName !== 'Sin asignar' ? `<button onclick="window.sendReportWA('${waText}')"
-                    style="display:flex;align-items:center;gap:5px;padding:7px 12px;background:#25D366;color:white;border:none;border-radius:10px;font-size:12px;font-weight:700;cursor:pointer;flex-shrink:0;">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    WhatsApp
-                </button>` : ''}
             </div>
             <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
             <div style="padding:0 16px 12px;">
@@ -1055,7 +1114,7 @@ Views.reports = () => {
             const c = state.clients[i.client_id]||{};
             const t = i.title||i.description||'';
             const zm = t.match(/\(([^)]+)\)/);
-            const z = c.zone||(zm?zm[1]:'')||'Sin zona';
+            const z = (zm?zm[1]:(c.zone||''))||'Sin zona';
             bz[z] = (bz[z]||0)+1;
         });
         globalLines.push(`*${name}* — ${issues.length} reporte${issues.length!==1?'s':''}`);
@@ -1306,6 +1365,24 @@ Views.reports = () => {
                     const d = new Date(iso);
                     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 };
+                const getElapsedTime = (iso) => {
+                    if (!iso) return '—';
+                    const closed = new Date(iso);
+                    const now = new Date();
+                    const diffMs = now.getTime() - closed.getTime();
+                    if (isNaN(diffMs)) return '—';
+                    if (diffMs < 0) return 'Hace unos momentos';
+                    const diffMins = Math.floor(diffMs / (1000 * 60));
+                    if (diffMins < 1) return 'Hace instantes';
+                    if (diffMins < 60) return `Hace ${diffMins}m`;
+                    const diffHours = Math.floor(diffMins / 60);
+                    const remMins = diffMins % 60;
+                    if (diffHours < 24) {
+                        return `Hace ${diffHours}h ${remMins > 0 ? remMins + 'm' : ''}`;
+                    }
+                    const diffDays = Math.floor(diffHours / 24);
+                    return `Hace ${diffDays}d`;
+                };
                 const rows = coll.map(i => {
                     let tName = state.techs[i.assignable_id];
                     if (!tName) {
@@ -1313,26 +1390,80 @@ Views.reports = () => {
                         const f = (db.technicians || []).find(t => String(t.id) === String(i.assignable_id));
                         tName = f?.name || 'Sin asignar';
                     }
+                    
+                    const finishedTime = i.closed_at || i.finalized_at || i.updated_at;
+                    const timeStr = formatTime(finishedTime);
+                    const elapsedStr = getElapsedTime(finishedTime);
+                    const clientName = state.clients[i.client_id]?.name || i.title || 'Reporte';
+                    
                     return `
-                    <div style="display:flex;align-items:center;padding:10px 0;border-bottom:1px solid #f3f4f6;gap:12px;">
-                        <div style="background:#f3f4f6;color:#9ca3af;font-size:11px;font-weight:800;padding:2px 8px;border-radius:6px;min-width:45px;text-align:center;">#${i.public_id}</div>
-                        <div style="flex:1;min-width:0;">
-                            <p style="font-size:13px;font-weight:700;color:#374151;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${(state.clients[i.client_id]?.name || i.title || 'Reporte').slice(0, 30)}</p>
-                            <p style="font-size:11px;color:#9ca3af;margin:0;">Finalizado por ${tName.split(' ')[0]} a las ${formatTime(i.closed_at || i.finalized_at || i.updated_at)}</p>
-                        </div>
-                        <button onclick="window.openFeedbackModal('${i.id}', true)" class="w-8 h-8 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all">
-                            <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                        </button>
-                    </div>`;
+                    <tr class="hover:bg-surface-container-low/30 transition-colors">
+                        <!-- Columna 1: Reporte / Orden -->
+                        <td class="py-3 px-4">
+                            <div class="flex items-center gap-2">
+                                <span class="bg-surface-container text-on-surface-variant font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-outline-variant/10">
+                                    #${i.public_id || '—'}
+                                </span>
+                                <span class="text-sm font-bold text-on-surface truncate max-w-[240px]" title="${clientName}">
+                                    ${clientName}
+                                </span>
+                            </div>
+                            <div data-last-comment-issue-id="${i.id}" class="text-[11px] text-secondary mt-1.5 ml-1 font-semibold italic flex items-center gap-1 opacity-90"><span class="material-symbols-outlined text-[12px] animate-spin">sync</span><span>Obteniendo nota de cierre...</span></div>
+                        </td>
+                        <!-- Columna 2: Técnico -->
+                        <td class="py-3 px-4">
+                            <div class="flex items-center gap-2">
+                                <div class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-black text-[10px]">
+                                    ${tName === 'Sin asignar' ? 'SA' : tName.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+                                </div>
+                                <span class="text-xs font-bold text-on-surface-variant">
+                                    ${tName}
+                                </span>
+                            </div>
+                        </td>
+                        <!-- Columna 3: Hora finalizado -->
+                        <td class="py-3 px-4 text-right">
+                            <span class="text-xs font-bold text-on-surface-variant">
+                                ${timeStr}
+                            </span>
+                        </td>
+                        <!-- Columna 4: Tiempo transcurrido -->
+                        <td class="py-3 px-4 text-right">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                                <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+                                ${elapsedStr}
+                            </span>
+                        </td>
+                        <!-- Columna 5: Acción Bitácora -->
+                        <td class="py-3 px-4 text-center">
+                            <button onclick="window.openFeedbackModal('${i.id}', true)" class="w-8 h-8 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all mx-auto" title="Ver Bitácora">
+                                <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                            </button>
+                        </td>
+                    </tr>`;
                 }).join('');
 
                 return `
-                <div style="margin-top:24px;">
-                    <p style="font-size:15px;font-weight:700;color:#059669;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px;display:flex;align-items:center;gap:6px;">
-                        <span class="material-symbols-outlined" style="font-size:18px;">check_circle</span> ${titleText} (${coll.length})
-                    </p>
-                    <div style="border:1px solid #f0f0f0;border-radius:12px;overflow:hidden;opacity:0.85;filter:grayscale(30%);box-shadow:0 1px 2px rgba(0,0,0,0.02);padding:0 16px;">
-                        ${rows}
+                <div class="mt-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] shadow-md space-y-4">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                        <h3 class="text-xs font-black text-on-surface uppercase tracking-widest">${titleText} (${coll.length})</h3>
+                    </div>
+                    <div class="overflow-x-auto w-full rounded-2xl border border-outline-variant/10 bg-surface-container-lowest/60">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="border-b border-outline-variant/10 bg-surface-container-low/50">
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Reporte / Orden</th>
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Técnico</th>
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Finalizado</th>
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Tiempo Transcurrido</th>
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center w-12">Detalle</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-outline-variant/5">
+                                ${rows}
+                            </tbody>
+                        </table>
                     </div>
                 </div>`;
             };
@@ -1340,7 +1471,23 @@ Views.reports = () => {
             const tStr = new Date().toLocaleDateString('en-CA');
             const fiToday = state.finishedIssues.filter(i => (i.updated_at || '').slice(0,10) === tStr);
 
-            return renderFinishedList(fiToday, 'Reportes Finalizados (Hoy)');
+            const finishedHtml = renderFinishedList(fiToday, 'Reportes Finalizados (Hoy)');
+            const auditHtml = `
+            <div class="mt-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] shadow-md space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">history_edu</span>
+                        <h3 class="text-xs font-black text-on-surface uppercase tracking-widest text-left">Auditoría de Comentarios (Hoy)</h3>
+                    </div>
+                    <button onclick="window.loadRecentCommentsAudit()" class="flex items-center gap-1.5 text-xs font-bold text-secondary hover:bg-secondary/10 px-3 py-1.5 rounded-xl border border-secondary/15 transition-all">
+                        <span class="material-symbols-outlined text-sm">sync</span> Cargar Auditoría
+                    </button>
+                </div>
+                <div id="comments-audit-container" class="space-y-3">
+                    <p class="text-xs text-on-surface-variant/60 italic p-4 text-center">Haz clic en "Cargar Auditoría" para consolidar los comentarios ingresados hoy por los técnicos en las órdenes y reportes finalizados.</p>
+                </div>
+            </div>`;
+            return finishedHtml + auditHtml;
         })()}
     </div>`;
 };
@@ -1387,7 +1534,16 @@ Views.naps = () => {
         return `
         <tr style="border-bottom:1px solid #f3f4f6;background:${n.resolved ? '#f8fafc' : 'white'};opacity:${n.resolved ? '0.7' : '1'};transition:all 0.2s;">
             <td style="padding:12px 14px;white-space:nowrap;font-size:14px;color:#374151;">${n.date}</td>
-            <td style="padding:12px 14px;font-weight:700;color:#111827;font-size:15px;">${n.name}</td>
+            <td style="padding:12px 14px;font-weight:700;color:#111827;font-size:15px;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span>${n.name}</span>
+                    ${n.wisproId ? `
+                        <span class="material-symbols-outlined text-[16px] text-emerald-500" title="Validada en Wispro" style="cursor:help;">cloud_done</span>
+                    ` : `
+                        <span class="material-symbols-outlined text-[16px] text-gray-300" title="Solo local (No vinculada en Wispro)" style="cursor:help;">cloud_off</span>
+                    `}
+                </div>
+            </td>
             <td style="padding:12px 14px;font-size:14px;color:#374151;">${n.zone}</td>
             <td style="padding:12px 14px;font-size:13px;color:#0059bb;font-weight:600;">
                 <div style="display:flex;align-items:center;gap:6px;">
@@ -1415,10 +1571,19 @@ Views.naps = () => {
 
     return `
     <div>
-        <div class="flex items-center justify-between mb-6">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
             <div>
                 <h2 class="text-2xl font-extrabold text-on-surface">Reportes de NAPs</h2>
                 <p class="text-sm text-on-surface-variant mt-1">Control de niveles altos y saturación de puertos detectados en campo</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <input type="file" id="nap-import-file" accept=".csv" class="hidden" onchange="window.importNapsFromCSV(event)">
+                <button onclick="document.getElementById('nap-import-file').click()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[16px]">publish</span> Importar CSV
+                </button>
+                <button onclick="window.exportNapsToCSV()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[16px]">download</span> Exportar CSV
+                </button>
             </div>
         </div>
 
@@ -1594,7 +1759,7 @@ window.editNapTracker = (id) => {
 
 window.closeNapTrackerModal = () => document.getElementById('nap-tracker-modal').classList.add('hidden');
 
-window.saveNapTracker = (e) => {
+window.saveNapTracker = async (e) => {
     e.preventDefault();
     const id = document.getElementById('nt-id').value;
     const syncWispro = document.getElementById('nt-sync-wispro').checked;
@@ -1602,17 +1767,38 @@ window.saveNapTracker = (e) => {
     const nap = {
         id,
         date: document.getElementById('nt-date').value,
-        name: document.getElementById('nt-name').value,
-        zone: document.getElementById('nt-zone').value,
-        techName: document.getElementById('nt-tech').value,
-        wisproId: document.getElementById('nt-id-wispro').value,
-        coords: document.getElementById('nt-coords').value,
-        ports: document.getElementById('nt-ports').value,
-        levels: document.getElementById('nt-levels').value,
-        action: document.getElementById('nt-action').value,
-        comments: document.getElementById('nt-comments').value,
+        name: document.getElementById('nt-name').value.trim(),
+        zone: document.getElementById('nt-zone').value.trim(),
+        techName: document.getElementById('nt-tech').value.trim(),
+        wisproId: document.getElementById('nt-id-wispro').value.trim(),
+        coords: document.getElementById('nt-coords').value.trim(),
+        ports: document.getElementById('nt-ports').value.trim(),
+        levels: document.getElementById('nt-levels').value.trim(),
+        action: document.getElementById('nt-action').value.trim(),
+        comments: document.getElementById('nt-comments').value.trim(),
         resolved: false
     };
+
+    // Si no está validada en Wispro pero se tiene el nombre, buscarla en segundo plano para enriquecer los datos vacíos
+    if (!nap.wisproId && nap.name) {
+        try {
+            const allNaps = await apiPages('naps', 5);
+            const found = allNaps.find(n => n.name.toLowerCase() === nap.name.toLowerCase());
+            if (found) {
+                nap.wisproId = found.id;
+                if (!nap.coords && found.latitude && found.longitude) {
+                    nap.coords = `${found.latitude}, ${found.longitude}`;
+                }
+                if (!nap.ports) {
+                    const total = found.ports_count || 8;
+                    const occ = found.contracts_count || 0;
+                    nap.ports = `Ocupados: ${occ}, Libres: ${total - occ} (Total: ${total})`;
+                }
+            }
+        } catch (err) {
+            console.warn('[Velocity] Error en búsqueda automática de NAP en Wispro:', err);
+        }
+    }
 
     if (syncWispro && nap.wisproId) {
         showNotification('Wispro', 'Sincronizando reporte con Wispro...', 'info');
@@ -1662,22 +1848,200 @@ window.setNapFilter = (key, value) => {
     if(state.tab === 'naps') renderTab('naps');
 };
 
+// Auxiliar para parsear CSV respetando comillas y comas
+function parseCSV(text) {
+    const lines = [];
+    let row = [""];
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+        const c = text[i];
+        const next = text[i+1];
+        if (c === '"') {
+            if (inQuotes && next === '"') {
+                row[row.length - 1] += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+        } else if (c === ',' && !inQuotes) {
+            row.push("");
+        } else if ((c === '\r' || c === '\n') && !inQuotes) {
+            if (c === '\r' && next === '\n') { i++; }
+            lines.push(row);
+            row = [""];
+        } else {
+            row[row.length - 1] += c;
+        }
+    }
+    if (row.length > 1 || row[0] !== "") {
+        lines.push(row);
+    }
+    return lines;
+}
+
+window.exportNapsToCSV = function() {
+    const list = state.trackedNaps;
+    if (!list || list.length === 0) {
+        alert('No hay registros de NAPs para exportar.');
+        return;
+    }
+    const headers = ['Fecha', 'NAP', 'Zona', 'Tecnico', 'Coordenadas', 'Puertos', 'Nivel/dBm', 'Accion', 'Comentarios', 'Resuelto'];
+    const rows = list.map(n => [
+        n.date || '',
+        n.name || '',
+        n.zone || '',
+        n.techName || '',
+        n.coords || '',
+        n.ports || '',
+        n.levels || '',
+        n.action || '',
+        n.comments || '',
+        n.resolved ? 'SI' : 'NO'
+    ]);
+    
+    let csvContent = '\uFEFF'; // BOM para que Excel detecte UTF-8 correctamente
+    csvContent += [headers.join(','), ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `reporte_naps_${new Date().toLocaleDateString('en-CA')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+window.importNapsFromCSV = function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            const text = e.target.result;
+            const rows = parseCSV(text);
+            if (rows.length < 2) {
+                alert('El archivo CSV está vacío o no contiene suficientes filas.');
+                return;
+            }
+            
+            // Normalizar cabeceras de la primera fila
+            const headers = rows[0].map(h => h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+            
+            const idx = {
+                date: headers.findIndex(h => h.includes('fecha')),
+                name: headers.findIndex(h => h.includes('nap') || h.includes('nombre') || h.includes('caja')),
+                zone: headers.findIndex(h => h.includes('zona') || h.includes('sector')),
+                techName: headers.findIndex(h => h.includes('tecnico') || h.includes('creado')),
+                coords: headers.findIndex(h => h.includes('coordenadas') || h.includes('coords') || h.includes('ubicacion')),
+                ports: headers.findIndex(h => h.includes('puertos') || h.includes('puerto')),
+                levels: headers.findIndex(h => h.includes('nivel') || h.includes('dbm') || h.includes('senal')),
+                action: headers.findIndex(h => h.includes('accion') || h.includes('solucion')),
+                comments: headers.findIndex(h => h.includes('comentarios') || h.includes('comentario') || h.includes('observa') || h.includes('nota'))
+            };
+
+            if (idx.name === -1) {
+                alert('No se encontró una columna para el nombre de la NAP (ej: "NAP", "Nombre", "Caja"). Por favor verifica las cabeceras.');
+                return;
+            }
+
+            // Descargar listado de NAPs desde Wispro de forma paralela para enriquecer datos en lote
+            let allWisproNaps = [];
+            try {
+                allWisproNaps = await apiPages('naps', 5);
+            } catch (err) {
+                console.warn('[Velocity] No se pudieron descargar NAPs de Wispro para enriquecer el CSV:', err);
+            }
+
+            let importCount = 0;
+            const todayStr = new Date().toLocaleDateString('en-CA');
+
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (row.length === 0 || row.join('').trim() === '') continue;
+                
+                const napName = row[idx.name] ? row[idx.name].trim() : '';
+                if (!napName) continue;
+
+                const ts = Date.now().toString().slice(-6);
+                const rnd = Math.random().toString(36).substr(2, 4);
+                
+                let finalCoords = idx.coords !== -1 && row[idx.coords] ? row[idx.coords].trim() : '';
+                let finalPorts = idx.ports !== -1 && row[idx.ports] ? row[idx.ports].trim() : '';
+                let wisproId = '';
+
+                // Intentar enriquecer desde Wispro
+                const foundWispro = allWisproNaps.find(wn => wn.name.toLowerCase() === napName.toLowerCase());
+                if (foundWispro) {
+                    wisproId = foundWispro.id;
+                    if (!finalCoords && foundWispro.latitude && foundWispro.longitude) {
+                        finalCoords = `${foundWispro.latitude}, ${foundWispro.longitude}`;
+                    }
+                    if (!finalPorts) {
+                        const total = foundWispro.ports_count || 8;
+                        const occ = foundWispro.contracts_count || 0;
+                        finalPorts = `Ocupados: ${occ}, Libres: ${total - occ} (Total: ${total})`;
+                    }
+                }
+                
+                const newNap = {
+                    id: `NAP-${ts}-${rnd}-${i}`,
+                    date: idx.date !== -1 && row[idx.date] ? row[idx.date].trim() : todayStr,
+                    name: napName,
+                    zone: idx.zone !== -1 && row[idx.zone] ? row[idx.zone].trim() : 'General',
+                    techName: idx.techName !== -1 && row[idx.techName] ? row[idx.techName].trim() : '—',
+                    coords: finalCoords,
+                    ports: finalPorts,
+                    wisproId: wisproId,
+                    levels: idx.levels !== -1 && row[idx.levels] ? row[idx.levels].trim() : '',
+                    action: idx.action !== -1 && row[idx.action] ? row[idx.action].trim() : '',
+                    comments: idx.comments !== -1 && row[idx.comments] ? row[idx.comments].trim() : '',
+                    resolved: false
+                };
+
+                state.trackedNaps.push(newNap);
+                importCount++;
+            }
+
+            if (importCount > 0) {
+                saveTrackedNaps();
+                renderTab('naps');
+                showNotification('Importación Exitosa', `Se importaron ${importCount} registros de NAPs correctamente.`, 'success');
+            } else {
+                alert('No se importó ninguna fila. Verifica que los datos no estén vacíos.');
+            }
+        } catch (error) {
+            console.error(error);
+            alert('Ocurrió un error al procesar el archivo CSV: ' + error.message);
+        }
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+};
+
 // ── INTEGRACIÓN WISPRO NAPs ────────────────────────────────────────────────
 window.validateNapInWispro = async function() {
     const name = document.getElementById('nt-name').value.trim();
     const resEl = document.getElementById('nt-validation-result');
     if (!name) return;
 
-    resEl.innerHTML = '<span class="text-gray-400">Buscando...</span>';
+    resEl.innerHTML = '<span class="text-gray-400">Buscando en Wispro...</span>';
     try {
-        // Buscamos todas las NAPs y filtramos por nombre (la API no suele tener búsqueda parcial exacta por query)
-        const allNaps = await apiPages('naps', 5); // Probamos 5 páginas
+        const allNaps = await apiPages('naps', 5);
         const found = allNaps.find(n => n.name.toLowerCase() === name.toLowerCase());
 
         if (found) {
-            resEl.innerHTML = `<span class="text-emerald-500">✓ Encontrada (ID: ${found.public_id}) - ${found.contracts_count} contratos</span>`;
-            document.getElementById('nt-coords').value = `${found.latitude}, ${found.longitude}`;
-            // Guardamos el ID real de Wispro para futuras consultas
+            const total = found.ports_count || 8;
+            const occ = found.contracts_count || 0;
+            const free = total - occ;
+            
+            resEl.innerHTML = `<span class="text-emerald-500">✓ Encontrada en Wispro (ID: ${found.public_id})</span>`;
+            
+            if (found.latitude && found.longitude) {
+                document.getElementById('nt-coords').value = `${found.latitude}, ${found.longitude}`;
+            }
+            
+            document.getElementById('nt-ports').value = `Ocupados: ${occ}, Libres: ${free} (Total: ${total})`;
             document.getElementById('nt-id-wispro').value = found.id;
         } else {
             resEl.innerHTML = '<span class="text-error">⚠ No encontrada en Wispro</span>';
@@ -1828,9 +2192,6 @@ Views.users = () => {
                 </div>
             </div>
             <div class="flex items-center gap-2">
-                <button onclick="window.toggleSimulatedOnline('${t.id}')" class="text-[9px] font-black uppercase text-secondary hover:bg-secondary/10 px-2 py-1 rounded-lg transition-all">
-                    [Simular Login]
-                </button>
                 <span class="text-[10px] font-bold px-2 py-1 rounded-full ${t.disabled ? 'bg-error-container text-error' : 'bg-tertiary-fixed-dim/30 text-on-tertiary-container'}">
                     ${t.disabled ? 'Inactivo' : 'Activo'}
                 </span>
@@ -1953,6 +2314,37 @@ Views.settings = () => {
             <div id="conn-result" class="hidden text-xs font-bold p-3 rounded-xl"></div>
         </div>
 
+        <!-- Almacenamiento Cloud (Google Drive) -->
+        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="material-symbols-outlined text-secondary">cloud</span>
+                <h3 class="font-bold text-on-surface">Almacenamiento en la Nube</h3>
+            </div>
+            <p class="text-xs text-on-surface-variant leading-relaxed">Vincule su cuenta de Google Drive / Sheets mediante una URL de Google Apps Script. Esto permite almacenar la base de datos de manera persistente en la nube y evitar pérdida de datos al desplegar en servidores stateless como Railway.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">URL de Web App (Google Apps Script)</label>
+                    <input type="text" id="set-gdrive-url" value="${s.googleSheetUrl || ''}" class="w-full mt-1 bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors" placeholder="https://script.google.com/macros/s/.../exec">
+                </div>
+                <div>
+                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Email del Receptor de Reportes</label>
+                    <input type="email" id="set-report-email" value="${s.reportRecipientEmail || ''}" class="w-full mt-1 bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors" placeholder="correo@empresa.com">
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <button onclick="window.saveGoogleDriveUrl()" class="kinetic-gradient text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">cloud_sync</span> Guardar Ajustes
+                </button>
+                <button onclick="window.testGoogleDriveConnection()" class="border border-secondary text-secondary py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-secondary/5 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">wifi_tethering</span> Probar Conexión
+                </button>
+                <button onclick="window.testReportEmail()" class="border border-purple-600 text-purple-600 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-purple-500/5 active:scale-95">
+                    <span class="material-symbols-outlined text-sm">mail</span> Reporte de Prueba
+                </button>
+            </div>
+            <div id="gdrive-conn-result" class="hidden text-xs font-bold p-3 rounded-xl"></div>
+        </div>
+
         <!-- Cache -->
         <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20">
             <div class="flex items-center gap-2 mb-4">
@@ -2070,18 +2462,23 @@ window.sortIssues = function(col) {
 };
 
 window.syncNow = async function() {
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Sincronizando con Wispro...');
     const icons = document.querySelectorAll('.material-symbols-outlined');
     icons.forEach(i => {
         if (i.textContent.trim() === 'sync') i.classList.add('animate-spin');
     });
 
     try {
-        await loadTodayOrders(true);
+        await Promise.allSettled([
+            loadTodayOrders(true),
+            serverSync()
+        ]);
         state.lastSync = Date.now();
         if (typeof renderTab === 'function') renderTab(state.tab);
     } catch(e) { console.error(e); }
 
     icons.forEach(i => i.classList.remove('animate-spin'));
+    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
 };
 
 // ── MIGRACIÓN DE DATOS ──────────────────────────────────────────────────
@@ -2240,6 +2637,7 @@ window.loadSupervisorDemo = async function() {
 };
 
 window.refreshIssues = async function() {
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Actualizando reportes...');
     const icons = document.querySelectorAll('.material-symbols-outlined');
     icons.forEach(i => {
         if (i.textContent.trim() === 'sync') i.classList.add('animate-spin');
@@ -2251,6 +2649,7 @@ window.refreshIssues = async function() {
     } catch(e) { console.error(e); }
     
     icons.forEach(i => i.classList.remove('animate-spin'));
+    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
 };
 
 window.openTechModal = function(nombre) {
@@ -2415,6 +2814,74 @@ window.testConnection = async function() {
     }
 };
 
+window.saveGoogleDriveUrl = function() {
+    const url = document.getElementById('set-gdrive-url')?.value.trim();
+    const email = document.getElementById('set-report-email')?.value.trim();
+    const db  = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.settings) db.settings = {};
+    db.settings.googleSheetUrl = url;
+    db.settings.reportRecipientEmail = email;
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    alert('✅ Configuración de Google Drive y Correo guardada con éxito.');
+};
+
+window.testReportEmail = async function() {
+    try {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        const url = db.settings?.googleSheetUrl;
+        const email = db.settings?.reportRecipientEmail;
+        if (!url || !url.startsWith('http')) {
+            alert('❌ Debes guardar primero una URL válida de Google Apps Script.');
+            return;
+        }
+        if (!email) {
+            alert('❌ Debes configurar e ingresar un correo electrónico de receptor.');
+            return;
+        }
+        
+        if (!confirm(`¿Deseas enviar un reporte de prueba por correo a: ${email} ahora mismo?`)) return;
+        
+        const res = await apiFetch('/api/test-report-email', { method: 'POST' });
+        if (res && res.success) {
+            alert('✅ ' + res.message);
+        } else {
+            alert('❌ Error al intentar enviar el reporte.');
+        }
+    } catch(e) {
+        alert('❌ Error: ' + e.message);
+    }
+};
+
+window.testGoogleDriveConnection = async function() {
+    const url = document.getElementById('set-gdrive-url')?.value.trim();
+    const resultEl = document.getElementById('gdrive-conn-result');
+    if (!resultEl) return;
+    if (!url) {
+        alert('Por favor, ingresa una URL válida.');
+        return;
+    }
+    resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-surface-container text-on-surface-variant';
+    resultEl.textContent = '⏳ Conectando con Google Drive...';
+    resultEl.classList.remove('hidden');
+    
+    try {
+        const res = await apiFetch('/api/test-gdrive', {
+            method: 'POST',
+            data: { url: url }
+        });
+        if (res && res.success) {
+            resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-green-50 text-green-700';
+            resultEl.textContent = res.info || '✅ Conexión con Google Drive exitosa';
+        } else {
+            throw new Error(res?.error || 'Respuesta inválida del servidor');
+        }
+    } catch(e) {
+        resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-red-50 text-red-700';
+        resultEl.textContent = `❌ Error: ${e.message || e}`;
+    }
+};
+
 
 window.clearAllCache = function() {
     if (!confirm('¿Limpiar todo el cache? Se volverá a descargar todo de Wispro.')) return;
@@ -2539,6 +3006,11 @@ window.saveUser = function(event) {
     const pass     = document.getElementById('u-pass').value;
     const role     = document.getElementById('u-role').value;
 
+    if (pass && pass.length < 6) {
+        alert('❌ La contraseña debe tener al menos 6 caracteres');
+        return;
+    }
+
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     if (!db.supervisors) db.supervisors = [];
     if (!db.technicians) db.technicians = [];
@@ -2590,6 +3062,7 @@ window.saveUser = function(event) {
 
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
     serverPush(db);
+    if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
     window.closeUserModal();
     renderTab('users');
 };
@@ -2601,6 +3074,8 @@ window.toggleUserStatus = function(id, role) {
     if (!user) return;
     user.disabled = !user.disabled;
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
     renderTab('users');
 };
 
@@ -2692,16 +3167,11 @@ async function initApp() {
     const role = sessionStorage.getItem('Velocity_Role');
     if (role !== 'supervisor') { window.location.href = 'login.html'; return; }
     
+    // Mostrar pantalla de carga elegante (deja visible el menú lateral)
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Conectando con Wispro...');
+
     // 1. Sincronizar estado base desde el servidor (Usuarios, etc)
     await serverSync();
-
-    // Mostrar loading
-    const content = document.getElementById('main-content');
-    if (content) content.innerHTML = `
-        <div class="h-64 flex flex-col items-center justify-center gap-3">
-            <span class="material-symbols-outlined text-secondary text-5xl animate-spin-slow" style="font-variation-settings:'FILL' 1;">sync</span>
-            <p class="text-on-surface font-bold text-sm tracking-widest uppercase">Conectando con Wispro...</p>
-        </div>`;
 
     // Cargar NAP overrides del cache
     const ordCache = cacheGet('orders');
@@ -2710,6 +3180,7 @@ async function initApp() {
     loadTrackedNaps(); // Cargar estado de NAPs manuales
 
     try {
+        localStorage.removeItem('Velocity_Cache_issues'); // Forzar recarga limpia de reportes con nombres de clientes
         loadDynamicClients();
         // Carga paralela: datos estáticos + órdenes del día + issues
         await Promise.all([
@@ -2720,6 +3191,7 @@ async function initApp() {
         state.lastSync = Date.now();
         state.knownOrderIds = new Set([...state.orders, ...state.finishedOrders].map(o => o.id));
         state.knownIssueIds = new Set([...state.issues, ...state.finishedIssues].map(i => i.id));
+        
     } catch(e) {
         console.error('Error en carga inicial:', e);
     }
@@ -2738,6 +3210,7 @@ async function initApp() {
     }
 
     // Renderizar pestaña guardada
+    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
     switchTab(state.tab);
 
     // Iniciar polling
@@ -2747,10 +3220,119 @@ async function initApp() {
 window.addEventListener('DOMContentLoaded', initApp);
 
 
+
+
+
+window.updateDashboardCharts = function() {
+    const ctx1 = document.getElementById('chart-tech-performance');
+    const ctx2 = document.getElementById('chart-job-distribution');
+    if (!ctx1 || !ctx2) return;
+
+    if (window.techChartInstance) { window.techChartInstance.destroy(); }
+    if (window.jobChartInstance) { window.jobChartInstance.destroy(); }
+
+    const fToday = state.finishedOrders || [];
+    const allTodayOrders = [...state.orders, ...fToday];
+
+    const labels1 = [];
+    const completedData = [];
+    const pendingData = [];
+
+    TECNICOS_ACTIVOS.forEach(nombre => {
+        const firstName = nombre.split(' ')[0];
+        labels1.push(firstName);
+
+        const myOrders  = allTodayOrders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+        const myDone    = myOrders.filter(o => ['finalizada','finalizado','closed','finalized'].includes(o.state.toLowerCase())).length;
+        const myPending = myOrders.length - myDone;
+
+        completedData.push(myDone);
+        pendingData.push(myPending);
+    });
+
+    window.techChartInstance = new Chart(ctx1, {
+        type: 'bar',
+        data: {
+            labels: labels1,
+            datasets: [
+                {
+                    label: 'Completadas',
+                    data: completedData,
+                    backgroundColor: '#10b981',
+                    borderRadius: 6
+                },
+                {
+                    label: 'Pendientes',
+                    data: pendingData,
+                    backgroundColor: '#0059bb',
+                    borderRadius: 6
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { font: { family: 'Outfit, Inter', weight: 'bold', size: 10 } }
+                }
+            },
+            scales: {
+                x: { stacked: true, grid: { display: false } },
+                y: { stacked: true, ticks: { stepSize: 1 } }
+            }
+        }
+    });
+
+    const jobCounts = {
+        technical: 0,
+        installation: 0,
+        feasibility: 0,
+        resignation: 0
+    };
+
+    allTodayOrders.forEach(o => {
+        if (jobCounts[o.kind] !== undefined) {
+            jobCounts[o.kind]++;
+        }
+    });
+
+    const labels2 = ['Técnica', 'Instalación', 'Factibilidad', 'Baja'];
+    const data2 = [jobCounts.technical, jobCounts.installation, jobCounts.feasibility, jobCounts.resignation];
+    const colors2 = ['#7c3aed', '#0059bb', '#059669', '#dc2626'];
+
+    window.jobChartInstance = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+            labels: labels2,
+            datasets: [{
+                data: data2,
+                backgroundColor: colors2,
+                borderWidth: 2,
+                borderColor: '#ffffff'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: { font: { family: 'Outfit, Inter', weight: 'bold', size: 11 } }
+                }
+            },
+            cutout: '65%'
+        }
+    });
+};
+
+
+
 // ── BITÁCORA TÉCNICA (ÓRDENES) ───────────────────────────────────────────
 window.openFeedbackModal = async function(id) {
-    // 1. Buscar en órdenes activas o finalizadas de hoy
-    let order = [...state.orders, ...state.finishedOrders].find(o => String(o.id) === String(id) || String(o.rawId) === String(id));
+    // 1. Buscar en órdenes activas o finalizadas de hoy (y también reportes de mesa de ayuda)
+    let order = [...state.orders, ...state.finishedOrders, ...(state.finishedIssues || []), ...(state.issues || [])].find(o => String(o.id) === String(id) || String(o.rawId) === String(id));
     
     // 2. Si no está, buscar en los resultados de la auditoría mensual (Pestaña Reportes)
     if (!order && state.monthlyReport?.results) {
@@ -2762,52 +3344,57 @@ window.openFeedbackModal = async function(id) {
         console.warn('[Velocity] No se encontró la orden en ningún estado local:', id);
         // Fallback final: crear un objeto mínimo de búsqueda
         order = { id, rawId: id, client: 'Cargando datos...', typeColor: '#6b7280' };
+    } else {
+        // Normalizar nombre de cliente si no está
+        if (!order.client && order.client_id) {
+            order.client = state.clients[order.client_id]?.name || order.title || 'Reporte';
+        }
     }
 
-    const typeColor = order.typeColor || '#6b7280';
+    const typeColor = order.typeColor || '#f97316';
     const clientName = order.client || 'Cliente desconocido';
     const modalId = 'feedback-modal';
     
     document.getElementById(modalId)?.remove();
 
     const html = `
-    <div id="${modalId}" class="fixed inset-0 z-[101] bg-black/60 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div class="bg-surface-container-lowest w-full max-w-2xl max-h-[92vh] rounded-[2.5rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+    <div id="${modalId}" class="fixed inset-0 z-[101] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div class="bg-surface-container-lowest w-full max-w-lg max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
             <!-- Header -->
-            <div class="p-8 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
-                <div class="flex items-center gap-5">
-                    <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-white shadow-lg ring-4 ring-white/10" style="background:${typeColor}">
-                        <span class="material-symbols-outlined text-3xl">history_edu</span>
+            <div class="p-6 border-b border-outline-variant/5 flex items-center justify-between bg-surface-container-low/40">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg" style="background:${typeColor}; box-shadow: 0 4px 12px ${typeColor}30">
+                        <span class="material-symbols-outlined text-2xl">chat</span>
                     </div>
-                    <div>
-                        <h3 class="font-black text-on-surface text-xl">Bitácora Técnica #${order.id}</h3>
-                        <p class="text-[11px] text-on-surface-variant font-black uppercase tracking-[0.2em] opacity-60">${clientName}</p>
+                    <div class="min-w-0">
+                        <h3 class="font-black text-on-surface text-base">Bitácora de Comentarios</h3>
+                        <p class="text-[10px] text-primary font-black uppercase tracking-[0.1em] mt-0.5 truncate max-w-[280px]" title="${clientName}">${clientName}</p>
                     </div>
                 </div>
-                <button onclick="document.getElementById('${modalId}').remove()" class="w-12 h-12 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-all hover:rotate-90">
-                    <span class="material-symbols-outlined text-on-surface-variant text-2xl">close</span>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-all hover:rotate-90">
+                    <span class="material-symbols-outlined text-on-surface-variant text-xl">close</span>
                 </button>
             </div>
 
             <!-- Body (Timeline) -->
-            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-8 space-y-6 bg-surface-container-lowest/30 custom-scrollbar scroll-smooth">
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-6 space-y-5 bg-surface-container-lowest/30 custom-scrollbar scroll-smooth">
                 <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/30">
-                    <span class="material-symbols-outlined text-5xl mb-4 animate-spin">history</span>
-                    <p class="font-black text-sm tracking-widest uppercase italic mb-1">Peinando Wispro...</p>
-                    <p class="text-[9px] font-bold opacity-40 uppercase">Búsqueda profunda en progreso (Sonda 3.6)</p>
+                    <span class="material-symbols-outlined text-4xl mb-3 animate-spin">history</span>
+                    <p class="font-black text-xs tracking-widest uppercase italic mb-1">Cargando comentarios...</p>
+                    <p class="text-[8px] font-bold opacity-40 uppercase">Búsqueda rápida en progreso (Sonda 5.2)</p>
                 </div>
             </div>
 
             <!-- Footer con Enlace Directo -->
-            <div id="feedback-footer" class="px-8 py-5 bg-surface-container-low border-t border-outline-variant/5 flex items-center justify-between">
+            <div id="feedback-footer" class="px-6 py-4 bg-surface-container-low border-t border-outline-variant/5 flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
-                    <span class="text-[9px] font-black text-on-surface-variant/60 uppercase tracking-widest">Live Link</span>
+                    <span class="text-[8px] font-black text-on-surface-variant/60 uppercase tracking-widest">Enlace Directo</span>
                 </div>
                 
                 <a id="wispro-link" href="https://www.cloud.wispro.co/order/orders/${order.rawId}" target="_blank" 
-                   class="flex items-center gap-2 px-6 py-2.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-2xl transition-all group border border-primary/20 shadow-sm">
-                    <span class="text-[10px] font-black uppercase tracking-wider">Ver en Wispro</span>
+                   class="flex items-center gap-2 px-5 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl transition-all group border border-primary/20 shadow-sm text-xs font-black">
+                    <span class="tracking-wider uppercase text-[10px]">Ver en Wispro</span>
                     <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">open_in_new</span>
                 </a>
             </div>
@@ -2822,81 +3409,104 @@ window.loadFeedbacks = async function(target) {
     const timeline = document.getElementById('feedback-timeline');
     const wisproLink = document.getElementById('wispro-link');
     if (!timeline) return;
+    if (!target) return;
 
     try {
-        const sequentialId = (target.id && String(target.id).length < 8) ? target.id : target.sequential_id;
-        console.log(`[Velocity] Sonda 5.1 (Bloodhound) buscando #${sequentialId} y Orderable ID: ${target.orderable_id}...`);
-
-        const idsToTry = new Set();
-        if (target.rawId) idsToTry.add(target.rawId);
-        if (target.orderable_id) idsToTry.add(target.orderable_id);
-        if (target.ticketable_id) idsToTry.add(target.ticketable_id);
-
-        // 1. Búsqueda Dinámica por Secuencial en múltiples modelos
-        const searchModels = ['/order/orders', '/installation_orders', '/help_desk/issues', '/sale_desk/tickets'];
-        const searchQueries = searchModels.map(m => apiFetch(`${m}?q[sequential_id_eq]=${sequentialId}`, {}, true));
-        
-        const searchResults = await Promise.allSettled(searchQueries);
-        searchResults.forEach(res => {
-            if (res.status === 'fulfilled' && res.value) {
-                const items = res.value.data || res.value;
-                if (Array.isArray(items) && items.length > 0) {
-                    items.forEach(item => {
-                        if (item.id) idsToTry.add(item.id);
-                        if (item.uuid) idsToTry.add(item.uuid);
-                        // Actualizar link de Wispro si encontramos el UUID correcto
-                        if (wisproLink && item.id && item.id.length > 10) {
-                            wisproLink.href = `https://www.cloud.wispro.co/order/orders/${item.id}`;
-                        }
-                    });
-                }
-            }
-        });
-
-        // 2. Preparar Endpoints con los IDs descubiertos
-        const endpoints = [];
-        idsToTry.forEach(id => {
-            if (!id) return;
-            endpoints.push(`/order/orders/${id}/feedbacks`);
-            endpoints.push(`/installation_orders/${id}/feedbacks`);
-            endpoints.push(`/help_desk/issues/${id}/feedbacks`);
-            endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
-            endpoints.push(`/help_desk/issues/${id}/comments`);
-        });
-
-        // 3. Ejecución por lotes (Batching)
-        const results = [];
-        const batchSize = 3;
-        for (let i = 0; i < endpoints.length; i += batchSize) {
-            const batch = endpoints.slice(i, i + batchSize);
-            const batchRes = await Promise.allSettled(batch.map(ep => apiFetch(ep, {}, true)));
-            results.push(...batchRes);
-            if (i + batchSize < endpoints.length) await new Promise(r => setTimeout(r, 200));
-        }
-        
         let allFeedbacks = [];
         const seenBodies = new Set();
-        results.forEach(res => {
-            if (res.status === 'fulfilled' && res.value) {
-                const data = res.value.data || res.value;
-                if (Array.isArray(data)) {
-                    data.forEach(f => {
-                        const body = (f.body || f.comment || '').trim();
-                        if (body && !seenBodies.has(body)) {
-                            allFeedbacks.push(f);
-                            seenBodies.add(body);
-                        }
-                    });
+
+        // 1. Verificar si el target ya contiene feedbacks en memoria local
+        if (target.feedbacks && Array.isArray(target.feedbacks) && target.feedbacks.length > 0) {
+            target.feedbacks.forEach(f => {
+                const body = (f.body || f.comment || '').trim();
+                if (body && !seenBodies.has(body)) {
+                    allFeedbacks.push(f);
+                    seenBodies.add(body);
                 }
+            });
+        }
+
+        // 2. Si es un reporte/issue, buscar órdenes correspondientes del mismo cliente en memoria local
+        const isIssue = target.client_id && !target.orderable_id;
+        if (isIssue) {
+            const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+            const matchingOrder = allOrders.find(o => o.orderable_id === target.client_id);
+            if (matchingOrder && matchingOrder.feedbacks && Array.isArray(matchingOrder.feedbacks) && matchingOrder.feedbacks.length > 0) {
+                matchingOrder.feedbacks.forEach(f => {
+                    const body = (f.body || f.comment || '').trim();
+                    if (body && !seenBodies.has(body)) {
+                        allFeedbacks.push(f);
+                        seenBodies.add(body);
+                    }
+                });
             }
-        });
+        }
+
+        // 3. Fallback: Si no hay feedbacks cargados en memoria, hacer búsqueda dinámica rápida
+        if (allFeedbacks.length === 0) {
+            const sequentialId = (target.id && String(target.id).length < 8) ? target.id : target.sequential_id;
+            console.log(`[Velocity] Sonda 5.2 local vacia, buscando #${sequentialId}...`);
+
+            const idsToTry = new Set();
+            if (target.rawId) idsToTry.add(target.rawId);
+            if (target.orderable_id) idsToTry.add(target.orderable_id);
+            if (target.ticketable_id) idsToTry.add(target.ticketable_id);
+
+            const searchModels = ['/order/orders', '/installation_orders', '/help_desk/issues', '/sale_desk/tickets'];
+            const searchQueries = searchModels.map(m => apiFetch(`${m}?q[sequential_id_eq]=${sequentialId}`, {}, true));
+            
+            const searchResults = await Promise.allSettled(searchQueries);
+            searchResults.forEach(res => {
+                if (res.status === 'fulfilled' && res.value) {
+                    const items = res.value.data || res.value;
+                    if (Array.isArray(items) && items.length > 0) {
+                        items.forEach(item => {
+                            if (item.id) idsToTry.add(item.id);
+                            if (item.uuid) idsToTry.add(item.uuid);
+                            if (wisproLink && item.id && item.id.length > 10) {
+                                wisproLink.href = `https://www.cloud.wispro.co/order/orders/${item.id}`;
+                            }
+                        });
+                    }
+                }
+            });
+
+            const endpoints = [];
+            idsToTry.forEach(id => {
+                if (!id) return;
+                endpoints.push(`/order/orders/${id}/feedbacks`);
+                endpoints.push(`/installation_orders/${id}/feedbacks`);
+                endpoints.push(`/help_desk/issues/${id}/feedbacks`);
+                endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
+                endpoints.push(`/help_desk/issues/${id}/comments`);
+            });
+
+            // Búsqueda en paralelo de todos los endpoints para máxima velocidad
+            if (endpoints.length > 0) {
+                const batchRes = await Promise.allSettled(endpoints.map(ep => apiFetch(ep, {}, true)));
+                batchRes.forEach(res => {
+                    if (res.status === 'fulfilled' && res.value) {
+                        const data = res.value.data || res.value;
+                        if (Array.isArray(data)) {
+                            data.forEach(f => {
+                                const body = (f.body || f.comment || '').trim();
+                                if (body && !seenBodies.has(body)) {
+                                    allFeedbacks.push(f);
+                                    seenBodies.add(body);
+                                }
+                            });
+                        }
+                    }
+                });
+            }
+        }
 
         if (allFeedbacks.length === 0) {
             timeline.innerHTML = `
-                <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/15 italic text-center px-10">
-                    <span class="material-symbols-outlined text-6xl mb-4">search_off</span>
-                    <p class="text-xs font-black tracking-widest uppercase mb-1">Cero resultados</p>
-                    <p class="text-[8px] opacity-40 uppercase">Ni por ID, ni por UUID, ni por búsqueda secuencial.</p>
+                <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant/15 italic text-center px-10">
+                    <span class="material-symbols-outlined text-5xl mb-3">search_off</span>
+                    <p class="text-xs font-black tracking-widest uppercase mb-1">Sin comentarios</p>
+                    <p class="text-[8px] opacity-40 uppercase">No se hallaron notas registradas en esta orden.</p>
                 </div>`;
             return;
         }
@@ -2908,61 +3518,559 @@ window.loadFeedbacks = async function(target) {
             const senderName = f.author_name || f.technician_name || f.creator_name || f.user_name || 'Sistema';
             const isSelf = senderName.toLowerCase().includes('admin') || senderName.toLowerCase().includes('supervisor');
             
+            // Generar HSL único para el autor
+            let hash = 0;
+            for (let i = 0; i < senderName.length; i++) {
+                hash = senderName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const hue = Math.abs(hash % 360);
+            const avatarColor = `hsl(${hue}, 60%, 45%)`;
+            const initials = senderName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+            const bubbleClass = isSelf 
+                ? 'bg-gradient-to-br from-primary to-primary/80 text-white rounded-2xl rounded-tr-none border border-primary/10 shadow-md shadow-primary/5'
+                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/5 shadow-sm';
+            
+            const alignClass = isSelf ? 'justify-end' : 'justify-start';
+
             return `
-            <div class="flex gap-4 ${isSelf ? 'flex-row-reverse' : ''} animate-in slide-in-from-bottom-2 duration-300">
-                <div class="w-11 h-11 rounded-2xl flex-shrink-0 flex items-center justify-center text-on-surface-variant/40 bg-surface-container-high font-black text-sm border border-outline-variant/10 shadow-sm">
-                    ${senderName.charAt(0).toUpperCase()}
+            <div class="flex gap-3.5 ${alignClass} animate-in fade-in slide-in-from-bottom-2 duration-300">
+                ${!isSelf ? `
+                <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-extrabold text-xs shadow-sm" style="background:${avatarColor}">
+                    ${initials}
                 </div>
-                <div class="max-w-[80%] space-y-1.5 ${isSelf ? 'items-end' : ''}">
-                    <div class="flex items-center gap-2 ${isSelf ? 'flex-row-reverse' : ''} px-1">
-                        <span class="text-[10px] font-black text-on-surface uppercase tracking-wider">${senderName}</span>
-                        <span class="text-[9px] text-on-surface-variant/30 font-bold">${date}</span>
+                ` : ''}
+                
+                <div class="max-w-[75%] space-y-1">
+                    <div class="flex items-center gap-2 px-1 ${isSelf ? 'flex-row-reverse' : ''}">
+                        <span class="text-[9px] font-black text-on-surface-variant uppercase tracking-wider">${senderName}</span>
+                        <span class="text-[8px] text-on-surface-variant/30 font-bold">${date}</span>
                     </div>
-                    <div class="p-5 rounded-[1.5rem] text-[13px] leading-relaxed shadow-sm ${isSelf ? 'bg-secondary text-white rounded-tr-none shadow-secondary/10' : 'bg-white text-on-surface rounded-tl-none border border-outline-variant/10'}">
+                    <div class="p-4.5 ${bubbleClass} text-[13.5px] leading-relaxed select-text whitespace-pre-wrap break-words">
                         ${f.body || f.comment || '—'}
                     </div>
                 </div>
+
+                ${isSelf ? `
+                <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-extrabold text-xs shadow-sm" style="background:${avatarColor}">
+                    ${initials}
+                </div>
+                ` : ''}
             </div>`;
         }).join('');
         
         timeline.scrollTop = timeline.scrollHeight;
 
     } catch (e) {
-        console.error('[Velocity] Sonda 5.0 fallida:', e);
+        console.error('[Velocity] Sonda 5.2 fallida:', e);
         timeline.innerHTML = `<p class="text-center text-error font-black text-[10px] uppercase p-10 opacity-50">Fallo en búsqueda dinámica</p>`;
     }
+};
+
+window.loadRecentCommentsAudit = async function() {
+    const container = document.getElementById('comments-audit-container');
+    if (!container) return;
+    
+    container.innerHTML = `
+    <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant/30">
+        <span class="material-symbols-outlined text-4xl mb-3 animate-spin text-secondary">sync</span>
+        <p class="text-xs font-black tracking-widest uppercase mb-1">Pintando Auditoría...</p>
+        <p class="text-[9px] font-bold opacity-50 uppercase">Extrayendo comentarios de las órdenes finalizadas de hoy</p>
+    </div>`;
+
+    // Breve pausa para mostrar la animación
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    const tStr = new Date().toLocaleDateString('en-CA');
+    const fiToday = state.finishedIssues.filter(i => (i.updated_at || '').slice(0,10) === tStr);
+    const foToday = state.finishedOrders || [];
+    
+    let allComments = [];
+    const seenFeedbackIds = new Set();
+
+    // Procesar órdenes finalizadas primero
+    foToday.forEach(o => {
+        if (o.feedbacks && Array.isArray(o.feedbacks)) {
+            o.feedbacks.forEach(c => {
+                const body = (c.body || c.comment || '').trim();
+                if (body && !seenFeedbackIds.has(c.id)) {
+                    seenFeedbackIds.add(c.id);
+                    let author = c.author_name || c.technician_name || c.creator_name || c.user_name;
+                    if (!author && c.creatable_id) {
+                        if (c.creatable_id === o.employee_id) {
+                            author = o.techName;
+                        } else {
+                            author = state.techs[c.creatable_id] || 'Técnico';
+                        }
+                    }
+                    if (!author) author = 'Técnico';
+                    
+                    allComments.push({
+                        targetId: o.id,
+                        client: o.client,
+                        color: o.typeColor || '#3b82f6',
+                        type: o.typeLabel || 'Orden',
+                        author: author,
+                        comment: body,
+                        createdAt: c.created_at ? new Date(c.created_at) : new Date()
+                    });
+                }
+            });
+        }
+    });
+
+    // Procesar reportes finalizados
+    fiToday.forEach(i => {
+        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+        const matchingOrder = allOrders.find(o => o.orderable_id === i.client_id);
+        
+        if (matchingOrder && matchingOrder.feedbacks && Array.isArray(matchingOrder.feedbacks)) {
+            matchingOrder.feedbacks.forEach(c => {
+                const body = (c.body || c.comment || '').trim();
+                if (body && !seenFeedbackIds.has(c.id)) {
+                    seenFeedbackIds.add(c.id);
+                    let author = c.author_name || c.technician_name || c.creator_name || c.user_name;
+                    if (!author && c.creatable_id) {
+                        author = state.techs[c.creatable_id] || 'Técnico';
+                    }
+                    if (!author) author = 'Técnico';
+
+                    allComments.push({
+                        targetId: i.public_id || i.id,
+                        client: state.clients[i.client_id]?.name || i.title || 'Reporte',
+                        color: '#ef4444',
+                        type: 'Mesa de Ayuda',
+                        author: author,
+                        comment: body,
+                        createdAt: c.created_at ? new Date(c.created_at) : new Date()
+                    });
+                }
+            });
+        }
+    });
+
+    if (allComments.length === 0) {
+        container.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-8 text-on-surface-variant/30 italic">
+            <span class="material-symbols-outlined text-3xl mb-2">search_off</span>
+            <p class="text-xs font-black uppercase tracking-wider">Sin comentarios</p>
+            <p class="text-[9px] opacity-40 uppercase">No se hallaron notas en las órdenes o reportes finalizados hoy.</p>
+        </div>`;
+        return;
+    }
+
+    // Ordenar de más nuevo a más antiguo
+    allComments.sort((a, b) => b.createdAt - a.createdAt);
+
+    container.innerHTML = `
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        ${allComments.map(c => `
+        <div class="bg-surface-container-lowest border border-outline-variant/15 hover:border-outline-variant/30 rounded-3xl p-5 shadow-sm space-y-3 transition-all hover:shadow-md duration-200">
+            <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                    <div class="flex items-center gap-2 mb-1 flex-wrap">
+                        <span class="text-[9px] font-black text-white px-2 py-0.5 rounded-full" style="background:${c.color}">
+                            #${c.targetId}
+                        </span>
+                        <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-surface-container-high text-on-surface-variant rounded-full">
+                            ${c.type}
+                        </span>
+                    </div>
+                    <p class="text-xs font-black text-on-surface truncate max-w-[200px]" title="${c.client}">
+                        ${c.client}
+                    </p>
+                </div>
+                <span class="text-[10px] text-on-surface-variant/40 font-black whitespace-nowrap bg-surface-container/30 px-2 py-0.5 rounded-lg">
+                    ${c.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+            </div>
+            
+            <p class="text-xs text-on-surface font-medium leading-relaxed bg-surface-container-low/40 p-4 rounded-2xl border border-outline-variant/10 whitespace-pre-line">
+                ${c.comment}
+            </p>
+            
+            <div class="flex items-center justify-between text-[10px] font-black text-secondary">
+                <div class="flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[13px]">person</span>
+                    <span>${c.author}</span>
+                </div>
+                <span class="text-[8px] text-on-surface-variant/30 uppercase font-black">
+                    ${c.createdAt.toLocaleDateString([], { day: '2-digit', month: '2-digit' })}
+                </span>
+            </div>
+        </div>
+        `).join('')}
+    </div>`;
+};
+
+window.loadLastCommentsForPlaceholders = async function() {
+    const orderElements = document.querySelectorAll('[data-last-comment-order-id]');
+    const issueElements = document.querySelectorAll('[data-last-comment-issue-id]');
+    console.log(`[Velocity Audit] loadLastCommentsForPlaceholders local. Órdenes: ${orderElements.length}, Issues: ${issueElements.length}`);
+    
+    // Función auxiliar para obtener feedbacks de Wispro de manera asíncrona y con caché simple
+    const fetchFeedbacks = async (id, isIssue = false) => {
+        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+        const order = allOrders.find(o => o.rawId === id || String(o.id) === String(id));
+        if (order && order.feedbacks && order.feedbacks.length > 0) {
+            return order.feedbacks;
+        }
+
+        const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+        const issue = allIssues.find(i => i.id === id);
+        if (issue && issue.feedbacks && issue.feedbacks.length > 0) {
+            return issue.feedbacks;
+        }
+
+        const endpoints = [];
+        if (isIssue) {
+            endpoints.push(`/help_desk/issues/${id}/feedbacks`);
+            endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
+        } else {
+            endpoints.push(`/order/orders/${id}/feedbacks`);
+            endpoints.push(`/installation_orders/${id}/feedbacks`);
+        }
+
+        for (const url of endpoints) {
+            try {
+                const res = await apiFetch(url);
+                if (res && Array.isArray(res.data) && res.data.length > 0) {
+                    if (order) order.feedbacks = res.data;
+                    if (issue) issue.feedbacks = res.data;
+                    return res.data;
+                }
+            } catch (e) {
+                // Probar siguiente endpoint
+            }
+        }
+        return [];
+    };
+
+    orderElements.forEach(async (el) => {
+        const id = el.getAttribute('data-last-comment-order-id');
+        if (!id) return;
+        
+        try {
+            const feedbacks = await fetchFeedbacks(id, false);
+            if (feedbacks && feedbacks.length > 0) {
+                const sorted = [...feedbacks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                const comment = (sorted[0].body || sorted[0].comment || '').trim();
+                const author = sorted[0].author_name || sorted[0].technician_name || sorted[0].creator_name || sorted[0].user_name || 'Técnico';
+                el.innerHTML = `<span class="material-symbols-outlined text-[12px] text-secondary">chat_bubble</span><span class="truncate max-w-[260px] block" title="${comment}"><strong>${author}:</strong> ${comment}</span>`;
+            } else {
+                el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Sin notas de cierre</span>`;
+            }
+        } catch (err) {
+            el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Error al cargar notas</span>`;
+        }
+    });
+
+    issueElements.forEach(async (el) => {
+        const id = el.getAttribute('data-last-comment-issue-id');
+        if (!id) return;
+        
+        try {
+            let feedbacks = await fetchFeedbacks(id, true);
+            
+            if (!feedbacks || feedbacks.length === 0) {
+                const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+                const issue = allIssues.find(i => i.id === id);
+                if (issue) {
+                    const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+                    const matchingOrder = allOrders.find(o => o.orderable_id === issue.client_id);
+                    if (matchingOrder) {
+                        feedbacks = await fetchFeedbacks(matchingOrder.rawId || matchingOrder.id, false);
+                    }
+                }
+            }
+
+            if (feedbacks && feedbacks.length > 0) {
+                const sorted = [...feedbacks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+                const comment = (sorted[0].body || sorted[0].comment || '').trim();
+                const author = sorted[0].author_name || sorted[0].technician_name || sorted[0].creator_name || sorted[0].user_name || 'Técnico';
+                el.innerHTML = `<span class="material-symbols-outlined text-[12px] text-secondary">chat_bubble</span><span class="truncate max-w-[260px] block" title="${comment}"><strong>${author}:</strong> ${comment}</span>`;
+            } else {
+                el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Sin notas de cierre</span>`;
+            }
+        } catch (err) {
+            el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Error al cargar notas</span>`;
+        }
+    });
 };
 
 
 
 
 
-window.exportOrdersToCSV = function() {
-    const all = [...state.orders, ...state.finishedOrders];
-    if (all.length === 0) { alert('No hay datos para exportar'); return; }
+window.openExportOrdersModal = function() {
+    const modalHtml = `
+    <div id="export-orders-modal" onclick="this.remove()" class="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm flex items-center justify-center animate-fade-in" style="animation: fadeIn 0.2s;">
+        <div onclick="event.stopPropagation()" class="bg-surface-container-lowest w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden border border-outline-variant/20 transform scale-95" style="animation: scaleUp 0.2s forwards;">
+            <div class="kinetic-gradient p-6 text-white">
+                <h3 class="font-black text-xl tracking-tight">Exportar Órdenes</h3>
+                <p class="text-[10px] font-black uppercase opacity-80 tracking-[0.2em] mt-1">Descarga de Reporte CSV</p>
+            </div>
+            
+            <div class="p-6 space-y-5">
+                <div>
+                    <label class="block text-[11px] font-black text-on-surface-variant uppercase tracking-widest mb-2">Período de Exportación</label>
+                    <select id="export-range" onchange="document.getElementById('export-custom-dates').style.display = this.value === 'custom' ? 'block' : 'none'" class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm font-bold text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary transition-all outline-none">
+                        <option value="today">Solo del Día de Hoy (Rápido)</option>
+                        <option value="custom">Rango Personalizado...</option>
+                    </select>
+                </div>
 
-    const headers = ['ID', 'Tipo', 'Cliente', 'Direccion', 'Zona', 'Tecnico', 'Inicio', 'Fin', 'Estado', 'NAP'];
-    const rows = all.map(o => [
-        o.id,
-        o.typeLabel,
-        o.client.replace(/,/g, ''),
-        (o.address || '').replace(/,/g, ''),
-        o.zone,
-        o.techName,
-        o.startTime,
-        o.endTime,
-        o.state,
-        o.nap || ''
-    ]);
+                <div id="export-custom-dates" style="display:none;" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-[11px] font-black text-on-surface-variant uppercase tracking-widest mb-2">Desde</label>
+                            <input type="date" id="export-start" class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm font-bold text-on-surface focus:border-secondary transition-all outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-black text-on-surface-variant uppercase tracking-widest mb-2">Hasta</label>
+                            <input type="date" id="export-end" class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm font-bold text-on-surface focus:border-secondary transition-all outline-none">
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-[11px] font-black text-on-surface-variant uppercase tracking-widest mb-2">Tipo de Orden</label>
+                        <select id="export-type" class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-sm font-bold text-on-surface focus:border-secondary transition-all outline-none">
+                            <option value="all">Todas</option>
+                            <option value="installation">Instalaciones</option>
+                            <option value="technical">Visitas Técnicas</option>
+                            <option value="feasibility">Factibilidades</option>
+                            <option value="resignation">Bajas</option>
+                        </select>
+                    </div>
+                </div>
 
-    const csvContent = [headers, ...rows].map(e => e.join(",")).join("\n");
-    const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `Velocity_Reporte_${new Date().toLocaleDateString('en-CA')}.csv`);
-    document.body.appendChild(link);
-    link.click();
+                <button id="btn-run-export" onclick="window.runCustomOrderExport()" class="w-full kinetic-gradient text-white font-black text-sm py-4 rounded-2xl hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 mt-4">
+                    <span class="material-symbols-outlined text-[18px]">download</span> Generar y Descargar CSV
+                </button>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Set default dates to past month
+    const d = new Date();
+    document.getElementById('export-end').value = d.toISOString().slice(0,10);
+    d.setMonth(d.getMonth() - 1);
+    document.getElementById('export-start').value = d.toISOString().slice(0,10);
+};
+
+window.runCustomOrderExport = async function() {
+    const range = document.getElementById('export-range').value;
+    const btn = document.getElementById('btn-run-export');
+    
+    if (range === 'today') {
+        const all = [...state.orders, ...(state.finishedOrders || [])];
+        if (all.length === 0) { alert('No hay datos hoy para exportar'); return; }
+
+        const headers = ['ID', 'Tipo', 'Cliente', 'Direccion', 'Zona', 'Tecnico', 'Inicio', 'Fin', 'Estado', 'Finalizado', 'NAP'];
+        const rows = all.map(o => {
+            const isFin = ['finalizada', 'finalizado', 'closed'].includes((o.state || '').toLowerCase()) ? 'SI' : 'NO';
+            return [
+                o.id,
+                o.typeLabel,
+                (o.client||'').replace(/,/g, ''),
+                (o.address || '').replace(/,/g, ''),
+                o.zone,
+                o.techName,
+                o.startTime,
+                o.endTime,
+                o.state,
+                isFin,
+                o.nap || ''
+            ];
+        });
+
+        // ── ESTADÍSTICAS POR TÉCNICO ──
+        const techStats = {};
+        rows.forEach(r => {
+            const t = r[5]; // Técnico (index 5)
+            const isFin = r[9]; // Finalizado (index 9)
+            if (!techStats[t]) techStats[t] = { name: t, total: 0, done: 0 };
+            techStats[t].total++;
+            if (isFin === 'SI') techStats[t].done++;
+        });
+
+        const statsHeaders = ['RESUMEN POR TECNICO', 'Completadas', 'Pendientes', 'Total Asignadas'];
+        const statsRows = Object.values(techStats).sort((a,b) => b.total - a.total).map(ts => [
+            ts.name,
+            ts.done,
+            ts.total - ts.done,
+            ts.total
+        ]);
+
+        const csvContentStats = [statsHeaders, ...statsRows].map(e => e.join(",")).join("\n");
+        const csvContentDetail = [headers, ...rows].map(e => e.join(",")).join("\n");
+        const csvContent = csvContentStats + "\n\nDETALLE DE ORDENES\n" + csvContentDetail;
+
+        const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const fileName = `Velocity_Hoy_${new Date().toLocaleDateString('en-CA')}.csv`;
+        
+        link.href = url;
+        link.download = fileName;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        
+        setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+
+        document.getElementById('export-orders-modal').remove();
+        return;
+    }
+
+    const start = document.getElementById('export-start').value;
+    const end = document.getElementById('export-end').value;
+    const type = document.getElementById('export-type').value;
+
+    if (!start || !end) { alert("Selecciona el rango de fechas"); return; }
+    
+    btn.innerHTML = `<span class="material-symbols-outlined animate-spin" style="font-size:18px;">sync</span> Inicializando...`;
+    btn.disabled = true;
+
+    try {
+        let page = 1;
+        let totalPages = 1;
+        let allData = [];
+        const startDate = new Date(start + 'T00:00:00');
+        const endDate = new Date(end + 'T23:59:59');
+
+        // Primera petición para obtener el total de páginas (usamos los filtros Ransack por si Wispro los soporta)
+        const query = `q%5Bstart_at_gteq%5D=${start}&q%5Bstart_at_lteq%5D=${end}T23:59:59&q%5Bs%5D=start_at+desc`;
+        const firstPage = await apiFetch(`/order/orders?per_page=100&page=1&${query}`);
+        
+        if (firstPage && firstPage.meta && firstPage.meta.pagination) {
+            totalPages = firstPage.meta.pagination.total_pages || 1;
+        } else {
+            totalPages = 20; // fallback razonable si no hay meta
+        }
+
+        // Si Wispro no soportó el filtro, totalPages será gigante. Lo limitamos a 50 máximo por seguridad.
+        totalPages = Math.min(totalPages, 50);
+
+        while (page <= totalPages) {
+            btn.innerHTML = `<span class="material-symbols-outlined animate-spin" style="font-size:18px;">sync</span> Descargando pág ${page} de ${totalPages}...`;
+            
+            const d = page === 1 ? firstPage : await apiFetch(`/order/orders?per_page=100&page=${page}&${query}`);
+            const items = d.data || [];
+            if (items.length === 0) break;
+
+            let validItemsInPage = 0;
+            for (const item of items) {
+                if (!item.start_at) continue; // Ignoramos si no tiene fecha de inicio programada
+                
+                const itemDate = new Date(item.start_at);
+                if (itemDate >= startDate && itemDate <= endDate) {
+                    if (type === 'all' || item.kind === type) {
+                        allData.push(item);
+                    }
+                    validItemsInPage++;
+                }
+            }
+            
+            // Si Wispro NO está filtrando por Ransack, y ya pasamos la ventana de tiempo, podemos detenernos
+            // Asumimos que si hay 0 items válidos en una página (y ya estamos viendo fechas más viejas), terminamos.
+            const sampleDate = items[0]?.start_at ? new Date(items[0].start_at) : null;
+            if (sampleDate && sampleDate < startDate) {
+                break; // Ya llegamos a fechas anteriores al rango
+            }
+
+            page++;
+        }
+
+        if (allData.length === 0) {
+            alert('No se encontraron órdenes en este rango de fechas. Asegúrate de que las fechas sean correctas.');
+            btn.innerHTML = `<span class="material-symbols-outlined text-[18px]">download</span> Generar y Descargar CSV`;
+            btn.disabled = false;
+            return;
+        }
+
+        // Resolucion de clientes faltantes
+        const toResolve = {};
+        allData.forEach(o => {
+            if (o.orderable_id && !state.clients[o.orderable_id]) {
+                toResolve[o.orderable_id] = o.kind;
+            }
+        });
+        
+        btn.innerHTML = `<span class="material-symbols-outlined animate-spin" style="font-size:18px;">sync</span> Resolviendo nombres (${Object.keys(toResolve).length})...`;
+        await resolveUnified(toResolve);
+
+        // Exportar
+        const headers = ['ID', 'Tipo', 'Fecha', 'Cliente', 'Direccion', 'Zona', 'Tecnico', 'Estado', 'Finalizado'];
+        const rows = allData.map(o => {
+            const c = state.clients[o.orderable_id] || {};
+            const t = state.techs[o.employee_id] || 'Sin Asignar';
+            const clientName = c.name || o.description?.match(/\(([^)]+)\)/)?.[1] || `#${o.sequential_id || o.id}`;
+            const isFinished = ['finalizada', 'finalizado', 'closed'].includes((o.state || '').toLowerCase()) ? 'SI' : 'NO';
+            const kindLabel = window.TYPE_CFG ? (window.TYPE_CFG[o.kind]?.label || o.kind) : (o.kind === 'installation' ? 'Instalación' : (o.kind === 'technical' ? 'Visita Técnica' : o.kind));
+
+            return [
+                o.sequential_id || o.id,
+                kindLabel,
+                (o.start_at || '').slice(0, 10),
+                clientName.replace(/,/g, ''),
+                (c.address || '').replace(/,/g, ''),
+                c.zone || '',
+                t,
+                o.state || '',
+                isFinished
+            ];
+        });
+
+        // ── ESTADÍSTICAS POR TÉCNICO ──
+        const techStats = {};
+        rows.forEach(r => {
+            const t = r[6]; // Técnico
+            const isFin = r[8]; // Finalizado
+            if (!techStats[t]) techStats[t] = { name: t, total: 0, done: 0 };
+            techStats[t].total++;
+            if (isFin === 'SI') techStats[t].done++;
+        });
+
+        const statsHeaders = ['RESUMEN POR TECNICO', 'Completadas', 'Pendientes', 'Total Asignadas'];
+        const statsRows = Object.values(techStats).sort((a,b) => b.total - a.total).map(ts => [
+            ts.name,
+            ts.done,
+            ts.total - ts.done,
+            ts.total
+        ]);
+
+        const csvContentStats = [statsHeaders, ...statsRows].map(e => e.join(",")).join("\n");
+        const csvContentDetail = [headers, ...rows].map(e => e.join(",")).join("\n");
+        const csvContent = csvContentStats + "\n\nDETALLE DE ORDENES\n" + csvContentDetail;
+
+        const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        const fileName = `Velocity_Export_${start}_al_${end}.csv`;
+
+        link.href = url;
+        link.download = fileName;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+
+        setTimeout(() => {
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+        }, 100);
+
+        document.getElementById('export-orders-modal').remove();
+
+    } catch (e) {
+        alert('Error al exportar: ' + e.message);
+        btn.innerHTML = `<span class="material-symbols-outlined text-[18px]">download</span> Generar y Descargar CSV`;
+        btn.disabled = false;
+    }
 };
 
 
@@ -2971,14 +4079,19 @@ window.exportMonthlyCSV = function() {
     const r = state.monthlyReport.results;
     if (!r) return;
 
-    const headers = ['ID', 'Fecha', 'Cliente', 'Categoría', 'Estado', 'Prioridad', 'Descripción'];
+    const headers = ['ID', 'Fecha', 'Cliente', 'Zona', 'Categoría', 'Estado', 'Prioridad', 'Descripción'];
     const rows = r.issues.map(i => {
         const c = state.clients[i.client_id] || {};
         const cat = state.categories[i.category_id] || '';
+        const title = i.title || i.description || '';
+        const zm = title.match(/\(([^)]+)\)/);
+        const zone = (zm ? zm[1] : (c.zone || '')) || 'Sin zona';
+        
         return [
             i.public_id,
             (i.created_at || '').slice(0, 10),
             (c.name || 'Desconocido').replace(/,/g, ''),
+            zone,
             cat.replace(/,/g, ''),
             i.state,
             i.priority,
@@ -3140,6 +4253,149 @@ window.generateMonthlyPDF = function() {
 
     win.document.write(html);
     win.document.close();
+};
+
+window.showActiveTechsModal = function() {
+    const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const registeredTechs = dbSync.technicians || [];
+    const onlineStatus = {
+        ...JSON.parse(localStorage.getItem('Velocity_Online_Status') || '{}'),
+        ...(dbSync.onlineStatus || {})
+    };
+    
+    // Validar fecha de inicio de la orden
+    const isToday = (timestamp) => {
+        if (!timestamp) return false;
+        const d = new Date(timestamp);
+        const today = new Date();
+        return d.getDate() === today.getDate() &&
+               d.getMonth() === today.getMonth() &&
+               d.getFullYear() === today.getFullYear();
+    };
+
+    // Usar estrictamente el activeTracking del servidor
+    const tracking = dbSync.activeTracking || {};
+    
+    const techStatusList = registeredTechs.map(tech => {
+        const lastSeen = onlineStatus[tech.id];
+        const isOnline = lastSeen && (Date.now() - lastSeen < 180000);
+        
+        const activeOrderEntry = Object.entries(tracking).find(([orderId, t]) => {
+            return String(t.empId) === String(tech.id) && t.status === 'started' && isToday(t.startTime);
+        });
+        
+        let activeOrder = null;
+        if (activeOrderEntry) {
+            const orderId = activeOrderEntry[0];
+            const order = [...(state.orders || []), ...(state.finishedOrders || [])].find(o => String(o.id) === String(orderId));
+            activeOrder = {
+                id: orderId,
+                client: order ? order.client : 'Cliente desconocido',
+                kind: order ? order.kind : 'Servicio',
+                startTime: activeOrderEntry[1].startTime
+            };
+        }
+        
+        return {
+            ...tech,
+            isOnline,
+            lastSeen,
+            activeOrder
+        };
+    });
+
+    techStatusList.sort((a, b) => (b.isOnline ? 1 : 0) - (a.isOnline ? 1 : 0));
+
+    const itemsHtml = techStatusList.map(t => {
+        const statusBadge = t.isOnline
+            ? `<span class="flex items-center gap-1.5 text-xs font-black text-emerald-600 bg-emerald-500/10 px-2.5 py-1 rounded-full"><div class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div> EN LÍNEA</span>`
+            : `<span class="flex items-center gap-1.5 text-xs font-bold text-gray-400 bg-gray-100 px-2.5 py-1 rounded-full"><div class="w-1.5 h-1.5 rounded-full bg-gray-300"></div> OFFLINE</span>`;
+            
+        let lastSeenText = 'Nunca visto';
+        if (t.lastSeen) {
+            const diffMin = Math.round((Date.now() - t.lastSeen) / 60000);
+            lastSeenText = diffMin <= 0 ? 'Hace un momento' : `Hace ${diffMin} min`;
+        }
+
+        let orderHtml = `<p class="text-xs text-on-surface-variant italic">Sin tareas en curso</p>`;
+        if (t.activeOrder) {
+            const timeActive = Math.round((Date.now() - t.activeOrder.startTime) / 60000);
+            const timeStr = timeActive < 60 ? `${timeActive} min` : `${Math.floor(timeActive/60)}h ${timeActive%60}m`;
+            orderHtml = `
+                <div class="p-3 bg-secondary/5 rounded-xl border border-secondary/10">
+                    <div class="flex items-center gap-1 text-[9px] font-black uppercase text-secondary tracking-wider">
+                        <span class="material-symbols-outlined text-xs">play_circle</span> En Curso (${timeStr})
+                    </div>
+                    <p class="text-xs font-bold text-on-surface mt-1">${t.activeOrder.client}</p>
+                    <p class="text-[10px] text-on-surface-variant font-semibold mt-0.5">${t.activeOrder.kind.toUpperCase()} (#${t.activeOrder.id})</p>
+                </div>
+            `;
+        }
+
+        const initials = techInitials(t.name || 'T');
+        const color = TECH_PALETTE[t.name] || 'hsl(210, 80%, 40%)';
+
+        return `
+            <div class="p-4 bg-surface-container border border-outline-variant/30 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 hover:border-secondary/25 transition-all">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-xl font-black text-sm flex items-center justify-center text-white" style="background:${color}">
+                        ${initials}
+                    </div>
+                    <div>
+                        <h5 class="font-bold text-on-surface text-sm">${t.name}</h5>
+                        <p class="text-[10px] text-on-surface-variant font-semibold mt-0.5">Último reporte: ${lastSeenText}</p>
+                    </div>
+                </div>
+                <div class="flex flex-col items-start md:items-end gap-1.5">
+                    ${statusBadge}
+                </div>
+                <div class="w-full md:w-auto md:max-w-xs flex-shrink-0">
+                    ${orderHtml}
+                </div>
+            </div>
+        `;
+    }).join('<div class="h-2"></div>');
+
+    let modal = document.getElementById('active-techs-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'active-techs-modal';
+        modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in';
+        document.body.appendChild(modal);
+    }
+    
+    modal.innerHTML = `
+        <div class="bg-surface-container-lowest rounded-[2rem] border border-outline-variant/30 w-full max-w-2xl overflow-hidden shadow-2xl animate-scale-up">
+            <div class="p-6 border-b border-outline-variant/20 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-secondary">group</span>
+                    <div>
+                        <h4 class="font-black text-on-surface text-lg">Técnicos Activos en Campo</h4>
+                        <p class="text-xs text-on-surface-variant font-semibold">Estado de conexión y tareas en tiempo real</p>
+                    </div>
+                </div>
+                <button onclick="window.closeActiveTechsModal()" class="w-8 h-8 rounded-full hover:bg-surface-container flex items-center justify-center text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="p-6 max-h-[60vh] overflow-y-auto space-y-3">
+                ${itemsHtml || '<p class="text-center text-sm text-on-surface-variant font-semibold">No hay técnicos registrados</p>'}
+            </div>
+            <div class="p-6 bg-surface-container-low border-t border-outline-variant/20 flex justify-end">
+                <button onclick="window.closeActiveTechsModal()" class="bg-primary text-white font-bold text-sm px-6 py-2.5 rounded-xl hover:bg-primary/90 active:scale-95 transition-all">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    `;
+    modal.classList.remove('hidden');
+};
+
+window.closeActiveTechsModal = function() {
+    const modal = document.getElementById('active-techs-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
 };
 
 

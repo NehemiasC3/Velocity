@@ -18,7 +18,24 @@ const TYPE_CFG = {
     resignation: { color: '#dc2626', label: 'Baja de Servicio' }
 };
 
-const TECNICOS_ACTIVOS = Object.keys(TECH_PALETTE);
+const TECNICOS_ACTIVOS = [];
+window.updateActiveTechs = function() {
+    try {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        const dbTechs = (db.technicians || []).filter(t => !t.disabled).map(t => t.name);
+        if (dbTechs.length > 0) {
+            TECNICOS_ACTIVOS.length = 0;
+            TECNICOS_ACTIVOS.push(...dbTechs);
+        } else {
+            TECNICOS_ACTIVOS.length = 0;
+            TECNICOS_ACTIVOS.push(...Object.keys(TECH_PALETTE));
+        }
+    } catch(e) {
+        TECNICOS_ACTIVOS.length = 0;
+        TECNICOS_ACTIVOS.push(...Object.keys(TECH_PALETTE));
+    }
+};
+window.updateActiveTechs();
 
 // ── ESTADO GLOBAL ─────────────────────────────────────────────────────────
 const state = {

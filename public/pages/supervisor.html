@@ -4,19 +4,7 @@
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <title>Velocity - Panel de Supervisor</title>
-    <!-- CACHE KILLER (EMERGENCY) -->
-    <script>
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for(let registration of registrations) { registration.unregister(); }
-            });
-        }
-        if ('caches' in window) {
-            caches.keys().then(function(names) {
-                for (let name of names) caches.delete(name);
-            });
-        }
-    </script>
+    <!-- PWA Support -->
 
     <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
@@ -169,12 +157,26 @@
             background: #c5c6ce;
             border-radius: 10px;
         }
+
+        /* Elegant Loading Screen Animations */
+        @keyframes shimmer {
+            100% { transform: translateX(100%); }
+        }
+        .animate-shimmer {
+            animation: shimmer 1.8s infinite;
+        }
+        .shimmer-bar {
+            position: absolute;
+            top: 0; right: 0; bottom: 0; left: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+            transform: translateX(-100%);
+        }
     </style>
 </head>
-<body class="bg-background text-on-background pb-20 md:pb-0 md:pl-28 flex flex-col md:flex-row">
+<body class="bg-background text-on-background pb-20 md:pb-0 md:pl-20 flex flex-col md:flex-row">
     
     <!-- Top Nav / Head (Mobile & Desktop) -->
-    <nav class="fixed top-0 w-full md:w-[calc(100%-7rem)] md:left-28 z-40 bg-background/80 backdrop-blur-md flex justify-between items-center px-6 h-16 border-b border-surface-container-high md:border-none">
+    <nav class="fixed top-0 w-full md:w-[calc(100%-5rem)] md:left-20 z-40 bg-background/80 backdrop-blur-md flex justify-between items-center px-6 h-16 border-b border-surface-container-high md:border-none">
         <div class="flex items-center gap-3">
             <h1 class="text-xl font-black text-secondary tracking-tight" id="header-title">Resumen</h1>
         </div>
@@ -195,58 +197,76 @@
     </nav>
 
     <!-- Side/Bottom Navigation (Velocity Logo here on desktop) -->
-    <aside class="fixed bottom-0 left-0 w-full md:w-28 md:h-screen bg-surface-container-lowest md:bg-surface border-t border-surface-container-high md:border-t-0 md:border-r border-outline-variant/15 z-50 flex md:flex-col justify-around md:justify-start items-center md:pt-6 md:pb-6 px-4 md:px-0 py-2 glass-panel shadow-[0_-12px_32px_-4px_rgba(26,43,72,0.05)] md:shadow-none">
+    <aside class="fixed bottom-0 left-0 w-full md:w-20 md:h-screen bg-surface-container-lowest md:bg-surface border-t border-surface-container-high md:border-t-0 md:border-r border-outline-variant/15 z-50 flex md:flex-col justify-around md:justify-start items-center md:pt-6 md:pb-6 px-4 md:px-0 py-2 glass-panel shadow-[0_-12px_32px_-4px_rgba(26,43,72,0.05)] md:shadow-none">
         
         <!-- Desktop Logo -->
-        <div class="hidden md:flex flex-col items-center mb-10 group">
-            <div class="w-12 h-12 rounded-xl flex items-center justify-center shadow-md transition-transform hover:scale-105 branding-container">
+        <div class="hidden md:flex flex-col items-center mb-8 group">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-md transition-transform hover:scale-105 branding-container">
                 <img src="../logo-velocity.svg" class="w-full h-full object-contain" alt="Velocity">
             </div>
         </div>
 
 
-        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl transition-all duration-200 active:scale-95 md:mb-4 bg-primary-container text-white shadow-lg">
-            <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">dashboard</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">Inicio</span>
+        <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl transition-all duration-200 active:scale-95 md:mb-3 bg-primary-container text-white shadow-lg">
+            <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Inicio</span>
         </button>
 
-        <button onclick="switchTab('orders')" id="nav-orders" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-4">
-            <span class="material-symbols-outlined">confirmation_number</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">Órdenes</span>
+        <button onclick="switchTab('orders')" id="nav-orders" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">confirmation_number</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Órdenes</span>
         </button>
         
-        <button onclick="switchTab('technicians')" id="nav-technicians" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-4">
-            <span class="material-symbols-outlined">engineering</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">Técnicos</span>
+        <button onclick="switchTab('technicians')" id="nav-technicians" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">engineering</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Técnicos</span>
         </button>
 
-        <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-4">
-            <span class="material-symbols-outlined">analytics</span>
-            <span class="font-bold text-[8px] uppercase tracking-wider mt-1">Reportes</span>
+        <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">analytics</span>
+            <span class="font-bold text-[7px] uppercase tracking-wider mt-0.5">Reportes</span>
         </button>
 
-        <button onclick="switchTab('naps')" id="nav-naps" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-4">
-            <span class="material-symbols-outlined">hub</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">NAPs</span>
+        <button onclick="switchTab('naps')" id="nav-naps" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">hub</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">NAPs</span>
         </button>
 
-        <button onclick="switchTab('users')" id="nav-users" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-4">
-            <span class="material-symbols-outlined">manage_accounts</span>
-            <span class="font-bold text-[8px] uppercase tracking-wider mt-1">Cuentas</span>
+        <button onclick="switchTab('users')" id="nav-users" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">manage_accounts</span>
+            <span class="font-bold text-[7px] uppercase tracking-wider mt-0.5">Cuentas</span>
         </button>
         
         <div class="hidden md:flex flex-1"></div>
         
-        <button onclick="window.logout()" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-error transition-all duration-200 active:scale-95 hover:bg-error-container/20 md:mb-4">
-            <span class="material-symbols-outlined">logout</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">Salir</span>
+        <button onclick="window.logout()" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-error transition-all duration-200 active:scale-95 hover:bg-error-container/20 md:mb-3">
+            <span class="material-symbols-outlined text-[20px]">logout</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Salir</span>
         </button>
 
-        <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn flex flex-col items-center justify-center w-16 h-16 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low">
-            <span class="material-symbols-outlined">settings</span>
-            <span class="font-bold text-[9px] uppercase tracking-wider mt-1">Ajustes</span>
+        <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low">
+            <span class="material-symbols-outlined text-[20px]">settings</span>
+            <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Ajustes</span>
         </button>
     </aside>
+
+    <!-- Elegant Loading Screen Overlay (covers main area, leaves sidebar visible) -->
+    <div id="loading-overlay" class="hidden fixed top-0 md:top-0 right-0 bottom-20 md:bottom-0 left-0 md:left-20 bg-background/90 backdrop-blur-md z-[45] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none">
+        <div class="flex flex-col items-center gap-4">
+            <!-- App Logo with pulse animation -->
+            <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
+                <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
+                <div class="shimmer-bar animate-shimmer"></div>
+            </div>
+            <!-- Elegant Spinner Bounces -->
+            <div class="flex items-center gap-2 mt-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
+                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
+            </div>
+            <p class="text-sm font-bold text-on-surface-variant tracking-wide mt-2" id="loading-overlay-text">Sincronizando con Wispro...</p>
+        </div>
+    </div>
 
     <!-- Main Content Area -->
     <main class="w-full pt-20 px-4 md:px-8 max-w-7xl mx-auto flex-1 transition-opacity duration-300" id="main-content">
@@ -598,6 +618,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="../src/js/config.js"></script>
     <script src="../src/js/core/state.js"></script>
     <script src="../src/js/core/api.js"></script>

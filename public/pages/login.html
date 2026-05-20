@@ -205,6 +205,15 @@
             const icon = input.parentElement.querySelector('.material-symbols-outlined');
             if (icon) icon.textContent = isPass ? 'visibility_off' : 'visibility';
         }
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('../sw.js').then(reg => {
+                    console.log('[Velocity PWA] Login SW registrado');
+                }).catch(err => {
+                    console.warn('[Velocity PWA] Error SW:', err);
+                });
+            });
+        }
     </script>
 </body>
 </html>

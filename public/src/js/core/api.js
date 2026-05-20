@@ -5,6 +5,10 @@ async function apiFetch(path, opts = {}, silent = false) {
 
     const isLocalApi = !path.includes(CFG.proxy) && (path.startsWith('/api/') || path.startsWith('api/'));
     
+    if (['POST', 'PUT', 'PATCH'].includes(opts.method) && !opts.body && opts.data) {
+        opts.body = JSON.stringify(opts.data);
+    }
+    
     const executeFetch = async () => {
         try {
             const cleanPath = path.startsWith('/') ? path.slice(1) : path;
@@ -18,7 +22,14 @@ async function apiFetch(path, opts = {}, silent = false) {
                     'Content-Type': 'application/json',
                     ...(opts.headers || {})
                 },
-                body: opts.body || (['POST', 'PUT', 'PATCH'].includes(opts.method) ? JSON.stringify(opts.data) : undefined)
+                body: opts.body
+            }).catch(err => {
+                const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(opts.method || 'GET');
+                if (isWrite) {
+                    addToOfflineQueue(path, opts);
+                    return { ok: true, json: () => Promise.resolve({ offline: true, success: true }) };
+                }
+                throw err;
             });
 
             if (res.ok) return await res.json();
@@ -31,18 +42,23 @@ async function apiFetch(path, opts = {}, silent = false) {
         }
     };
 
-    // Ejecutamos siempre en paralelo para máxima velocidad sin usar colas
     return executeFetch();
 }
 
 async function serverSync() {
     try {
+        if (!navigator.onLine) {
+            updateSystemStatus(false);
+            return;
+        }
         updateSystemStatus(true);
-        // 1. Descargar estado actual del servidor
         const remoteState = await apiFetch('/api/sync', { method: 'GET' }, true);
         if (remoteState) {
             localStorage.setItem('Velocity_Sync_State', JSON.stringify(remoteState));
             console.log('[Velocity] Estado sincronizado desde el servidor');
+            if (typeof window.updateActiveTechs === 'function') {
+                window.updateActiveTechs();
+            }
         }
     } catch (e) {
         console.warn('[Velocity] Error de sincronización:', e.message);
@@ -50,16 +66,110 @@ async function serverSync() {
     }
 }
 
-
-
 async function serverPush(newState) {
     try {
         await apiFetch('/api/sync', {
             method: 'POST',
             body: JSON.stringify(newState)
         });
-    } catch (e) { console.error('[Velocity] Falló el guardado en servidor'); }
+    } catch (e) { console.error('[Velocity] Falló el guardado en servidor', e); }
 }
+
+// ── COLA OFFLINE Y SINCRONIZACIÓN DE RED ────────────────────────────────
+const OFFLINE_QUEUE_KEY = 'Velocity_Offline_Queue';
+
+function getOfflineQueue() {
+    try {
+        return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+    } catch(e) {
+        return [];
+    }
+}
+
+function saveOfflineQueue(queue) {
+    localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue));
+}
+
+function addToOfflineQueue(path, opts) {
+    const queue = getOfflineQueue();
+    if (path.includes('/api/sync')) {
+        const idx = queue.findIndex(q => q.path.includes('/api/sync'));
+        if (idx !== -1) {
+            queue[idx] = { id: queue[idx].id, path, opts, ts: Date.now() };
+            saveOfflineQueue(queue);
+            return;
+        }
+    }
+    
+    queue.push({ id: Math.random().toString(36).slice(2, 9), path, opts, ts: Date.now() });
+    saveOfflineQueue(queue);
+    
+    if (typeof showNotification === 'function') {
+        showNotification('Modo Offline', 'Acción guardada localmente en la cola de sincronización.', 'issue');
+    }
+}
+
+async function syncOfflineQueue() {
+    if (!navigator.onLine) return;
+    const queue = getOfflineQueue();
+    if (queue.length === 0) return;
+    
+    console.log(`[Velocity PWA] Intentando sincronizar ${queue.length} acciones offline...`);
+    const remaining = [];
+    let successCount = 0;
+    
+    for (const item of queue) {
+        try {
+            const cleanPath = item.path.startsWith('/') ? item.path.slice(1) : item.path;
+            const isLocalApi = !item.path.includes(CFG.proxy) && (item.path.startsWith('/api/') || item.path.startsWith('api/'));
+            const url = item.path.startsWith('http') ? item.path : (isLocalApi ? item.path : CFG.proxy + cleanPath);
+            
+            const res = await fetch(url, {
+                ...item.opts,
+                headers: {
+                    'Authorization': SESSION_TOKEN,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    ...(item.opts.headers || {})
+                },
+                body: item.opts.body
+            });
+            
+            if (res.ok) {
+                successCount++;
+            } else {
+                remaining.push(item);
+            }
+        } catch (e) {
+            remaining.push(item);
+        }
+    }
+    
+    saveOfflineQueue(remaining);
+    
+    if (successCount > 0) {
+        if (typeof showNotification === 'function') {
+            showNotification('Sincronización Exitosa', `Se han sincronizado ${successCount} cambios pendientes.`, 'success');
+        }
+        if (typeof window.syncNow === 'function') {
+            window.syncNow();
+        }
+    }
+}
+
+window.addEventListener('online', () => {
+    updateSystemStatus(true);
+    syncOfflineQueue();
+});
+
+window.addEventListener('offline', () => {
+    updateSystemStatus(false);
+    if (typeof showNotification === 'function') {
+        showNotification('Sin Conexión', 'Se ha perdido la conexión de red. Trabajando en modo offline.', 'issue');
+    }
+});
+
+setTimeout(syncOfflineQueue, 1500);
 
 
 
@@ -123,9 +233,9 @@ function saveDynamicClients() {
 async function loadStaticData(force = false) {
     const cached = !force && cacheGet('static');
     if (cached) {
-        state.clients    = cached.clients;
-        state.techs      = cached.techs;
-        state.categories = cached.categories;
+        Object.assign(state.clients, cached.clients || {});
+        Object.assign(state.techs, cached.techs || {});
+        Object.assign(state.categories, cached.categories || {});
         return;
     }
 
@@ -184,24 +294,27 @@ async function loadTodayOrders(force = false) {
         const items = d.data || [];
 
         const todayOrders = items.filter(o => {
-            const day   = (o.start_at || '').slice(0, 10);
             const st    = (o.state || '').toLowerCase();
             const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta', 'open'].includes(st);
-            return day === todayStr && isActive;
+            if (!isActive) return false;
+            
+            const startAtLocalStr = o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '';
+            return startAtLocalStr === todayStr;
         });
 
         const finishedOrdersRaw = items.filter(o => {
             const st = (o.state || '').toLowerCase();
             const isFinished = ['finalizada', 'finalizado', 'finalized', 'closed'].includes(st);
             if (isFinished && !!o.employee_id) {
-                return (o.end_at || o.updated_at || '').slice(0, 10) === todayStr;
+                const endAtLocalStr = (o.end_at || o.updated_at) ? new Date(o.end_at || o.updated_at).toLocaleDateString('en-CA') : '';
+                return endAtLocalStr === todayStr;
             }
             return false;
         });
 
         const toResolve = {};
         [...todayOrders, ...finishedOrdersRaw].forEach(o => {
-            if (o.orderable_id && !state.clients[o.orderable_id]) {
+            if (o.orderable_id && (!state.clients[o.orderable_id] || !state.clients[o.orderable_id].name)) {
                 toResolve[o.orderable_id] = o.kind;
             }
         });
@@ -230,6 +343,7 @@ async function loadTodayOrders(force = false) {
                 address:      resolved.address || '',
                 zone:         resolved.zone || '',
                 phone:        resolved.phone || '',
+                nap:          resolved.nap || o.nap || null,
                 techName:     techName,
                 startTime:    startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
                 endTime:      endDate ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
@@ -262,7 +376,7 @@ async function loadTodayOrders(force = false) {
 
 
 async function resolveUnified(idMap) {
-    const ids = Object.keys(idMap).filter(id => !state.clients[id]);
+    const ids = Object.keys(idMap).filter(id => !state.clients[id] || !state.clients[id].name);
     if (ids.length === 0) return;
 
     console.log(`[Velocity] Resolviendo ${ids.length} entidades de Wispro...`);
@@ -273,7 +387,9 @@ async function resolveUnified(idMap) {
             try {
                 const kind = idMap[cid];
                 let endpointsToTry = [`/contracts/${cid}`, `/clients/${cid}`];
-                if (kind === 'installation') {
+                if (kind === 'client') {
+                    endpointsToTry = [`/clients/${cid}`];
+                } else if (kind === 'installation') {
                     endpointsToTry = [`/installation_orders/${cid}`, `/sale_desk/prospects/${cid}`, `/prospects/${cid}`, `/clients/${cid}`, `/contracts/${cid}`];
                 }
 
@@ -378,6 +494,22 @@ async function loadIssues(force = false) {
 
     const newIssues = allPending;
     const newFinished = allFinished;
+
+    // Resolver nombres de clientes para los reportes pendientes y finalizados
+    const missingClientIds = {};
+    [...newIssues, ...newFinished].forEach(i => {
+        if (i.client_id && (!state.clients[i.client_id] || !state.clients[i.client_id].name)) {
+            missingClientIds[i.client_id] = 'client';
+        }
+    });
+
+    if (Object.keys(missingClientIds).length > 0) {
+        try {
+            await resolveUnified(missingClientIds);
+        } catch (err) {
+            console.error("Error resolviendo clientes para reportes:", err);
+        }
+    }
 
     // Notificaciones de nuevos reportes
     if (state.knownIssueIds.size > 0) {

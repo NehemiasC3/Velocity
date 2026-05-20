@@ -1,17 +1,23 @@
 {
-  "name": "Velocity Ops",
+  "name": "Velocity Tracker Pro",
   "short_name": "Velocity",
-  "description": "Sistema de Gestión ISP Rappido Panamá",
-  "start_url": "index.html",
+  "description": "Plataforma Premium de Gestión de Operaciones FTTH",
+  "start_url": "pages/login.html",
   "display": "standalone",
-  "background_color": "#001b3d",
+  "background_color": "#0a0a0c",
   "theme_color": "#0059bb",
-  "orientation": "portrait",
+  "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "logo-velocity.svg",
-      "type": "image/svg+xml",
+      "src": "https://img.icons8.com/color/192/000000/lightning-bolt.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://img.icons8.com/color/512/000000/lightning-bolt.png",
       "sizes": "512x512",
+      "type": "image/png",
       "purpose": "any maskable"
     }
   ]

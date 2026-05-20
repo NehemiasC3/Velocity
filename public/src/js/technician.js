@@ -4,10 +4,6 @@
  */
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-const CFG_T = {
-    server: '' // Autodetección
-};
-
 // Cargar configuración desde config.js
 const CFG_T = {
     server: '' 
@@ -67,19 +63,22 @@ function startHeartbeat() {
     
     const sendPulse = async () => {
         try {
+            const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
             await fetch(VELOCITY_CONFIG.heartbeatPath, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
-                    'Authorization': SESSION_TOKEN // También protegido
+                    'Authorization': SESSION_TOKEN
                 },
                 body: JSON.stringify({
-                    techId: techState.profile.wisproId
+                    techId: techState.profile.wisproId,
+                    tracking: tracking
                 })
             });
         } catch (e) { console.warn('[Velocity-Tech] Heartbeat failed'); }
     };
 
+    window.triggerHeartbeat = sendPulse;
 
     sendPulse();
     setInterval(sendPulse, 30000); // Cada 30 segundos
@@ -206,7 +205,9 @@ async function loadMyOrders() {
                         address: [c.address_street, c.address_number, c.address_city].filter(Boolean).join(', ') || client?.address || client?.street || '',
                         zone:    client?.zone_name || c.address_city || '',
                         phone:   client?.phone_mobile || client?.phone || '',
-                        nap:     c.nap_name || null
+                        nap:     c.nap_name || null,
+                        lat:     client?.latitude || c.latitude || null,
+                        lng:     client?.longitude || c.longitude || null
                     };
                 }
             } catch {}
@@ -235,6 +236,8 @@ async function loadMyOrders() {
                 zone:      resolved.zone || '',
                 phone:     resolved.phone || '',
                 nap:       resolved.nap || null,
+                lat:       resolved.lat || null,
+                lng:       resolved.lng || null,
                 startTime: startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
                 endTime:   endDate   ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })   : '--:--',
                 description: o.description || '',
@@ -326,6 +329,29 @@ function renderAgenda() {
     // Próxima parada
     const next = techState.orders.find(o => o.state === 'pending' && o.result === 'not_set');
     if (next && nextStop) {
+        let nextNavHtml = '';
+        if (next.lat && next.lng) {
+            nextNavHtml = `
+            <div class="flex items-center gap-2 mt-2">
+                <button onclick="window.navigateGPS(${next.lat}, ${next.lng}, 'google')" class="flex items-center justify-center gap-1.5 flex-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-xs py-2 rounded-xl active:scale-95 transition-all shadow-sm">
+                    <span class="material-symbols-outlined text-sm text-secondary" style="font-variation-settings:'FILL' 1;">explore</span> Maps
+                </button>
+                <button onclick="window.navigateGPS(${next.lat}, ${next.lng}, 'waze')" class="flex items-center justify-center gap-1.5 flex-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-xs py-2 rounded-xl active:scale-95 transition-all shadow-sm">
+                    <span class="material-symbols-outlined text-sm text-amber-500" style="font-variation-settings:'FILL' 1;">directions_car</span> Waze
+                </button>
+            </div>`;
+        } else if (next.address) {
+            nextNavHtml = `
+            <div class="flex items-center gap-2 mt-2">
+                <button onclick="window.navigateAddress('${encodeURIComponent(next.address)}', 'google')" class="flex items-center justify-center gap-1.5 flex-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-xs py-2 rounded-xl active:scale-95 transition-all shadow-sm">
+                    <span class="material-symbols-outlined text-sm text-secondary" style="font-variation-settings:'FILL' 1;">explore</span> Maps
+                </button>
+                <button onclick="window.navigateAddress('${encodeURIComponent(next.address)}', 'waze')" class="flex items-center justify-center gap-1.5 flex-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-xs py-2 rounded-xl active:scale-95 transition-all shadow-sm">
+                    <span class="material-symbols-outlined text-sm text-amber-500" style="font-variation-settings:'FILL' 1;">directions_car</span> Waze
+                </button>
+            </div>`;
+        }
+
         nextStop.innerHTML = `
             <div class="relative z-10 w-full">
                 <div class="flex items-center gap-2 mb-2">
@@ -337,6 +363,7 @@ function renderAgenda() {
                     <p class="text-xs text-on-surface-variant line-clamp-1 flex-1 pr-2">${next.address || next.zone || '—'}</p>
                     <span class="text-xs font-bold bg-surface px-2 py-0.5 rounded text-secondary">${next.startTime}</span>
                 </div>
+                ${nextNavHtml}
                 ${next.address ? `
                 <div class="w-full h-36 rounded-xl overflow-hidden border border-outline-variant/30 mt-2">
                     <iframe width="100%" height="100%" frameborder="0" style="border:0"
@@ -404,6 +431,29 @@ function renderOrderCard(o) {
            </div>`;
     }
 
+    let navHtml = '';
+    if (o.lat && o.lng) {
+        navHtml = `
+        <div class="flex items-center gap-2 mt-2">
+            <button onclick="window.navigateGPS(${o.lat}, ${o.lng}, 'google')" class="flex items-center gap-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm hover:bg-surface-container-low active:scale-95 transition-all">
+                <span class="material-symbols-outlined text-xs text-secondary" style="font-variation-settings:'FILL' 1;">explore</span> Maps
+            </button>
+            <button onclick="window.navigateGPS(${o.lat}, ${o.lng}, 'waze')" class="flex items-center gap-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm hover:bg-surface-container-low active:scale-95 transition-all">
+                <span class="material-symbols-outlined text-xs text-amber-500" style="font-variation-settings:'FILL' 1;">directions_car</span> Waze
+            </button>
+        </div>`;
+    } else if (o.address) {
+        navHtml = `
+        <div class="flex items-center gap-2 mt-2">
+            <button onclick="window.navigateAddress('${encodeURIComponent(o.address)}', 'google')" class="flex items-center gap-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm hover:bg-surface-container-low active:scale-95 transition-all">
+                <span class="material-symbols-outlined text-xs text-secondary" style="font-variation-settings:'FILL' 1;">explore</span> Maps
+            </button>
+            <button onclick="window.navigateAddress('${encodeURIComponent(o.address)}', 'waze')" class="flex items-center gap-1 bg-surface border border-outline-variant/30 text-on-surface font-bold text-[10px] uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm hover:bg-surface-container-low active:scale-95 transition-all">
+                <span class="material-symbols-outlined text-xs text-amber-500" style="font-variation-settings:'FILL' 1;">directions_car</span> Waze
+            </button>
+        </div>`;
+    }
+
     return `
     <div class="bg-surface-container-lowest p-5 rounded-[1.25rem] shadow-sm ${borderCls}">
         <div class="flex justify-between items-start mb-3">
@@ -421,9 +471,10 @@ function renderOrderCard(o) {
 
         <div class="flex items-start gap-2 mb-1">
             <span class="material-symbols-outlined text-outline text-sm mt-0.5">location_on</span>
-            <div>
+            <div class="flex-1">
                 <p class="text-sm text-on-surface font-medium">${o.address || '—'}</p>
                 ${o.zone ? `<span class="text-xs font-bold text-secondary">${o.zone}</span>` : ''}
+                ${navHtml}
             </div>
         </div>
 
@@ -631,6 +682,9 @@ window.startOrder = function(id) {
         tracking[id] = { status: 'started', startTime: Date.now(), empId: SESSION_ID };
         localStorage.setItem('Velocity_Order_Tracking', JSON.stringify(tracking));
         renderAgenda();
+        if (typeof window.triggerHeartbeat === 'function') {
+            window.triggerHeartbeat();
+        }
     } catch(e) { console.error('Error al iniciar orden:', e); }
 };
 
@@ -645,6 +699,9 @@ window.finishOrder = function(id) {
         if(order) order.result = 'success';
         
         renderApp();
+        if (typeof window.triggerHeartbeat === 'function') {
+            window.triggerHeartbeat();
+        }
     } catch(e) { console.error('Error al finalizar orden:', e); }
 };
 
@@ -858,6 +915,27 @@ function showError(msg) {
         </div>`;
 }
 
+window.navigateGPS = function(lat, lng, platform) {
+    let url = '';
+    if (platform === 'google') {
+        url = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    } else if (platform === 'waze') {
+        url = `https://waze.com/ul?ll=${lat},${lng}&navigate=yes`;
+    }
+    if (url) window.open(url, '_blank');
+};
+
+window.navigateAddress = function(address, platform) {
+    const query = address + ', Panama';
+    let url = '';
+    if (platform === 'google') {
+        url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+    } else if (platform === 'waze') {
+        url = `https://waze.com/ul?q=${encodeURIComponent(query)}&navigate=yes`;
+    }
+    if (url) window.open(url, '_blank');
+};
+
 // ── INIT ──────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
     // Mostrar loading
@@ -871,6 +949,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     await loadTechData();
     startHeartbeat(); // Iniciar latido para que el servidor nos vea online
     renderAgenda();
+
+    // Auto-recarga cada 60s
+    setInterval(async () => {
+        if (techState.profile) {
+            await loadTechData();
+            renderAgenda();
+        }
+    }, 60000);
 });
 
 async function initApp() {
@@ -878,8 +964,3 @@ async function initApp() {
     startHeartbeat();
     renderAgenda();
 }
-            const hasStarted = JSON.stringify(localStorage.getItem('Velocity_Order_Tracking') || '{}').includes('started');
-            if(hasStarted) renderAgenda();
-        }
-    }, 60000);
-});

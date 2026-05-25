@@ -1587,19 +1587,70 @@ Views.naps = () => {
         list = list.filter(n => n.zone?.toLowerCase().trim() === zone.toLowerCase().trim());
     }
 
+    // Helper to parse dates in format DD/MM/YYYY or standard YYYY-MM-DD
+    const parseNapDate = (dateStr) => {
+        if (!dateStr) return 0;
+        const s = String(dateStr).trim();
+        if (s.includes('/')) {
+            const parts = s.split('/');
+            if (parts.length === 3) {
+                const d = parseInt(parts[0], 10);
+                const m = parseInt(parts[1], 10) - 1;
+                const y = parseInt(parts[2], 10);
+                return new Date(y, m, d).getTime() || 0;
+            }
+        }
+        return new Date(s).getTime() || 0;
+    };
+
+    // Helper to extract first number for sorting (handles negative levels, counts, etc.)
+    const extractNapNumber = (val) => {
+        if (val === null || val === undefined) return -Infinity;
+        if (typeof val === 'number') return val;
+        const cleanStr = String(val).trim();
+        if (!cleanStr) return -Infinity;
+        const match = cleanStr.match(/-?\d+(\.\d+)?/);
+        return match ? parseFloat(match[0]) : -Infinity;
+    };
+
     // Sort
     list.sort((a,b) => {
         let valA, valB;
         if (sortBy === 'date') {
-            valA = new Date(a.date).getTime() || 0;
-            valB = new Date(b.date).getTime() || 0;
+            valA = parseNapDate(a.date);
+            valB = parseNapDate(b.date);
         } else if (sortBy === 'name') {
             valA = (a.name || '').toLowerCase();
             valB = (b.name || '').toLowerCase();
-        } else {
+        } else if (sortBy === 'zone') {
             valA = (a.zone || '').toLowerCase();
             valB = (b.zone || '').toLowerCase();
+        } else if (sortBy === 'tech') {
+            valA = (a.techName || '').toLowerCase();
+            valB = (b.techName || '').toLowerCase();
+        } else if (sortBy === 'coords') {
+            valA = (a.coords || '').toLowerCase();
+            valB = (b.coords || '').toLowerCase();
+        } else if (sortBy === 'ports') {
+            valA = extractNapNumber(a.ports);
+            valB = extractNapNumber(b.ports);
+        } else if (sortBy === 'levels') {
+            valA = extractNapNumber(a.levels);
+            valB = extractNapNumber(b.levels);
+        } else if (sortBy === 'action') {
+            valA = ((a.action || '') + ' ' + (a.comments || '')).toLowerCase();
+            valB = ((b.action || '') + ' ' + (b.comments || '')).toLowerCase();
+        } else {
+            valA = parseNapDate(a.date);
+            valB = parseNapDate(b.date);
         }
+
+        // Handle empty values: always push to the end regardless of direction
+        const isAEmpty = (valA === -Infinity || valA === null || valA === undefined || valA === '');
+        const isBEmpty = (valB === -Infinity || valB === null || valB === undefined || valB === '');
+        if (isAEmpty && isBEmpty) return 0;
+        if (isAEmpty) return 1;
+        if (isBEmpty) return -1;
 
         if (valA < valB) return sortDir === 'asc' ? -1 : 1;
         if (valA > valB) return sortDir === 'asc' ? 1 : -1;
@@ -1654,6 +1705,22 @@ Views.naps = () => {
         </tr>`;
     }).join('');
 
+    // Helper for rendering header with sort button
+    const renderSortHeader = (label, colKey) => {
+        const isActive = sortBy === colKey;
+        const icon = isActive 
+            ? (sortDir === 'asc' ? 'arrow_upward' : 'arrow_downward') 
+            : 'swap_vert';
+        const opacityClass = isActive ? 'text-primary opacity-100 font-black' : 'opacity-30';
+        return `
+        <th onclick="window.toggleNapSort('${colKey}')" class="hover:bg-slate-100 cursor-pointer select-none transition-colors" style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">
+            <div style="display:flex;align-items:center;gap:4px;">
+                <span>${label}</span>
+                <span class="material-symbols-outlined text-[16px] ${opacityClass}" style="font-size: 16px;">${icon}</span>
+            </div>
+        </th>`;
+    };
+
     return `
     <div>
         <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
@@ -1683,6 +1750,11 @@ Views.naps = () => {
                     <option value="date" ${sortBy === 'date' ? 'selected' : ''}>Ordenar por Fecha</option>
                     <option value="name" ${sortBy === 'name' ? 'selected' : ''}>Ordenar por Nombre</option>
                     <option value="zone" ${sortBy === 'zone' ? 'selected' : ''}>Ordenar por Zona</option>
+                    <option value="tech" ${sortBy === 'tech' ? 'selected' : ''}>Ordenar por Técnico</option>
+                    <option value="coords" ${sortBy === 'coords' ? 'selected' : ''}>Ordenar por Coordenadas</option>
+                    <option value="ports" ${sortBy === 'ports' ? 'selected' : ''}>Ordenar por Puertos</option>
+                    <option value="levels" ${sortBy === 'levels' ? 'selected' : ''}>Ordenar por Niveles</option>
+                    <option value="action" ${sortBy === 'action' ? 'selected' : ''}>Ordenar por Acción / Comentario</option>
                 </select>
 
                 <button onclick="window.setNapFilter('sortDir', '${sortDir === 'asc' ? 'desc' : 'asc'}')" class="flex items-center gap-1 bg-white border border-outline-variant/50 px-3 py-2 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container transition-colors active:scale-95">
@@ -1702,14 +1774,14 @@ Views.naps = () => {
             <table style="width:100%;border-collapse:collapse;min-width:900px;">
                 <thead>
                     <tr style="background:#f8fafc;border-bottom:2px solid #e5e7eb;text-align:left;">
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Fechas</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Nombres</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Zona</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Técnico</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Coordenadas</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Puertos</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Niveles</th>
-                        <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;">Acción / Comentario</th>
+                        ${renderSortHeader('Fechas', 'date')}
+                        ${renderSortHeader('Nombres', 'name')}
+                        ${renderSortHeader('Zona', 'zone')}
+                        ${renderSortHeader('Técnico', 'tech')}
+                        ${renderSortHeader('Coordenadas', 'coords')}
+                        ${renderSortHeader('Puertos', 'ports')}
+                        ${renderSortHeader('Niveles', 'levels')}
+                        ${renderSortHeader('Acción / Comentario', 'action')}
                         <th style="padding:12px 14px;font-size:14px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:0.06em;text-align:right;">Opciones</th>
                     </tr>
                 </thead>
@@ -1936,6 +2008,16 @@ window.deleteNapTracker = (id) => {
 window.setNapFilter = (key, value) => {
     state.napFilter[key] = value;
     if(state.tab === 'naps') renderTab('naps');
+};
+
+window.toggleNapSort = (col) => {
+    if (state.napFilter.sortBy === col) {
+        state.napFilter.sortDir = state.napFilter.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.napFilter.sortBy = col;
+        state.napFilter.sortDir = 'asc';
+    }
+    if (state.tab === 'naps') renderTab('naps');
 };
 
 // Auxiliar para parsear CSV respetando comillas y comas

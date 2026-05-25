@@ -14,6 +14,17 @@ console.log('🚀 Velocity Supervisor v2.0.0-PRO cargado correctamente');
 
 
 
+window.updateBrowserTitle = function() {
+    const pendingReports = state.issues ? state.issues.length : 0;
+    const pendingNaps = state.trackedNaps ? state.trackedNaps.filter(n => !n.resolved).length : 0;
+    const total = pendingReports + pendingNaps;
+    if (total > 0) {
+        document.title = `(${total}) Velocity - Panel de Supervisor`;
+    } else {
+        document.title = "Velocity - Panel de Supervisor";
+    }
+};
+
 window.updateNapsBadge = function() {
     const badge = document.getElementById('naps-badge');
     if (!badge) return;
@@ -24,6 +35,7 @@ window.updateNapsBadge = function() {
     } else {
         badge.classList.add('hidden');
     }
+    window.updateBrowserTitle();
 };
 
 window.updateReportsBadge = function() {
@@ -36,6 +48,7 @@ window.updateReportsBadge = function() {
     } else {
         badge.classList.add('hidden');
     }
+    window.updateBrowserTitle();
 };
 
 // ── NAPs STATE ────────────────────────────────────────────────────────────
@@ -1748,6 +1761,9 @@ Views.naps = () => {
                 <button onclick="window.exportNapsToCSV()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
                     <span class="material-symbols-outlined text-[16px]">download</span> Exportar CSV
                 </button>
+                <button onclick="window.refreshNaps()" style="width:38px;height:38px;border:1px solid #e5e7eb;border-radius:12px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;" class="active:scale-95 transition-transform" title="Sincronizar NAPs y Reportes">
+                    <span class="material-symbols-outlined inline-block" style="font-size:17px;color:#6b7280;">sync</span>
+                </button>
             </div>
         </div>
 
@@ -2849,7 +2865,27 @@ window.refreshIssues = async function() {
 
     try {
         await loadIssues(true);
+        await serverSync();
+        loadTrackedNaps();
         if (typeof renderTab === 'function') renderTab('reports');
+    } catch(e) { console.error(e); }
+    
+    icons.forEach(i => i.classList.remove('animate-spin'));
+    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+};
+
+window.refreshNaps = async function() {
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Sincronizando NAPs...');
+    const icons = document.querySelectorAll('.material-symbols-outlined');
+    icons.forEach(i => {
+        if (i.textContent.trim() === 'sync') i.classList.add('animate-spin');
+    });
+
+    try {
+        await serverSync();
+        loadTrackedNaps();
+        await loadIssues(true, 1);
+        if (typeof renderTab === 'function') renderTab('naps');
     } catch(e) { console.error(e); }
     
     icons.forEach(i => i.classList.remove('animate-spin'));

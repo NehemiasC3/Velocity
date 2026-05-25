@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  velocity-server:
+    build: .
+    container_name: velocity-server
+    restart: unless-stopped
+    ports:
+      # Mapea el puerto definido en tu .env (o 3000 por defecto) al puerto 3000 del contenedor
+      - "${PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/usr/src/app/data
+      - PORT=3000
+    volumes:
+      # Persistencia de base de datos
+      - ./data:/usr/src/app/data

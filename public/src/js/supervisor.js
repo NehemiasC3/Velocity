@@ -161,28 +161,58 @@ window.runMonthlyAudit = function() {
     fetchMonthlyIssues(month, year);
 };
 
+state.lastStateHash = '';
+
+function getStateHash() {
+    return JSON.stringify({
+        ordersCount: state.orders ? state.orders.length : 0,
+        finishedOrdersCount: state.finishedOrders ? state.finishedOrders.length : 0,
+        issuesCount: state.issues ? state.issues.length : 0,
+        finishedIssuesCount: state.finishedIssues ? state.finishedIssues.length : 0,
+        ordersStates: state.orders ? state.orders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
+        finishedOrdersStates: state.finishedOrders ? state.finishedOrders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
+        issuesStates: state.issues ? state.issues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
+        finishedIssuesStates: state.finishedIssues ? state.finishedIssues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
+        tracking: localStorage.getItem('Velocity_Order_Tracking') || '{}',
+        online: state.onlineStatus ? Object.keys(state.onlineStatus).sort().map(k => `${k}:${state.onlineStatus[k]}`) : []
+    });
+}
+
 function startPolling() {
     stopPolling();
-    // Ticker para tiempos relativos y SLA (cada 30 seg)
-    setInterval(() => {
-        if (state.tab === 'orders') renderTab('orders');
-    }, 30000);
+    // Ticker para tiempos relativos y SLA (cada 60 seg)
+    state.relTimeTimer = setInterval(() => {
+        if (document.visibilityState === 'visible' && state.tab === 'orders') {
+            renderTab('orders');
+        }
+    }, 60000);
 
     state.pollTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
         try {
-            await Promise.allSettled([
+            const promises = [
                 loadTodayOrders(true),
+                loadIssues(true, 1),
                 serverSync()
-            ]);
+            ];
+            await Promise.allSettled(promises);
+            
+            const newHash = getStateHash();
+            if (newHash !== state.lastStateHash) {
+                console.log('[Velocity] Cambios detectados en la API. Actualizando interfaz...');
+                state.lastStateHash = newHash;
+                renderTab(state.tab);
+            } else {
+                console.log('[Velocity] Polling finalizado sin cambios.');
+            }
         } catch(e) { console.error('Error en polling sync:', e); }
         state.lastSync = Date.now();
-        if (state.tab === 'orders' || state.tab === 'dashboard') renderTab(state.tab);
     }, CFG.pollMs);
 }
 
 function stopPolling() {
     if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    if (state.relTimeTimer) { clearInterval(state.relTimeTimer); state.relTimeTimer = null; }
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -948,7 +978,7 @@ Views.reports = () => {
         // Verificar que el técnico sea uno de los activos
         const techName = state.techs[issue.assignable_id] || '';
         const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        const foundInDB = (db.technicians || []).find(t => String(t.id) === String(issue.assignable_id));
+        const foundInDB = (db.technicians || []).find(t => String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id));
         const resolvedName = techName || foundInDB?.name || '';
         const esActivo = resolvedName && TECNICOS_ACTIVOS.some(n =>
             resolvedName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
@@ -977,7 +1007,7 @@ Views.reports = () => {
             // Fallback: buscar en técnicos del localStorage
             const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
             const found = (db.technicians || []).find(t =>
-                String(t.id) === String(issue.assignable_id)
+                String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id)
             );
             techName = found?.name;
         }
@@ -1070,9 +1100,14 @@ Views.reports = () => {
                     <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
                     <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
                         ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
-                        <button onclick="window.openFeedbackModal('${issue.id}', true)" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora">
-                            <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                        </button>
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <div data-last-comment-issue-id="${issue.id}" class="comment-preview-inline flex-shrink-0">
+                                <span class="material-symbols-outlined text-[14px] text-secondary/50 animate-spin">sync</span>
+                            </div>
+                            <button onclick="window.openFeedbackModal('${issue.id}', true)" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
+                                <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>`;
@@ -1230,7 +1265,7 @@ Views.reports = () => {
         
         let tName = state.techs[i.assignable_id];
         if (!tName) {
-            const f = (db.technicians || []).find(t => String(t.id) === String(i.assignable_id));
+            const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
             tName = f?.name;
         }
         const esAct = tName && TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
@@ -1387,7 +1422,7 @@ Views.reports = () => {
                     let tName = state.techs[i.assignable_id];
                     if (!tName) {
                         const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-                        const f = (db.technicians || []).find(t => String(t.id) === String(i.assignable_id));
+                        const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
                         tName = f?.name || 'Sin asignar';
                     }
                     
@@ -1408,7 +1443,6 @@ Views.reports = () => {
                                     ${clientName}
                                 </span>
                             </div>
-                            <div data-last-comment-issue-id="${i.id}" class="text-[11px] text-secondary mt-1.5 ml-1 font-semibold italic flex items-center gap-1 opacity-90"><span class="material-symbols-outlined text-[12px] animate-spin">sync</span><span>Obteniendo nota de cierre...</span></div>
                         </td>
                         <!-- Columna 2: Técnico -->
                         <td class="py-3 px-4">
@@ -1434,12 +1468,6 @@ Views.reports = () => {
                                 ${elapsedStr}
                             </span>
                         </td>
-                        <!-- Columna 5: Acción Bitácora -->
-                        <td class="py-3 px-4 text-center">
-                            <button onclick="window.openFeedbackModal('${i.id}', true)" class="w-8 h-8 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all mx-auto" title="Ver Bitácora">
-                                <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                            </button>
-                        </td>
                     </tr>`;
                 }).join('');
 
@@ -1457,7 +1485,6 @@ Views.reports = () => {
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Técnico</th>
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Finalizado</th>
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Tiempo Transcurrido</th>
-                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center w-12">Detalle</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-outline-variant/5">
@@ -1472,19 +1499,58 @@ Views.reports = () => {
             const fiToday = state.finishedIssues.filter(i => (i.updated_at || '').slice(0,10) === tStr);
 
             const finishedHtml = renderFinishedList(fiToday, 'Reportes Finalizados (Hoy)');
+            
+            const filter = window.currentAuditFilter || 'all';
+            const btnAllClass = filter === 'all' 
+                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+            const btnOrdersClass = filter === 'orders' 
+                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+            const btnIssuesClass = filter === 'issues' 
+                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+
             const auditHtml = `
             <div class="mt-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] shadow-md space-y-4">
-                <div class="flex items-center justify-between">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div class="flex items-center gap-3">
                         <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">history_edu</span>
                         <h3 class="text-xs font-black text-on-surface uppercase tracking-widest text-left">Auditoría de Comentarios (Hoy)</h3>
                     </div>
-                    <button onclick="window.loadRecentCommentsAudit()" class="flex items-center gap-1.5 text-xs font-bold text-secondary hover:bg-secondary/10 px-3 py-1.5 rounded-xl border border-secondary/15 transition-all">
-                        <span class="material-symbols-outlined text-sm">sync</span> Cargar Auditoría
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button onclick="window.loadRecentCommentsAudit()" class="flex items-center gap-1.5 text-xs font-bold text-secondary hover:bg-secondary/10 px-3 py-1.5 rounded-xl border border-secondary/15 transition-all">
+                            <span class="material-symbols-outlined text-sm">sync</span> Recargar
+                        </button>
+                    </div>
                 </div>
-                <div id="comments-audit-container" class="space-y-3">
-                    <p class="text-xs text-on-surface-variant/60 italic p-4 text-center">Haz clic en "Cargar Auditoría" para consolidar los comentarios ingresados hoy por los técnicos en las órdenes y reportes finalizados.</p>
+
+                <!-- Buscador y Filtros -->
+                <div class="flex flex-col md:flex-row items-center gap-3">
+                    <div class="relative w-full md:w-80">
+                        <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 text-lg">search</span>
+                        <input type="text" id="audit-search-input" value="${window.currentAuditSearch || ''}" oninput="window.filterAuditComments()" 
+                               class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl pl-10 pr-4 py-2 text-xs font-bold text-on-surface transition-colors" 
+                               placeholder="Buscar por técnico, cliente, comentario...">
+                    </div>
+                    
+                    <div class="flex items-center gap-2 w-full md:w-auto">
+                        <button onclick="window.setAuditFilter('all')" id="audit-filter-all" class="${btnAllClass}">
+                            Todos
+                        </button>
+                        <button onclick="window.setAuditFilter('orders')" id="audit-filter-orders" class="${btnOrdersClass}">
+                            Órdenes
+                        </button>
+                        <button onclick="window.setAuditFilter('issues')" id="audit-filter-issues" class="${btnIssuesClass}">
+                            Mesa de Ayuda
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="comments-audit-container">
+                    <div id="comments-audit-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <p class="text-xs text-on-surface-variant/60 italic p-4 text-center col-span-full">Cargando comentarios...</p>
+                    </div>
                 </div>
             </div>`;
             return finishedHtml + auditHtml;
@@ -3180,7 +3246,7 @@ async function initApp() {
     loadTrackedNaps(); // Cargar estado de NAPs manuales
 
     try {
-        localStorage.removeItem('Velocity_Cache_issues'); // Forzar recarga limpia de reportes con nombres de clientes
+        localStorage.removeItem('V_issues'); // Forzar recarga limpia de reportes con nombres de clientes
         loadDynamicClients();
         // Carga paralela: datos estáticos + órdenes del día + issues
         await Promise.all([
@@ -3567,141 +3633,277 @@ window.loadFeedbacks = async function(target) {
     }
 };
 
+window.currentAuditFilter = 'all';
+window.currentAuditSearch = '';
+window.lastAuditComments = [];
+
 window.loadRecentCommentsAudit = async function() {
-    const container = document.getElementById('comments-audit-container');
-    if (!container) return;
+    const listContainer = document.getElementById('comments-audit-list');
+    if (!listContainer) return;
     
-    container.innerHTML = `
-    <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant/30">
+    listContainer.innerHTML = `
+    <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant/30 col-span-full">
         <span class="material-symbols-outlined text-4xl mb-3 animate-spin text-secondary">sync</span>
-        <p class="text-xs font-black tracking-widest uppercase mb-1">Pintando Auditoría...</p>
-        <p class="text-[9px] font-bold opacity-50 uppercase">Extrayendo comentarios de las órdenes finalizadas de hoy</p>
+        <p class="text-xs font-black tracking-widest uppercase mb-1">Cargando Auditoría...</p>
+        <p class="text-[9px] font-bold opacity-50 uppercase">Consolidando comentarios de hoy...</p>
     </div>`;
 
     // Breve pausa para mostrar la animación
     await new Promise(resolve => setTimeout(resolve, 150));
 
-    const tStr = new Date().toLocaleDateString('en-CA');
-    const fiToday = state.finishedIssues.filter(i => (i.updated_at || '').slice(0,10) === tStr);
-    const foToday = state.finishedOrders || [];
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+    const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+
+    // Carga paralela por lotes de los comentarios faltantes para evitar llamadas duplicadas o listas vacías
+    const itemsToFetch = [];
+    allOrders.forEach(o => {
+        if (!o.feedbacks) {
+            itemsToFetch.push({ id: o.rawId || o.id, isIssue: false, obj: o });
+        }
+    });
+    allIssues.forEach(i => {
+        if (!i.feedbacks) {
+            itemsToFetch.push({ id: i.id, isIssue: true, obj: i });
+        }
+    });
+
+    if (itemsToFetch.length > 0) {
+        const BATCH_SIZE = 5;
+        for (let idx = 0; idx < itemsToFetch.length; idx += BATCH_SIZE) {
+            const batch = itemsToFetch.slice(idx, idx + BATCH_SIZE);
+            await Promise.allSettled(batch.map(async (item) => {
+                const endpoints = item.isIssue 
+                    ? [`/help_desk/issues/${item.id}/feedbacks`, `/help_desk/issues/${item.id}/issue_feedbacks`]
+                    : [`/order/orders/${item.id}/feedbacks`, `/installation_orders/${item.id}/feedbacks`];
+                
+                for (const url of endpoints) {
+                    try {
+                        const res = await apiFetch(url, {}, true);
+                        if (res && Array.isArray(res.data)) {
+                            item.obj.feedbacks = res.data;
+                            break;
+                        }
+                    } catch (e) {}
+                }
+            }));
+            if (idx + BATCH_SIZE < itemsToFetch.length) {
+                await new Promise(r => setTimeout(r, 200));
+            }
+        }
+    }
     
     let allComments = [];
     const seenFeedbackIds = new Set();
 
-    // Procesar órdenes finalizadas primero
-    foToday.forEach(o => {
+    // 1. Procesar comentarios en órdenes (tanto activas como finalizadas)
+    allOrders.forEach(o => {
         if (o.feedbacks && Array.isArray(o.feedbacks)) {
             o.feedbacks.forEach(c => {
                 const body = (c.body || c.comment || '').trim();
-                if (body && !seenFeedbackIds.has(c.id)) {
+                if (!body) return;
+                
+                // Filtrar solo comentarios de hoy
+                const commentDate = c.created_at ? new Date(c.created_at) : new Date();
+                const commentDateStr = commentDate.toLocaleDateString('en-CA');
+                if (commentDateStr !== todayStr) return;
+                
+                if (!seenFeedbackIds.has(c.id)) {
                     seenFeedbackIds.add(c.id);
                     let author = c.author_name || c.technician_name || c.creator_name || c.user_name;
                     if (!author && c.creatable_id) {
                         if (c.creatable_id === o.employee_id) {
                             author = o.techName;
                         } else {
-                            author = state.techs[c.creatable_id] || 'Técnico';
+                            author = (state.techs && state.techs[c.creatable_id]) || 'Técnico';
                         }
                     }
                     if (!author) author = 'Técnico';
                     
-                    allComments.push({
-                        targetId: o.id,
-                        client: o.client,
-                        color: o.typeColor || '#3b82f6',
-                        type: o.typeLabel || 'Orden',
-                        author: author,
-                        comment: body,
-                        createdAt: c.created_at ? new Date(c.created_at) : new Date()
-                    });
+                    // Verificar si esta orden está asociada a algún issue (Mesa de Ayuda)
+                    const matchingIssue = allIssues.find(i => 
+                        String(i.client_id) === String(o.orderable_id) || 
+                        String(i.client_id) === String(o.clientId) || 
+                        String(i.id) === String(o.orderable_id)
+                    );
+                    
+                    if (matchingIssue) {
+                        allComments.push({
+                            targetId: matchingIssue.public_id || matchingIssue.id,
+                            client: (state.clients && state.clients[matchingIssue.client_id]?.name) || matchingIssue.title || o.client || 'Reporte',
+                            color: '#ef4444',
+                            type: 'Mesa de Ayuda',
+                            category: 'issues',
+                            author: author,
+                            comment: body,
+                            createdAt: commentDate
+                        });
+                    } else {
+                        allComments.push({
+                            targetId: o.id,
+                            client: o.client || 'Cliente',
+                            color: o.typeColor || '#3b82f6',
+                            type: o.typeLabel || 'Orden',
+                            category: 'orders',
+                            author: author,
+                            comment: body,
+                            createdAt: commentDate
+                        });
+                    }
                 }
             });
         }
     });
 
-    // Procesar reportes finalizados
-    fiToday.forEach(i => {
-        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
-        const matchingOrder = allOrders.find(o => o.orderable_id === i.client_id);
-        
-        if (matchingOrder && matchingOrder.feedbacks && Array.isArray(matchingOrder.feedbacks)) {
-            matchingOrder.feedbacks.forEach(c => {
+    // 2. Procesar comentarios cargados directamente en issues (por si acaso no pasaron por órdenes)
+    allIssues.forEach(i => {
+        if (i.feedbacks && Array.isArray(i.feedbacks)) {
+            i.feedbacks.forEach(c => {
                 const body = (c.body || c.comment || '').trim();
-                if (body && !seenFeedbackIds.has(c.id)) {
+                if (!body) return;
+
+                const commentDate = c.created_at ? new Date(c.created_at) : new Date();
+                const commentDateStr = commentDate.toLocaleDateString('en-CA');
+                if (commentDateStr !== todayStr) return;
+
+                if (!seenFeedbackIds.has(c.id)) {
                     seenFeedbackIds.add(c.id);
                     let author = c.author_name || c.technician_name || c.creator_name || c.user_name;
                     if (!author && c.creatable_id) {
-                        author = state.techs[c.creatable_id] || 'Técnico';
+                        author = (state.techs && state.techs[c.creatable_id]) || 'Técnico';
                     }
                     if (!author) author = 'Técnico';
 
                     allComments.push({
                         targetId: i.public_id || i.id,
-                        client: state.clients[i.client_id]?.name || i.title || 'Reporte',
+                        client: (state.clients && state.clients[i.client_id]?.name) || i.title || 'Reporte',
                         color: '#ef4444',
                         type: 'Mesa de Ayuda',
+                        category: 'issues',
                         author: author,
                         comment: body,
-                        createdAt: c.created_at ? new Date(c.created_at) : new Date()
+                        createdAt: commentDate
                     });
                 }
             });
         }
     });
 
-    if (allComments.length === 0) {
-        container.innerHTML = `
-        <div class="flex flex-col items-center justify-center py-8 text-on-surface-variant/30 italic">
+    // Ordenar de más nuevo a más antiguo
+    allComments.sort((a, b) => b.createdAt - a.createdAt);
+    
+    // Guardar en variable global para búsquedas y filtrados instantáneos
+    window.lastAuditComments = allComments;
+
+    // Renderizar con el filtro y búsqueda actual
+    window.renderAuditComments();
+};
+
+window.setAuditFilter = function(filter) {
+    window.currentAuditFilter = filter;
+    
+    const btnAll = document.getElementById('audit-filter-all');
+    const btnOrders = document.getElementById('audit-filter-orders');
+    const btnIssues = document.getElementById('audit-filter-issues');
+    
+    if (btnAll) {
+        btnAll.className = filter === 'all' 
+            ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+            : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+    }
+    if (btnOrders) {
+        btnOrders.className = filter === 'orders' 
+            ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+            : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+    }
+    if (btnIssues) {
+        btnIssues.className = filter === 'issues' 
+            ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
+            : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
+    }
+    
+    window.renderAuditComments();
+};
+
+window.filterAuditComments = function() {
+    const searchInput = document.getElementById('audit-search-input');
+    window.currentAuditSearch = searchInput ? searchInput.value.trim().toLowerCase() : '';
+    window.renderAuditComments();
+};
+
+window.renderAuditComments = function() {
+    const listContainer = document.getElementById('comments-audit-list');
+    if (!listContainer) return;
+    
+    const comments = window.lastAuditComments || [];
+    const filter = window.currentAuditFilter || 'all';
+    const query = window.currentAuditSearch || '';
+    
+    const filtered = comments.filter(c => {
+        if (filter === 'orders' && c.category !== 'orders') return false;
+        if (filter === 'issues' && c.category !== 'issues') return false;
+        
+        if (query) {
+            const authorMatch = (c.author || '').toLowerCase().includes(query);
+            const clientMatch = (c.client || '').toLowerCase().includes(query);
+            const commentMatch = (c.comment || '').toLowerCase().includes(query);
+            const idMatch = String(c.targetId || '').toLowerCase().includes(query);
+            const typeMatch = (c.type || '').toLowerCase().includes(query);
+            if (!authorMatch && !clientMatch && !commentMatch && !idMatch && !typeMatch) {
+                return false;
+            }
+        }
+        return true;
+    });
+    
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-8 text-on-surface-variant/30 italic col-span-full">
             <span class="material-symbols-outlined text-3xl mb-2">search_off</span>
             <p class="text-xs font-black uppercase tracking-wider">Sin comentarios</p>
-            <p class="text-[9px] opacity-40 uppercase">No se hallaron notas en las órdenes o reportes finalizados hoy.</p>
+            <p class="text-[9px] opacity-40 uppercase">No se hallaron notas en las órdenes o reportes con los criterios especificados.</p>
         </div>`;
         return;
     }
-
-    // Ordenar de más nuevo a más antiguo
-    allComments.sort((a, b) => b.createdAt - a.createdAt);
-
-    container.innerHTML = `
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        ${allComments.map(c => `
-        <div class="bg-surface-container-lowest border border-outline-variant/15 hover:border-outline-variant/30 rounded-3xl p-5 shadow-sm space-y-3 transition-all hover:shadow-md duration-200">
-            <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                    <div class="flex items-center gap-2 mb-1 flex-wrap">
-                        <span class="text-[9px] font-black text-white px-2 py-0.5 rounded-full" style="background:${c.color}">
-                            #${c.targetId}
-                        </span>
-                        <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-surface-container-high text-on-surface-variant rounded-full">
-                            ${c.type}
-                        </span>
-                    </div>
-                    <p class="text-xs font-black text-on-surface truncate max-w-[200px]" title="${c.client}">
-                        ${c.client}
-                    </p>
+    
+    listContainer.innerHTML = filtered.map(c => `
+    <div class="bg-surface-container-lowest border border-outline-variant/15 hover:border-outline-variant/30 rounded-3xl p-5 shadow-sm space-y-3 transition-all hover:shadow-md duration-200">
+        <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+                <div class="flex items-center gap-2 mb-1 flex-wrap">
+                    <span class="text-[9px] font-black text-white px-2 py-0.5 rounded-full" style="background:${c.color}">
+                        #${c.targetId}
+                    </span>
+                    <span class="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 bg-surface-container-high text-on-surface-variant rounded-full">
+                        ${c.type}
+                    </span>
                 </div>
-                <span class="text-[10px] text-on-surface-variant/40 font-black whitespace-nowrap bg-surface-container/30 px-2 py-0.5 rounded-lg">
-                    ${c.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </span>
+                <p class="text-xs font-black text-on-surface truncate max-w-[200px]" title="${c.client}">
+                    ${c.client}
+                </p>
             </div>
-            
-            <p class="text-xs text-on-surface font-medium leading-relaxed bg-surface-container-low/40 p-4 rounded-2xl border border-outline-variant/10 whitespace-pre-line">
-                ${c.comment}
-            </p>
-            
-            <div class="flex items-center justify-between text-[10px] font-black text-secondary">
-                <div class="flex items-center gap-1">
-                    <span class="material-symbols-outlined text-[13px]">person</span>
-                    <span>${c.author}</span>
-                </div>
-                <span class="text-[8px] text-on-surface-variant/30 uppercase font-black">
-                    ${c.createdAt.toLocaleDateString([], { day: '2-digit', month: '2-digit' })}
-                </span>
-            </div>
+            <span class="text-[10px] text-on-surface-variant/40 font-black whitespace-nowrap bg-surface-container/30 px-2 py-0.5 rounded-lg">
+                ${c.createdAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
         </div>
-        `).join('')}
-    </div>`;
+        
+        <p class="text-xs text-on-surface font-medium leading-relaxed bg-surface-container-low/40 p-4 rounded-2xl border border-outline-variant/10 whitespace-pre-line">
+            ${c.comment}
+        </p>
+        
+        <div class="flex items-center justify-between text-[10px] font-black text-secondary">
+            <div class="flex items-center gap-1">
+                <span class="material-symbols-outlined text-[13px]">person</span>
+                <span>${c.author}</span>
+            </div>
+            <span class="text-[8px] text-on-surface-variant/30 uppercase font-black">
+                ${c.createdAt.toLocaleDateString([], { day: '2-digit', month: '2-digit' })}
+            </span>
+        </div>
+    </div>
+    `).join('');
 };
+
 
 window.loadLastCommentsForPlaceholders = async function() {
     const orderElements = document.querySelectorAll('[data-last-comment-order-id]');
@@ -3788,12 +3990,40 @@ window.loadLastCommentsForPlaceholders = async function() {
                 const sorted = [...feedbacks].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
                 const comment = (sorted[0].body || sorted[0].comment || '').trim();
                 const author = sorted[0].author_name || sorted[0].technician_name || sorted[0].creator_name || sorted[0].user_name || 'Técnico';
-                el.innerHTML = `<span class="material-symbols-outlined text-[12px] text-secondary">chat_bubble</span><span class="truncate max-w-[260px] block" title="${comment}"><strong>${author}:</strong> ${comment}</span>`;
+                if (el.classList.contains('comment-preview-inline')) {
+                    const truncated = comment.length > 40 ? comment.substring(0, 40) + '...' : comment;
+                    el.innerHTML = `
+                        <button onclick="window.openFeedbackModal('${id}', true)" class="inline-flex items-center gap-1 text-left text-secondary hover:underline bg-transparent border-none p-0 cursor-pointer max-w-full" title="${comment}">
+                            <span class="material-symbols-outlined text-[12px] text-secondary flex-shrink-0">chat_bubble</span>
+                            <span class="truncate text-[11px] font-semibold italic"><strong>${author}:</strong> ${truncated}</span>
+                        </button>
+                    `;
+                } else {
+                    el.innerHTML = `<span class="material-symbols-outlined text-[12px] text-secondary">chat_bubble</span><span class="truncate max-w-[260px] block" title="${comment}"><strong>${author}:</strong> ${comment}</span>`;
+                }
             } else {
-                el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Sin notas de cierre</span>`;
+                if (el.classList.contains('comment-preview-inline')) {
+                    el.innerHTML = `
+                        <div class="inline-flex items-center gap-1 text-on-surface-variant/40">
+                            <span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span>
+                            <span class="text-[11px] font-semibold italic">Sin notas</span>
+                        </div>
+                    `;
+                } else {
+                    el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Sin notas de cierre</span>`;
+                }
             }
         } catch (err) {
-            el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Error al cargar notas</span>`;
+            if (el.classList.contains('comment-preview-inline')) {
+                el.innerHTML = `
+                    <div class="inline-flex items-center gap-1 text-on-surface-variant/40">
+                        <span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span>
+                        <span class="text-[11px] font-semibold italic">Error</span>
+                    </div>
+                `;
+            } else {
+                el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Error al cargar notas</span>`;
+            }
         }
     });
 };

@@ -214,9 +214,11 @@ function renderTab(tab) {
     if (!el) return;
 
     // Persistencia de foco y cursor
-    const activeId = document.activeElement ? document.activeElement.id : null;
-    const start = document.activeElement.selectionStart;
-    const end = document.activeElement.selectionEnd;
+    const activeEl = document.activeElement;
+    const activeId = activeEl ? activeEl.id : null;
+    const hasSelection = activeEl && ('selectionStart' in activeEl || typeof activeEl.selectionStart === 'number');
+    const start = hasSelection ? activeEl.selectionStart : null;
+    const end = hasSelection ? activeEl.selectionEnd : null;
 
     el.innerHTML = Views[tab] ? Views[tab]() : '<p class="p-8 text-on-surface-variant">Vista no encontrada</p>';
 
@@ -241,5 +243,9 @@ function renderTab(tab) {
 
     if ((tab === 'orders' || tab === 'reports') && typeof window.loadLastCommentsForPlaceholders === 'function') {
         setTimeout(window.loadLastCommentsForPlaceholders, 150);
+    }
+
+    if (tab === 'reports' && typeof window.loadRecentCommentsAudit === 'function') {
+        setTimeout(window.loadRecentCommentsAudit, 150);
     }
 }

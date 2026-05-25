@@ -952,9 +952,18 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     // Auto-recarga cada 60s
     setInterval(async () => {
-        if (techState.profile) {
-            await loadTechData();
-            renderAgenda();
+        if (techState.profile && document.visibilityState === 'visible') {
+            try {
+                const oldHash = JSON.stringify((techState.orders || []).map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`));
+                await loadTechData();
+                const newHash = JSON.stringify((techState.orders || []).map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`));
+                if (oldHash !== newHash) {
+                    console.log('[Velocity Tech] Cambios detectados. Actualizando agenda...');
+                    renderApp();
+                }
+            } catch (e) {
+                console.error('Error en auto-recarga del técnico:', e);
+            }
         }
     }, 60000);
 });

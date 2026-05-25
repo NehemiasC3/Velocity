@@ -1,3 +1,11 @@
 .env
 node_modules/
 data/
+
+# Logs
+server.log
+*.log
+
+# Temp/Agent files
+scratch/
+.gemini/

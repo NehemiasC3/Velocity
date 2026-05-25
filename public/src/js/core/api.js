@@ -453,7 +453,7 @@ async function resolveUnified(idMap) {
 
 
 
-async function loadIssues(force = false) {
+async function loadIssues(force = false, maxPages = 30) {
     try {
         const cached = !force && cacheGet('issues');
         if (cached && cached.pending) { 
@@ -468,10 +468,18 @@ async function loadIssues(force = false) {
     const yestStr = yesterday.toLocaleDateString('en-CA');
 
     let allPending = [], allFinished = [], page = 1;
-    while (page <= 30) {
+    const allFetchedIds = new Set();
+    let reachedEnd = false;
+
+    while (page <= maxPages) {
         const d = await apiFetch(`/help_desk/issues?per_page=1000&page=${page}&q%5Bs%5D=id+desc`);
         const items = d.data || [];
-        if (!items.length) break;
+        if (!items.length) {
+            reachedEnd = true;
+            break;
+        }
+
+        items.forEach(i => allFetchedIds.add(i.id));
         
         allPending = allPending.concat(items.filter(i => ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase())));
         
@@ -485,19 +493,52 @@ async function loadIssues(force = false) {
             return false;
         }));
 
-        if (items.length < 1000) break;
+        if (items.length < 1000) {
+            reachedEnd = true;
+            break;
+        }
         page++;
         // Pausa para evitar error 429 del proxy gratuito
         await new Promise(r => setTimeout(r, 1200));
     }
 
 
-    const newIssues = allPending;
-    const newFinished = allFinished;
+    let finalIssues = [];
+    let finalFinished = [];
+
+    if (reachedEnd) {
+        finalIssues = allPending;
+        finalFinished = allFinished;
+    } else {
+        // Fusión inteligente para cargas parciales (evita perder tickets de páginas no descargadas)
+        const newIssuesMap = new Map(allPending.map(i => [i.id, i]));
+        const mergedIssues = [];
+        
+        (state.issues || []).forEach(oldIssue => {
+            if (allFetchedIds.has(oldIssue.id)) {
+                if (newIssuesMap.has(oldIssue.id)) {
+                    mergedIssues.push(newIssuesMap.get(oldIssue.id));
+                    newIssuesMap.delete(oldIssue.id);
+                }
+            } else {
+                mergedIssues.push(oldIssue);
+            }
+        });
+        
+        newIssuesMap.forEach(newIssue => {
+            mergedIssues.push(newIssue);
+        });
+        
+        finalIssues = mergedIssues;
+
+        const finishedMap = new Map((state.finishedIssues || []).map(i => [i.id, i]));
+        allFinished.forEach(i => finishedMap.set(i.id, i));
+        finalFinished = Array.from(finishedMap.values());
+    }
 
     // Resolver nombres de clientes para los reportes pendientes y finalizados
     const missingClientIds = {};
-    [...newIssues, ...newFinished].forEach(i => {
+    [...finalIssues, ...finalFinished].forEach(i => {
         if (i.client_id && (!state.clients[i.client_id] || !state.clients[i.client_id].name)) {
             missingClientIds[i.client_id] = 'client';
         }
@@ -513,7 +554,7 @@ async function loadIssues(force = false) {
 
     // Notificaciones de nuevos reportes
     if (state.knownIssueIds.size > 0) {
-        newIssues.forEach(i => {
+        finalIssues.forEach(i => {
             if (!state.knownIssueIds.has(i.id)) {
                 const client = state.clients[i.client_id]?.name || 'Nuevo Reporte';
                 showNotification(`Nuevo Reporte Detectado`, `Cliente: ${client}\nAsunto: ${i.title || 'Sin asunto'}`, 'issue');
@@ -521,12 +562,12 @@ async function loadIssues(force = false) {
             }
         });
     } else {
-        newIssues.forEach(i => state.knownIssueIds.add(i.id));
+        finalIssues.forEach(i => state.knownIssueIds.add(i.id));
     }
 
-    state.issues = newIssues;
-    state.finishedIssues = newFinished;
-    cacheSet('issues', { pending: newIssues, finished: newFinished }, CFG.cacheTTL.issues);
+    state.issues = finalIssues;
+    state.finishedIssues = finalFinished;
+    cacheSet('issues', { pending: finalIssues, finished: finalFinished }, CFG.cacheTTL.issues);
     } catch (e) {
         console.error("Error al cargar reportes:", e);
     }

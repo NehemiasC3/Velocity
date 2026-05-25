@@ -1,4 +1,4 @@
-const CACHE_NAME = 'velocity-v1';
+const CACHE_NAME = 'velocity-v2';
 const ASSETS = [
   'index.html',
   'pages/login.html',

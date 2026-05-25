@@ -70,8 +70,9 @@ function showNotification(title, message, type = 'info') {
 
     // Sonido
     try {
-        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-        audio.volume = 0.4;
+        // Sonido de notificación de campana doble premium
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2857/2857-preview.mp3');
+        audio.volume = 0.45;
         audio.play().catch(() => console.warn('Autoplay blocked: user must interact first'));
     } catch(e) {}
 

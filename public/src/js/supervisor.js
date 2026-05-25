@@ -1986,13 +1986,33 @@ window.importNapsFromCSV = function(event) {
         try {
             const text = e.target.result;
             const rows = parseCSV(text);
-            if (rows.length < 2) {
-                alert('El archivo CSV está vacío o no contiene suficientes filas.');
+            if (rows.length < 1) {
+                alert('El archivo CSV está vacío.');
                 return;
             }
             
-            // Normalizar cabeceras de la primera fila
-            const headers = rows[0].map(h => h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
+            // Detectar dinámicamente la fila que contiene las cabeceras reales
+            let headerRowIdx = -1;
+            for (let r = 0; r < Math.min(rows.length, 10); r++) {
+                const row = rows[r] || [];
+                const nonBlankCount = row.filter(cell => (cell || '').trim() !== '').length;
+                const hasNameCol = row.some(cell => {
+                    const val = (cell || '').toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    return val.includes('nap') || val.includes('nombre') || val.includes('caja');
+                });
+                if (hasNameCol && nonBlankCount >= 3) {
+                    headerRowIdx = r;
+                    break;
+                }
+            }
+
+            if (headerRowIdx === -1) {
+                alert('No se encontró una fila de cabeceras válida que contenga columnas como "NAP", "Nombre" o "Caja". Por favor verifica las cabeceras del archivo.');
+                return;
+            }
+            
+            // Normalizar cabeceras de la fila detectada
+            const headers = rows[headerRowIdx].map(h => h.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, ""));
             
             const idx = {
                 date: headers.findIndex(h => h.includes('fecha')),
@@ -2022,7 +2042,7 @@ window.importNapsFromCSV = function(event) {
             let importCount = 0;
             const todayStr = new Date().toLocaleDateString('en-CA');
 
-            for (let i = 1; i < rows.length; i++) {
+            for (let i = headerRowIdx + 1; i < rows.length; i++) {
                 const row = rows[i];
                 if (row.length === 0 || row.join('').trim() === '') continue;
                 

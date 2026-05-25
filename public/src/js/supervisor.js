@@ -1713,7 +1713,12 @@ window.initNapsMap = function() {
         napsMapInstance = null;
     }
 
-    napsMapInstance = L.map('naps-map').setView([8.9833, -79.5167], 8);
+    const panamaBounds = L.latLngBounds([6.8, -83.5], [10.2, -77.0]);
+    napsMapInstance = L.map('naps-map', {
+        maxBounds: panamaBounds,
+        maxBoundsViscosity: 1.0,
+        minZoom: 7
+    }).setView([8.9833, -79.5167], 8);
     L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         maxZoom: 20,
         subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],

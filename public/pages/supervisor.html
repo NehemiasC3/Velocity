@@ -222,8 +222,11 @@
             <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">Técnicos</span>
         </button>
 
-        <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
-            <span class="material-symbols-outlined text-[20px]">analytics</span>
+        <button onclick="switchTab('reports')" id="nav-reports" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3 relative">
+            <div class="relative">
+                <span class="material-symbols-outlined text-[20px]">analytics</span>
+                <span id="reports-badge" class="absolute -top-1.5 -right-2 bg-gradient-to-r from-red-500 to-rose-600 text-white font-black text-[8.5px] px-1 rounded-full min-w-[15px] h-[15px] flex items-center justify-center border-2 border-surface shadow-[0_2px_6px_rgba(244,63,94,0.4)] animate-pulse hidden">0</span>
+            </div>
             <span class="font-bold text-[7px] uppercase tracking-wider mt-0.5">Reportes</span>
         </button>
 

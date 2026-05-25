@@ -459,6 +459,7 @@ async function loadIssues(force = false, maxPages = 30) {
         if (cached && cached.pending) { 
             state.issues = cached.pending; 
             state.finishedIssues = cached.finished || [];
+            if (window.updateReportsBadge) window.updateReportsBadge();
             return; 
         } 
 
@@ -567,6 +568,7 @@ async function loadIssues(force = false, maxPages = 30) {
 
     state.issues = finalIssues;
     state.finishedIssues = finalFinished;
+    if (window.updateReportsBadge) window.updateReportsBadge();
     cacheSet('issues', { pending: finalIssues, finished: finalFinished }, CFG.cacheTTL.issues);
     } catch (e) {
         console.error("Error al cargar reportes:", e);

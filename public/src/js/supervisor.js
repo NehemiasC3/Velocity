@@ -26,6 +26,18 @@ window.updateNapsBadge = function() {
     }
 };
 
+window.updateReportsBadge = function() {
+    const badge = document.getElementById('reports-badge');
+    if (!badge) return;
+    const count = state.issues ? state.issues.length : 0;
+    if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+};
+
 // ── NAPs STATE ────────────────────────────────────────────────────────────
 function loadTrackedNaps() {
     try {

@@ -227,8 +227,11 @@
             <span class="font-bold text-[7px] uppercase tracking-wider mt-0.5">Reportes</span>
         </button>
 
-        <button onclick="switchTab('naps')" id="nav-naps" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3">
-            <span class="material-symbols-outlined text-[20px]">hub</span>
+        <button onclick="switchTab('naps')" id="nav-naps" class="nav-btn flex flex-col items-center justify-center w-14 h-14 rounded-2xl text-on-surface-variant transition-all duration-200 active:scale-95 hover:bg-surface-container-low md:mb-3 relative">
+            <div class="relative">
+                <span class="material-symbols-outlined text-[20px]">hub</span>
+                <span id="naps-badge" class="absolute -top-1.5 -right-1.5 bg-error text-white font-extrabold text-[8px] px-1 py-0.2 rounded-full min-w-[12px] h-[12px] flex items-center justify-center border border-surface-container-lowest hidden">0</span>
+            </div>
             <span class="font-bold text-[8px] uppercase tracking-wider mt-0.5">NAPs</span>
         </button>
 

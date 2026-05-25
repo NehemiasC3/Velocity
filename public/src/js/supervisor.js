@@ -14,6 +14,18 @@ console.log('🚀 Velocity Supervisor v2.0.0-PRO cargado correctamente');
 
 
 
+window.updateNapsBadge = function() {
+    const badge = document.getElementById('naps-badge');
+    if (!badge) return;
+    const count = state.trackedNaps ? state.trackedNaps.filter(n => !n.resolved).length : 0;
+    if (count > 0) {
+        badge.textContent = count;
+        badge.classList.remove('hidden');
+    } else {
+        badge.classList.add('hidden');
+    }
+};
+
 // ── NAPs STATE ────────────────────────────────────────────────────────────
 function loadTrackedNaps() {
     try {
@@ -40,6 +52,7 @@ function loadTrackedNaps() {
     } catch(e) {
         state.trackedNaps = [];
     }
+    window.updateNapsBadge();
 }
 function saveTrackedNaps() {
     try {
@@ -50,6 +63,7 @@ function saveTrackedNaps() {
     } catch(e) {
         console.error('Error saving tracked naps to sync state:', e);
     }
+    window.updateNapsBadge();
 }
 
 window.setOrderSearch = function(val) {
@@ -173,6 +187,8 @@ function getStateHash() {
         finishedOrdersStates: state.finishedOrders ? state.finishedOrders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
         issuesStates: state.issues ? state.issues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
         finishedIssuesStates: state.finishedIssues ? state.finishedIssues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
+        trackedNapsCount: state.trackedNaps ? state.trackedNaps.length : 0,
+        trackedNapsStates: state.trackedNaps ? state.trackedNaps.map(n => `${n.id}:${n.resolved}`) : [],
         tracking: localStorage.getItem('Velocity_Order_Tracking') || '{}',
         online: state.onlineStatus ? Object.keys(state.onlineStatus).sort().map(k => `${k}:${state.onlineStatus[k]}`) : []
     });
@@ -196,6 +212,9 @@ function startPolling() {
                 serverSync()
             ];
             await Promise.allSettled(promises);
+            
+            // Recargar NAPs manuales y técnicos activos de la DB local sincronizada
+            loadTrackedNaps();
             
             const newHash = getStateHash();
             if (newHash !== state.lastStateHash) {

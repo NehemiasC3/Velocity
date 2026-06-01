@@ -40,6 +40,7 @@ window.updateActiveTechs();
 // ── ESTADO GLOBAL ─────────────────────────────────────────────────────────
 const state = {
     tab:          sessionStorage.getItem('V_Tab') || 'dashboard',
+    feedbacksCache: {}, // Caché global de comentarios para evitar llamadas repetidas a Wispro
     clients:      {},   // id → {name, zone, address, phone}
     techs:        {},   // id → name
     categories:   {},   // id → name
@@ -49,9 +50,9 @@ const state = {
     finishedIssues: [], // reportes finalizados (hoy y ayer)
     napOverrides: {},   // ticketId → {nap, marquilla, lat, lng}
     trackedNaps:  [],   // registro manual de NAPs
-    napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all' },
+    napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all', search: '' },
     orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
-    issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc' },
+    issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' },
     orderSearch:  '',
     orderSort:    { key: 'id', dev: 'desc' },
     isSyncing:    false,

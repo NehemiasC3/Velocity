@@ -135,6 +135,13 @@ async function loadMyOrders() {
         // Buscar el employee_id del técnico en Wispro
         const empData = await tFetch('/employees?per_page=1000');
         const employees = Array.isArray(empData.data) ? empData.data : [];
+        
+        // Poblar mapa de técnicos
+        techState.techs = {};
+        employees.forEach(e => {
+            if (e.id && e.name) techState.techs[e.id] = e.name;
+        });
+
         const myEmployee = employees.find(e =>
             e.name?.toLowerCase().includes(techState.profile.name.split(' ')[0].toLowerCase()) ||
             e.email?.toLowerCase() === techState.profile.email?.toLowerCase()
@@ -796,7 +803,7 @@ window.openFeedbackModal = async function(id) {
                         <span class="material-symbols-outlined">history_edu</span>
                     </div>
                     <div>
-                        <h3 class="font-black text-on-surface text-base">Bitácora #${order.id}</h3>
+                        <h3 id="tech-feedback-modal-title" class="font-black text-on-surface text-base">Bitácora #${order.id}</h3>
                         <p class="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest truncate max-w-[180px]">${order.client}</p>
                     </div>
                 </div>
@@ -865,6 +872,8 @@ window.loadFeedbacks = async function(target) {
         });
 
         if (allFeedbacks.length === 0) {
+            const titleEl = document.getElementById('tech-feedback-modal-title');
+            if (titleEl) titleEl.textContent = `Bitácora #${target.id} (0)`;
             timeline.innerHTML = `
                 <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant/20 italic">
                     <span class="material-symbols-outlined text-4xl mb-2">auto_stories</span>
@@ -873,27 +882,59 @@ window.loadFeedbacks = async function(target) {
             return;
         }
 
+        const titleEl = document.getElementById('tech-feedback-modal-title');
+        if (titleEl) {
+            titleEl.textContent = `Bitácora #${target.id} (${allFeedbacks.length})`;
+        }
+
         allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
 
         timeline.innerHTML = allFeedbacks.map(f => {
             const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-            const sender = f.author_name || f.technician_name || f.creator_name || 'Sistema';
+            
+            // Resolver el nombre del autor
+            const sender = (techState.techs && techState.techs[f.creatable_id]) || f.author_name || f.technician_name || f.creator_name || 'Sistema';
+            
             const isMe = sender.toLowerCase().includes(techState.profile?.name?.split(' ')[0].toLowerCase());
             
+            // Generar HSL único para el autor
+            let hash = 0;
+            for (let i = 0; i < sender.length; i++) {
+                hash = sender.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const hue = Math.abs(hash % 360);
+            const avatarColor = `hsl(${hue}, 60%, 40%)`;
+            const initials = sender.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+            const bubbleClass = isMe 
+                ? 'bg-gradient-to-br from-secondary to-secondary/80 text-white rounded-2xl rounded-tr-none border border-secondary/10 shadow-md shadow-secondary/5'
+                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm';
+            
+            const alignClass = isMe ? 'justify-end' : 'justify-start';
+
             return `
-            <div class="flex gap-3 ${isMe ? 'flex-row-reverse' : ''}">
-                <div class="w-8 h-8 rounded-lg bg-surface-container flex-shrink-0 flex items-center justify-center text-[10px] font-black text-on-surface-variant/50">
-                    ${sender.slice(0,2).toUpperCase()}
+            <div class="flex gap-3.5 ${alignClass} animate-in fade-in slide-in-from-bottom-2 duration-300">
+                ${!isMe ? `
+                <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[10px] shadow-sm select-none" style="background:${avatarColor}">
+                    ${initials}
                 </div>
-                <div class="max-w-[85%] ${isMe ? 'items-end flex flex-col' : ''}">
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="text-[9px] font-black text-on-surface uppercase">${sender}</span>
-                        <span class="text-[8px] text-on-surface-variant opacity-50">${date}</span>
+                ` : ''}
+                
+                <div class="max-w-[75%] space-y-1">
+                    <div class="flex items-center gap-2 px-1 ${isMe ? 'flex-row-reverse' : ''}">
+                        <span class="text-[9px] font-black text-on-surface uppercase tracking-wider">${sender}</span>
+                        <span class="text-[8px] text-on-surface-variant opacity-50 font-bold">${date}</span>
                     </div>
-                    <div class="p-3 rounded-2xl text-xs leading-relaxed ${isMe ? 'bg-secondary text-white rounded-tr-none shadow-sm shadow-secondary/20' : 'bg-surface-container-high text-on-surface rounded-tl-none border border-outline-variant/10'}">
-                        ${f.body || f.comment || ''}
+                    <div class="p-3 px-4 ${bubbleClass} text-xs leading-relaxed select-text whitespace-pre-wrap break-words">
+                        ${f.body || f.comment || '—'}
                     </div>
                 </div>
+
+                ${isMe ? `
+                <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[10px] shadow-sm select-none" style="background:${avatarColor}">
+                    ${initials}
+                </div>
+                ` : ''}
             </div>`;
         }).join('');
 

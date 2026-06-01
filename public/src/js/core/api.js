@@ -9,7 +9,7 @@ async function apiFetch(path, opts = {}, silent = false) {
         opts.body = JSON.stringify(opts.data);
     }
     
-    const executeFetch = async () => {
+    const executeFetch = async (retries = 2) => {
         try {
             const cleanPath = path.startsWith('/') ? path.slice(1) : path;
             const url = path.startsWith('http') ? path : (isLocalApi ? path : CFG.proxy + cleanPath);
@@ -34,9 +34,24 @@ async function apiFetch(path, opts = {}, silent = false) {
 
             if (res.ok) return await res.json();
             if (silent && res.status === 404) return null;
+
+            // Transient error retries (429 rate limit or 5xx server issues)
+            if (retries > 0 && [429, 500, 502, 503, 504].includes(res.status)) {
+                const delay = res.status === 429 ? 2000 : 1000;
+                console.warn(`[Velocity] Error transitorio HTTP ${res.status} al llamar a ${path}. Reintentando en ${delay}ms... (Intentos restantes: ${retries})`);
+                await new Promise(r => setTimeout(r, delay));
+                return executeFetch(retries - 1);
+            }
+
             const errorData = await res.json().catch(() => ({}));
             throw new Error(errorData.error || `HTTP ${res.status}`);
         } catch (e) {
+            // Network error retries
+            if (retries > 0 && (e.name === 'TypeError' || e.message.includes('fetch') || e.message.includes('NetworkError'))) {
+                console.warn(`[Velocity] Error de red al llamar a ${path}. Reintentando en 1000ms... (Intentos restantes: ${retries})`);
+                await new Promise(r => setTimeout(r, 1000));
+                return executeFetch(retries - 1);
+            }
             if (!silent) console.warn('[Velocity] Fetch Error:', e.message, path);
             throw e;
         }
@@ -175,15 +190,29 @@ setTimeout(syncOfflineQueue, 1500);
 
 
 async function apiPages(endpoint, maxPages = 10) {
-    let all = [], page = 1;
-    while (page <= maxPages) {
-        const d = await apiFetch(`/${endpoint}?per_page=1000&page=${page}`);
-        const items = Array.isArray(d.data) ? d.data : [];
-        all = all.concat(items);
-        if (items.length < 1000) break;
-        page++;
+    try {
+        const firstPage = await apiFetch(`/${endpoint}?per_page=1000&page=1`);
+        if (!firstPage) return [];
+
+        let all = Array.isArray(firstPage.data) ? firstPage.data : [];
+        const totalPages = Math.min(firstPage.meta?.pagination?.total_pages || 1, maxPages);
+
+        if (totalPages > 1) {
+            const promises = [];
+            for (let p = 2; p <= totalPages; p++) {
+                promises.push(apiFetch(`/${endpoint}?per_page=1000&page=${p}`).catch(() => ({ data: [] })));
+            }
+            const results = await Promise.all(promises);
+            results.forEach(res => {
+                const items = Array.isArray(res.data) ? res.data : [];
+                all = all.concat(items);
+            });
+        }
+        return all;
+    } catch (e) {
+        console.warn(`[Velocity] Error en apiPages para ${endpoint}:`, e.message);
+        return [];
     }
-    return all;
 }
 
 
@@ -271,7 +300,21 @@ async function loadStaticData(force = false) {
             categories: state.categories
         }, CFG.cacheTTL.static);
     } catch (e) {
-        console.warn('[Velocity] Error cargando datos estáticos:', e.message);
+        console.warn('[Velocity] Error cargando datos estáticos, intentando fallback de caché:', e.message);
+        try {
+            const raw = localStorage.getItem('V_static');
+            if (raw) {
+                const expired = JSON.parse(raw).data;
+                if (expired) {
+                    Object.assign(state.clients, expired.clients || {});
+                    Object.assign(state.techs, expired.techs || {});
+                    Object.assign(state.categories, expired.categories || {});
+                    if (typeof showNotification === 'function') {
+                        showNotification('Modo Conexión Inestable', 'No se pudieron actualizar los datos base. Usando copia local.', 'issue');
+                    }
+                }
+            }
+        } catch(err) { console.error('Fallo en fallback de cache static', err); }
     }
 }
 
@@ -332,10 +375,14 @@ async function loadTodayOrders(force = false) {
             
             const endDate   = o.end_at ? new Date(o.end_at) : (o.state === 'finalized' && o.updated_at ? new Date(o.updated_at) : null);
             
+            const rawId = o.id;
+            const mappedId = o.sequential_id || o.id?.slice(0, 8);
+            const cachedFeedbacks = state.feedbacksCache ? (state.feedbacksCache[rawId] || state.feedbacksCache[mappedId]) : null;
+            
             return {
                 ...o,
-                id:           o.sequential_id || o.id?.slice(0, 8),
-                rawId:        o.id,
+                id:           mappedId,
+                rawId:        rawId,
                 typeLabel:    typeCfg.label,
                 typeColor:    typeCfg.color,
                 typeIcon:     typeCfg.icon,
@@ -347,7 +394,9 @@ async function loadTodayOrders(force = false) {
                 techName:     techName,
                 startTime:    startDate ? startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
                 endTime:      endDate ? endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--',
-                feedbacksCount: o.feedbacks_count || 0
+                feedbacksCount: o.feedbacks_count || 0,
+                feedbacks:    cachedFeedbacks || o.feedbacks || [],
+                feedbacksLoaded: !!cachedFeedbacks || o.feedbacksLoaded || false
             };
         };
 
@@ -369,7 +418,21 @@ async function loadTodayOrders(force = false) {
         cacheSet('orders', { orders: state.orders, finishedOrders: state.finishedOrders }, CFG.cacheTTL.orders);
 
     } catch (e) {
-        console.error("Error al cargar órdenes:", e);
+        console.error("Error al cargar órdenes, intentando fallback de caché:", e);
+        try {
+            const raw = localStorage.getItem('V_orders');
+            if (raw) {
+                const expired = JSON.parse(raw).data;
+                if (expired && expired.orders) {
+                    state.orders         = expired.orders;
+                    state.finishedOrders = expired.finishedOrders || [];
+                    state.napOverrides   = expired.napOverrides || {};
+                    if (typeof showNotification === 'function') {
+                        showNotification('Modo Conexión Inestable', 'No se pudieron actualizar las órdenes. Usando copia local.', 'issue');
+                    }
+                }
+            }
+        } catch(err) { console.error('Fallo en fallback de cache orders', err); }
     }
 }
 
@@ -453,38 +516,87 @@ async function resolveUnified(idMap) {
 
 
 
-async function loadIssues(force = false, maxPages = 30) {
+async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false) {
     try {
         const cached = !force && cacheGet('issues');
-        if (cached && cached.pending) { 
+        if (cached && cached.pending && !fastPendingOnly) { 
             state.issues = cached.pending; 
             state.finishedIssues = cached.finished || [];
             if (window.updateReportsBadge) window.updateReportsBadge();
             return; 
         } 
 
-    const todayStr = new Date().toLocaleDateString('en-CA');
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yestStr = yesterday.toLocaleDateString('en-CA');
+        if (fastPendingOnly) {
+            const pendingData = await apiFetch('/help_desk/issues?per_page=1000&state_eq=pending&page=1').catch(() => ({ data: [] }));
+            const pendingItems = pendingData.data || [];
+            const uniqueIssues = Array.from(new Map(pendingItems.map(i => [i.id, i])).values());
 
-    let allPending = [], allFinished = [], page = 1;
-    const allFetchedIds = new Set();
-    let reachedEnd = false;
+            const currentPending = state.issues || [];
+            const hasChanged = uniqueIssues.length !== currentPending.length ||
+                uniqueIssues.some((issue, index) => {
+                    const current = currentPending[index];
+                    return !current || 
+                           issue.id !== current.id || 
+                           issue.state !== current.state;
+                });
 
-    while (page <= maxPages) {
-        const d = await apiFetch(`/help_desk/issues?per_page=1000&page=${page}&q%5Bs%5D=id+desc`);
-        const items = d.data || [];
-        if (!items.length) {
-            reachedEnd = true;
-            break;
+            if (hasChanged) {
+                console.log('[Velocity] Se detectó un cambio en los tickets pendientes mediante fast-poll. Ejecutando recarga completa de reportes...');
+                await loadIssues(true);
+            }
+            return;
         }
 
-        items.forEach(i => allFetchedIds.add(i.id));
+        const todayStr = new Date().toLocaleDateString('en-CA');
+
+        // 1. Cargar la primera página de cada estado en paralelo
+        const [pendingData, closedData, finalizedPage1] = await Promise.all([
+            apiFetch('/help_desk/issues?per_page=1000&state_eq=pending&page=1').catch(() => ({ data: [] })),
+            apiFetch('/help_desk/issues?per_page=1000&state_eq=closed&page=1').catch(() => ({ data: [] })),
+            apiFetch('/help_desk/issues?per_page=1000&state_eq=finalized&page=1').catch(() => ({ data: [] }))
+        ]);
+
+        let closedItems = closedData.data || [];
+        const closedTotalPages = closedData.meta?.pagination?.total_pages || 1;
+
+        let finalizedItems = finalizedPage1.data || [];
+        const finalizedTotalPages = finalizedPage1.meta?.pagination?.total_pages || 1;
+
+        // 2. Descargar las últimas páginas de cerrados y finalizados en paralelo (si hay más de 1 página)
+        const secondBatchPromises = [];
+        if (closedTotalPages > 1) {
+            secondBatchPromises.push(apiFetch(`/help_desk/issues?per_page=1000&state_eq=closed&page=${closedTotalPages}`).catch(() => null));
+        }
+        if (finalizedTotalPages > 1) {
+            secondBatchPromises.push(apiFetch(`/help_desk/issues?per_page=1000&state_eq=finalized&page=${finalizedTotalPages}`).catch(() => null));
+            if (finalizedTotalPages > 2) {
+                secondBatchPromises.push(apiFetch(`/help_desk/issues?per_page=1000&state_eq=finalized&page=${finalizedTotalPages - 1}`).catch(() => null));
+            }
+        }
+
+        if (secondBatchPromises.length > 0) {
+            const secondBatchResults = await Promise.all(secondBatchPromises);
+            let idx = 0;
+            if (closedTotalPages > 1) {
+                const res = secondBatchResults[idx++];
+                if (res?.data) closedItems = closedItems.concat(res.data);
+            }
+            if (finalizedTotalPages > 1) {
+                const res = secondBatchResults[idx++];
+                if (res?.data) finalizedItems = finalizedItems.concat(res.data);
+            }
+            if (finalizedTotalPages > 2) {
+                const res = secondBatchResults[idx++];
+                if (res?.data) finalizedItems = finalizedItems.concat(res.data);
+            }
+        }
+
+        // 3. Unificar todos los ítems y filtrar
+        const allItems = [...(pendingData.data || []), ...closedItems, ...finalizedItems];
+
+        const finalIssues = allItems.filter(i => ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase()));
         
-        allPending = allPending.concat(items.filter(i => ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase())));
-        
-        allFinished = allFinished.concat(items.filter(i => {
+        const finalFinished = allItems.filter(i => {
             const st = (i.state || '').toLowerCase();
             if (['finalizada', 'finalizado', 'closed', 'finalized'].includes(st)) {
                 const dDate = i.updated_at || '';
@@ -492,86 +604,61 @@ async function loadIssues(force = false, maxPages = 30) {
                 return day === todayStr;
             }
             return false;
-        }));
+        });
 
-        if (items.length < 1000) {
-            reachedEnd = true;
-            break;
+        // Eliminar duplicados por ID
+        const uniqueIssues = Array.from(new Map(finalIssues.map(i => [i.id, i])).values());
+        const uniqueFinished = Array.from(new Map(finalFinished.map(i => [i.id, i])).values());
+
+        // Resolver nombres de clientes para los reportes pendientes y finalizados
+        const missingClientIds = {};
+        [...uniqueIssues, ...uniqueFinished].forEach(i => {
+            if (i.client_id && (!state.clients[i.client_id] || !state.clients[i.client_id].name)) {
+                missingClientIds[i.client_id] = 'client';
+            }
+        });
+
+        if (Object.keys(missingClientIds).length > 0) {
+            try {
+                await resolveUnified(missingClientIds);
+            } catch (err) {
+                console.error("Error resolviendo clientes para reportes:", err);
+            }
         }
-        page++;
-        // Pausa para evitar error 429 del proxy gratuito
-        await new Promise(r => setTimeout(r, 1200));
-    }
 
-
-    let finalIssues = [];
-    let finalFinished = [];
-
-    if (reachedEnd) {
-        finalIssues = allPending;
-        finalFinished = allFinished;
-    } else {
-        // Fusión inteligente para cargas parciales (evita perder tickets de páginas no descargadas)
-        const newIssuesMap = new Map(allPending.map(i => [i.id, i]));
-        const mergedIssues = [];
-        
-        (state.issues || []).forEach(oldIssue => {
-            if (allFetchedIds.has(oldIssue.id)) {
-                if (newIssuesMap.has(oldIssue.id)) {
-                    mergedIssues.push(newIssuesMap.get(oldIssue.id));
-                    newIssuesMap.delete(oldIssue.id);
+        // Notificaciones de nuevos reportes
+        if (state.knownIssueIds.size > 0) {
+            uniqueIssues.forEach(i => {
+                if (!state.knownIssueIds.has(i.id)) {
+                    const client = state.clients[i.client_id]?.name || 'Nuevo Reporte';
+                    showNotification(`Nuevo Reporte Detectado`, `Cliente: ${client}\nAsunto: ${i.title || 'Sin asunto'}`, 'issue');
+                    state.knownIssueIds.add(i.id);
                 }
-            } else {
-                mergedIssues.push(oldIssue);
-            }
-        });
-        
-        newIssuesMap.forEach(newIssue => {
-            mergedIssues.push(newIssue);
-        });
-        
-        finalIssues = mergedIssues;
-
-        const finishedMap = new Map((state.finishedIssues || []).map(i => [i.id, i]));
-        allFinished.forEach(i => finishedMap.set(i.id, i));
-        finalFinished = Array.from(finishedMap.values());
-    }
-
-    // Resolver nombres de clientes para los reportes pendientes y finalizados
-    const missingClientIds = {};
-    [...finalIssues, ...finalFinished].forEach(i => {
-        if (i.client_id && (!state.clients[i.client_id] || !state.clients[i.client_id].name)) {
-            missingClientIds[i.client_id] = 'client';
+            });
+        } else {
+            uniqueIssues.forEach(i => state.knownIssueIds.add(i.id));
         }
-    });
 
-    if (Object.keys(missingClientIds).length > 0) {
-        try {
-            await resolveUnified(missingClientIds);
-        } catch (err) {
-            console.error("Error resolviendo clientes para reportes:", err);
-        }
-    }
-
-    // Notificaciones de nuevos reportes
-    if (state.knownIssueIds.size > 0) {
-        finalIssues.forEach(i => {
-            if (!state.knownIssueIds.has(i.id)) {
-                const client = state.clients[i.client_id]?.name || 'Nuevo Reporte';
-                showNotification(`Nuevo Reporte Detectado`, `Cliente: ${client}\nAsunto: ${i.title || 'Sin asunto'}`, 'issue');
-                state.knownIssueIds.add(i.id);
-            }
-        });
-    } else {
-        finalIssues.forEach(i => state.knownIssueIds.add(i.id));
-    }
-
-    state.issues = finalIssues;
-    state.finishedIssues = finalFinished;
-    if (window.updateReportsBadge) window.updateReportsBadge();
-    cacheSet('issues', { pending: finalIssues, finished: finalFinished }, CFG.cacheTTL.issues);
+        state.issues = uniqueIssues;
+        state.finishedIssues = uniqueFinished;
+        if (window.updateReportsBadge) window.updateReportsBadge();
+        cacheSet('issues', { pending: uniqueIssues, finished: uniqueFinished }, CFG.cacheTTL.issues);
     } catch (e) {
-        console.error("Error al cargar reportes:", e);
+        console.error("Error al cargar reportes, intentando fallback de caché:", e);
+        try {
+            const raw = localStorage.getItem('V_issues');
+            if (raw) {
+                const expired = JSON.parse(raw).data;
+                if (expired && expired.pending) {
+                    state.issues = expired.pending;
+                    state.finishedIssues = expired.finished || [];
+                    if (window.updateReportsBadge) window.updateReportsBadge();
+                    if (typeof showNotification === 'function') {
+                        showNotification('Modo Conexión Inestable', 'No se pudieron actualizar los reportes. Usando copia local.', 'issue');
+                    }
+                }
+            }
+        } catch(err) { console.error('Fallo en fallback de cache issues', err); }
     }
 }
 

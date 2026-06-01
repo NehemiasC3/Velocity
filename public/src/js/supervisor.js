@@ -34,7 +34,10 @@ window.updateReportsBadge = function() {
     if (state.issues && Array.isArray(state.issues)) {
         const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
         state.issues.forEach(i => {
-            if (!i.assignable_id) return;
+            if (!i.assignable_id) {
+                count++;
+                return;
+            }
             
             let tName = state.techs[i.assignable_id];
             if (!tName) {
@@ -98,13 +101,8 @@ function saveTrackedNaps() {
 
 window.setOrderSearch = function(val) {
     state.orderSearch = val;
-    // No redibujar todo instantáneo, usamos debounce
-    debouncedSearch();
-};
-
-const debouncedSearch = debounce(() => {
     if (state.tab === 'orders') renderTab('orders');
-}, 300);
+};
 
 window.setOrderSort = function(key) {
     if (state.orderSort.key === key) {
@@ -229,9 +227,38 @@ function startPolling() {
     // Ticker para tiempos relativos y SLA (cada 60 seg)
     state.relTimeTimer = setInterval(() => {
         if (document.visibilityState === 'visible' && state.tab === 'orders') {
-            renderTab('orders');
+            const activeEl = document.activeElement;
+            const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+            const isFocusInContent = activeEl && document.getElementById('main-content')?.contains(activeEl);
+            if (!(isTyping && isFocusInContent)) {
+                renderTab('orders');
+            }
         }
     }, 60000);
+
+    // Fast polling de tickets pendientes cada 10 segundos
+    state.fastPollTimer = setInterval(async () => {
+        if (document.visibilityState !== 'visible') return;
+        try {
+            await loadIssues(true, 1, true);
+            
+            const newHash = getStateHash();
+            if (newHash !== state.lastStateHash) {
+                state.lastStateHash = newHash;
+                const activeEl = document.activeElement;
+                const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+                const isFocusInContent = activeEl && document.getElementById('main-content')?.contains(activeEl);
+                if (isTyping && isFocusInContent) {
+                    console.log('[Velocity] Cambios detectados por fast-polling de tickets, pero re-renderizado pospuesto porque el usuario está escribiendo.');
+                } else {
+                    console.log('[Velocity] Cambios detectados por fast-polling de tickets. Actualizando interfaz...');
+                    renderTab(state.tab);
+                }
+            }
+        } catch (e) {
+            console.error('Error en fast polling sync:', e);
+        }
+    }, 10000);
 
     state.pollTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
@@ -248,9 +275,16 @@ function startPolling() {
             
             const newHash = getStateHash();
             if (newHash !== state.lastStateHash) {
-                console.log('[Velocity] Cambios detectados en la API. Actualizando interfaz...');
                 state.lastStateHash = newHash;
-                renderTab(state.tab);
+                const activeEl = document.activeElement;
+                const isTyping = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+                const isFocusInContent = activeEl && document.getElementById('main-content')?.contains(activeEl);
+                if (isTyping && isFocusInContent) {
+                    console.log('[Velocity] Cambios detectados en la API, pero re-renderizado pospuesto porque el usuario está escribiendo.');
+                } else {
+                    console.log('[Velocity] Cambios detectados en la API. Actualizando interfaz...');
+                    renderTab(state.tab);
+                }
             } else {
                 console.log('[Velocity] Polling finalizado sin cambios.');
             }
@@ -262,6 +296,7 @@ function startPolling() {
 function stopPolling() {
     if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
     if (state.relTimeTimer) { clearInterval(state.relTimeTimer); state.relTimeTimer = null; }
+    if (state.fastPollTimer) { clearInterval(state.fastPollTimer); state.fastPollTimer = null; }
 }
 
 document.addEventListener('visibilitychange', () => {
@@ -712,18 +747,18 @@ Views.orders = () => {
             </div>
         </div>
 
-        <div class="relative group">
-            <span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors">search</span>
+        <div class="relative group max-w-md mb-4">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
             <input type="text" 
                 id="global-search-input"
-                placeholder="Buscar por cliente, ID, dirección o técnico..." 
+                placeholder="Buscar órdenes... (Enter)" 
                 value="${state.orderSearch}"
-                oninput="window.setOrderSearch(this.value)"
-                class="w-full bg-surface-container-lowest border border-outline-variant/20 focus:border-secondary focus:ring-4 focus:ring-secondary/5 rounded-[2rem] pl-12 pr-6 py-4 text-sm font-medium outline-none transition-all shadow-sm placeholder:text-on-surface-variant/30"
+                onkeydown="if(event.key === 'Enter') { window.setOrderSearch(this.value); }"
+                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
             >
             ${state.orderSearch ? `
-                <button onclick="window.setOrderSearch('');renderTab('orders')" class="absolute right-4 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
-                    <span class="material-symbols-outlined text-base">close</span>
+                <button onclick="window.setOrderSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-sm">close</span>
                 </button>
             ` : ''}
         </div>
@@ -1010,7 +1045,7 @@ window.initTechsMap = function() {
 
 // ── REPORTES ──────────────────────────────────────────────────────────────
 Views.reports = () => {
-    const { date } = state.issueFilter;
+    const { date, search } = state.issueFilter;
     const today    = new Date(); today.setHours(0,0,0,0);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
     const nextWeek = new Date(today); nextWeek.setDate(nextWeek.getDate()+7);
@@ -1019,6 +1054,20 @@ Views.reports = () => {
     let allIssues = state.issues.filter(issue => {
         if (date === 'sin_asignar') {
             return !issue.assignable_id;
+        }
+
+        // Si es 'all', queremos incluir los sin asignar y los asignados a tecnicos activos
+        if (date === 'all') {
+            if (!issue.assignable_id) return true;
+            
+            const techName = state.techs[issue.assignable_id] || '';
+            const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+            const foundInDB = (db.technicians || []).find(t => String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id));
+            const resolvedName = techName || foundInDB?.name || '';
+            const esActivo = resolvedName && TECNICOS_ACTIVOS.some(n =>
+                resolvedName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+            return esActivo;
         }
 
         // Excluir los sin asignar si no estamos en ese filtro
@@ -1046,6 +1095,18 @@ Views.reports = () => {
         return true;
     });
 
+    // Filtrar por búsqueda de ubicación (zona) si se especifica
+    if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        allIssues = allIssues.filter(issue => {
+            const client = state.clients[issue.client_id] || {};
+            const title = issue.title || issue.description || '';
+            const zm = title.match(/\(([^)]+)\)/);
+            const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            return zone.toLowerCase().includes(q);
+        });
+    }
+
     // Agrupar por tecnico — usar assignable_id que es el "Asignado a" de Mesa de Ayuda
     const byTech = {};
     allIssues.forEach(issue => {
@@ -1063,8 +1124,8 @@ Views.reports = () => {
 
         if (!techName) techName = 'Sin asignar';
 
-        // Omitir 'Sin asignar' a menos que estemos explícitamente en el filtro
-        if (techName === 'Sin asignar' && date !== 'sin_asignar') return;
+        // Omitir 'Sin asignar' a menos que estemos en el filtro de sin asignar o en 'all'
+        if (techName === 'Sin asignar' && date !== 'sin_asignar' && date !== 'all') return;
 
         if (!byTech[techName]) byTech[techName] = [];
         byTech[techName].push(issue);
@@ -1310,7 +1371,7 @@ Views.reports = () => {
     const counts = { all: 0, hoy: 0, manana: 0, semana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     state.issues.forEach(i => {
-        if (!i.assignable_id) { counts.sin_asignar++; return; }
+        if (!i.assignable_id) { counts.sin_asignar++; counts.all++; return; }
         
         let tName = state.techs[i.assignable_id];
         if (!tName) {
@@ -1371,6 +1432,22 @@ Views.reports = () => {
                     <span class="material-symbols-outlined inline-block ${state.isSyncing ? 'animate-spin' : ''}" style="font-size:17px;color:#6b7280;">sync</span>
                 </button>
             </div>
+        </div>
+
+        <div class="relative group mb-4 max-w-md">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+            <input type="text" 
+                id="report-search-input"
+                placeholder="Buscar por ubicación/zona... (Enter)" 
+                value="${search || ''}"
+                onkeydown="if(event.key === 'Enter') { window.setReportSearch(this.value); }"
+                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+            >
+            ${search ? `
+                <button onclick="window.setReportSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            ` : ''}
         </div>
 
         <!-- Generador de Auditoría Mensual -->
@@ -1510,12 +1587,17 @@ Views.reports = () => {
                                 ${timeStr}
                             </span>
                         </td>
-                        <!-- Columna 4: Tiempo transcurrido -->
+                        <!-- Columna 4: Tiempo transcurrido y Auditoría -->
                         <td class="py-3 px-4 text-right">
-                            <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/50">
-                                <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
-                                ${elapsedStr}
-                            </span>
+                            <div class="flex items-center justify-end gap-2">
+                                <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                                    <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+                                    ${elapsedStr}
+                                </span>
+                                <button onclick="window.openFeedbackModal('${i.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg border border-outline-variant/10 transition-all active:scale-95 shadow-sm" title="Ver comentarios / Auditoría">
+                                    <span class="material-symbols-outlined text-[16px]">history_edu</span>
+                                </button>
+                            </div>
                         </td>
                     </tr>`;
                 }).join('');
@@ -1533,7 +1615,7 @@ Views.reports = () => {
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Reporte / Orden</th>
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Técnico</th>
                                     <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Finalizado</th>
-                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Tiempo Transcurrido</th>
+                                    <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Tiempo / Comentarios</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-outline-variant/5">
@@ -1549,60 +1631,7 @@ Views.reports = () => {
 
             const finishedHtml = renderFinishedList(fiToday, 'Reportes Finalizados (Hoy)');
             
-            const filter = window.currentAuditFilter || 'all';
-            const btnAllClass = filter === 'all' 
-                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
-                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
-            const btnOrdersClass = filter === 'orders' 
-                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
-                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
-            const btnIssuesClass = filter === 'issues' 
-                ? 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-primary text-white shadow-sm border border-transparent transition-all'
-                : 'px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-wider bg-surface-container text-on-surface-variant border border-outline-variant/10 transition-all hover:bg-surface-container-high';
-
-            const auditHtml = `
-            <div class="mt-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] shadow-md space-y-4">
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                        <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">history_edu</span>
-                        <h3 class="text-xs font-black text-on-surface uppercase tracking-widest text-left">Auditoría de Comentarios (Hoy)</h3>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <button onclick="window.loadRecentCommentsAudit()" class="flex items-center gap-1.5 text-xs font-bold text-secondary hover:bg-secondary/10 px-3 py-1.5 rounded-xl border border-secondary/15 transition-all">
-                            <span class="material-symbols-outlined text-sm">sync</span> Recargar
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Buscador y Filtros -->
-                <div class="flex flex-col md:flex-row items-center gap-3">
-                    <div class="relative w-full md:w-80">
-                        <span class="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-on-surface-variant/40 text-lg">search</span>
-                        <input type="text" id="audit-search-input" value="${window.currentAuditSearch || ''}" oninput="window.filterAuditComments()" 
-                               class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl pl-10 pr-4 py-2 text-xs font-bold text-on-surface transition-colors" 
-                               placeholder="Buscar por técnico, cliente, comentario...">
-                    </div>
-                    
-                    <div class="flex items-center gap-2 w-full md:w-auto">
-                        <button onclick="window.setAuditFilter('all')" id="audit-filter-all" class="${btnAllClass}">
-                            Todos
-                        </button>
-                        <button onclick="window.setAuditFilter('orders')" id="audit-filter-orders" class="${btnOrdersClass}">
-                            Órdenes
-                        </button>
-                        <button onclick="window.setAuditFilter('issues')" id="audit-filter-issues" class="${btnIssuesClass}">
-                            Mesa de Ayuda
-                        </button>
-                    </div>
-                </div>
-                
-                <div id="comments-audit-container">
-                    <div id="comments-audit-list" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <p class="text-xs text-on-surface-variant/60 italic p-4 text-center col-span-full">Cargando comentarios...</p>
-                    </div>
-                </div>
-            </div>`;
-            return finishedHtml + auditHtml;
+            return finishedHtml;
         })()}
     </div>`;
 };
@@ -1610,7 +1639,20 @@ Views.reports = () => {
 // ── NAPs TRACKER ──────────────────────────────────────────────────────────
 Views.naps = () => {
     let list = [...state.trackedNaps];
-    const { sortBy, sortDir, zone } = state.napFilter;
+    const { sortBy, sortDir, zone, search } = state.napFilter;
+
+    // Filter by search query
+    if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        list = list.filter(n => 
+            (n.name || '').toLowerCase().includes(q) ||
+            (n.zone || '').toLowerCase().includes(q) ||
+            (n.techName || '').toLowerCase().includes(q) ||
+            (n.coords || '').toLowerCase().includes(q) ||
+            (n.comments || '').toLowerCase().includes(q) ||
+            (n.action || '').toLowerCase().includes(q)
+        );
+    }
 
     // Filter by zone
     if (zone !== 'all') {
@@ -1687,6 +1729,8 @@ Views.naps = () => {
         return 0;
     });
 
+    state.lastFilteredNaps = list;
+
     // Extract unique zones for the dropdown filter
     const uniqueZones = [...new Set(state.trackedNaps.map(n => n.zone?.trim()).filter(Boolean))].sort();
 
@@ -1760,13 +1804,36 @@ Views.naps = () => {
             </div>
             <div class="flex flex-wrap items-center gap-3">
                 <input type="file" id="nap-import-file" accept=".csv" class="hidden" onchange="window.importNapsFromCSV(event)">
+                <input type="file" id="nap-import-pdf-file" accept=".pdf" class="hidden" onchange="window.importNapsFromPDF(event)">
                 <button onclick="document.getElementById('nap-import-file').click()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
                     <span class="material-symbols-outlined text-[16px]">publish</span> Importar CSV
+                </button>
+                <button onclick="document.getElementById('nap-import-pdf-file').click()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[16px]">upload_file</span> Importar PDF de Campo
                 </button>
                 <button onclick="window.exportNapsToCSV()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
                     <span class="material-symbols-outlined text-[16px]">download</span> Exportar CSV
                 </button>
+                <button onclick="window.exportNapsToPDF()" class="bg-on-surface text-white hover:opacity-90 px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 active:scale-95 transition-all shadow-md">
+                    <span class="material-symbols-outlined text-[16px]">print</span> Exportar PDF
+                </button>
             </div>
+        </div>
+
+        <div class="relative group mb-4 max-w-md">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+            <input type="text" 
+                id="nap-search-input"
+                placeholder="Buscar NAPs... (Enter)" 
+                value="${search || ''}"
+                onkeydown="if(event.key === 'Enter') { window.setNapSearch(this.value); }"
+                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+            >
+            ${search ? `
+                <button onclick="window.setNapSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            ` : ''}
         </div>
 
         <div class="flex flex-wrap items-center justify-between bg-surface-container-low p-3 rounded-2xl border border-outline-variant/30 mb-6 gap-3">
@@ -1798,7 +1865,33 @@ Views.naps = () => {
             </button>
         </div>
 
-        <div id="naps-map" style="width: 100%; height: 350px; border-radius: 16px; margin-bottom: 24px; z-index: 1; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);"></div>
+        <div class="relative group cursor-pointer overflow-hidden rounded-2xl border border-outline-variant/30 mb-6 shadow-sm" onclick="window.openNapsMapModal()">
+            <div id="naps-map" style="width: 100%; aspect-ratio: 16/9; max-height: 220px; z-index: 1;"></div>
+            <div class="absolute inset-0 bg-black/5 group-hover:bg-black/15 transition-all flex items-center justify-center z-10">
+                <div class="bg-white/95 dark:bg-black/90 backdrop-blur text-on-surface px-4 py-2 rounded-xl text-xs font-bold shadow-md flex items-center gap-1.5 opacity-90 group-hover:opacity-100 transition-all transform group-hover:scale-105">
+                    <span class="material-symbols-outlined text-sm">fullscreen</span>
+                    Ampliar mapa interactivo
+                </div>
+            </div>
+        </div>
+
+        <!-- Fullscreen NAPs Map Modal -->
+        <div id="naps-map-modal" class="hidden fixed inset-0 z-[200] bg-black/45 backdrop-blur-sm flex items-center justify-center p-2" onclick="if(event.target === this) window.closeNapsMapModal(event)">
+            <div class="bg-surface-container-lowest w-[98vw] max-w-none rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col h-[96vh]">
+                <div class="flex justify-between items-center px-6 py-4 border-b border-surface-container-highest">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-secondary">hub</span>
+                        <h3 class="font-bold text-on-surface text-base Inter">Mapa Ampliado de NAPs</h3>
+                    </div>
+                    <button onclick="window.closeNapsMapModal(event)" class="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-error-container/30 flex items-center justify-center active:scale-95">
+                        <span class="material-symbols-outlined">close</span>
+                    </button>
+                </div>
+                <div class="flex-1 w-full bg-surface-container-high relative">
+                    <div id="leaflet-naps-fullscreen-map" style="height: 100%; width: 100%;"></div>
+                </div>
+            </div>
+        </div>
 
         <div style="background:white;border:1px solid #f0f0f0;border-radius:12px;overflow-x:auto;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);">
             <table style="width:100%;border-collapse:collapse;min-width:900px;">
@@ -1838,7 +1931,14 @@ window.initNapsMap = function() {
     napsMapInstance = L.map('naps-map', {
         maxBounds: panamaBounds,
         maxBoundsViscosity: 1.0,
-        minZoom: 7
+        minZoom: 7,
+        dragging: false,
+        zoomControl: false,
+        scrollWheelZoom: false,
+        doubleClickZoom: false,
+        boxZoom: false,
+        keyboard: false,
+        touchZoom: false
     }).setView([8.9833, -79.5167], 8);
     L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
         maxZoom: 20,
@@ -1856,7 +1956,6 @@ window.initNapsMap = function() {
         bounds.push([lat, lng]);
         
         const isResolved = n.resolved;
-        // Si hay niveles y empiezan con un número, revisar si es "alto" (por convención, si es menor o igual a -23 es malo en fibra, pero acá pueden estar en positivo o negativo, así que lo pintamos rojo si no está resuelto).
         const color = isResolved ? '#10b981' : '#ef4444'; 
         
         const markerHtml = `
@@ -1872,21 +1971,86 @@ window.initNapsMap = function() {
             iconAnchor: [12, 12]
         });
 
-        L.marker([lat, lng], { icon }).addTo(napsMapInstance)
-            .bindPopup(`
-                <div style="text-align:center;padding:4px;">
-                    <strong style="font-size:14px;color:#111827;">${n.name}</strong><br>
-                    <span style="font-size:12px;color:#6b7280;">${n.zone || 'Sin zona'}</span><br>
-                    <div style="margin-top:6px;padding:4px;background:#fee2e2;border-radius:4px;color:#dc2626;font-weight:bold;font-size:12px;">
-                        Niveles: ${n.levels || 'No reportado'}
-                    </div>
-                    ${n.comments ? `<p style="font-size:11px;margin-top:6px;color:#4b5563;">${n.comments}</p>` : ''}
-                </div>
-            `);
+        L.marker([lat, lng], { icon }).addTo(napsMapInstance);
     });
 
     if (bounds.length > 0) {
         napsMapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
+};
+
+let napsFullscreenMapInstance = null;
+window.openNapsMapModal = () => {
+    const modal = document.getElementById('naps-map-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    
+    // Inicializar mapa de pantalla completa
+    setTimeout(() => {
+        if (napsFullscreenMapInstance) {
+            napsFullscreenMapInstance.remove();
+            napsFullscreenMapInstance = null;
+        }
+        
+        napsFullscreenMapInstance = L.map('leaflet-naps-fullscreen-map').setView([8.9833, -79.5167], 12);
+        L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+            attribution: '&copy; Google Maps'
+        }).addTo(napsFullscreenMapInstance);
+        
+        const napsWithCoords = state.trackedNaps.filter(n => n.coords && n.coords.match(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/));
+        if (napsWithCoords.length === 0) return;
+        
+        const bounds = [];
+        napsWithCoords.forEach(n => {
+            const [lat, lng] = n.coords.split(',').map(s => parseFloat(s.trim()));
+            bounds.push([lat, lng]);
+            
+            const isResolved = n.resolved;
+            const color = isResolved ? '#10b981' : '#ef4444';
+            
+            const markerHtml = `
+                <div style="background:${color};width:24px;height:24px;border-radius:50%;border:2px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:10px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">router</span>
+                </div>
+            `;
+            
+            const icon = L.divIcon({
+                html: markerHtml,
+                className: '',
+                iconSize: [24, 24],
+                iconAnchor: [12, 12]
+            });
+            
+            L.marker([lat, lng], { icon }).addTo(napsFullscreenMapInstance)
+                .bindPopup(`
+                    <div style="text-align:center;padding:4px;">
+                        <strong style="font-size:14px;color:#111827;">${n.name}</strong><br>
+                        <span style="font-size:12px;color:#6b7280;">${n.zone || 'Sin zona'}</span><br>
+                        <div style="margin-top:6px;padding:4px;background:#fee2e2;border-radius:4px;color:#dc2626;font-weight:bold;font-size:12px;">
+                            Niveles: ${n.levels || 'No reportado'}
+                        </div>
+                        ${n.comments ? `<p style="font-size:11px;margin-top:6px;color:#4b5563;">${n.comments}</p>` : ''}
+                    </div>
+                `);
+        });
+        
+        if (bounds.length > 0) {
+            napsFullscreenMapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+        }
+    }, 100);
+};
+
+window.closeNapsMapModal = (e) => {
+    if (e) e.stopPropagation();
+    const modal = document.getElementById('naps-map-modal');
+    if (modal) {
+        modal.classList.add('hidden');
+    }
+    if (napsFullscreenMapInstance) {
+        napsFullscreenMapInstance.remove();
+        napsFullscreenMapInstance = null;
     }
 };
 
@@ -2035,6 +2199,11 @@ window.deleteNapTracker = (id) => {
     }
 };
 
+window.setNapSearch = (value) => {
+    state.napFilter.search = value;
+    if (state.tab === 'naps') renderTab('naps');
+};
+
 window.setNapFilter = (key, value) => {
     state.napFilter[key] = value;
     if(state.tab === 'naps') renderTab('naps');
@@ -2111,6 +2280,289 @@ window.exportNapsToCSV = function() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+};
+
+window.exportNapsToPDF = async function() {
+    const list = state.lastFilteredNaps || state.trackedNaps;
+    if (!list || list.length === 0) {
+        alert('No hay registros de NAPs para exportar.');
+        return;
+    }
+
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Generando PDF...');
+
+    try {
+        const { PDFDocument, rgb, StandardFonts } = PDFLib;
+        const pdfDoc = await PDFDocument.create();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const form = pdfDoc.getForm();
+
+        const cleanText = (str) => {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/[\u2013\u2014]/g, "-")
+                .replace(/[\u2018\u2019]/g, "'")
+                .replace(/[\u201C\u201D]/g, '"');
+        };
+
+        const wrapText = (text, maxWidth, fontSize) => {
+            if (!text) return [];
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+            const avgCharWidth = fontSize * 0.55;
+            const maxCharsPerLine = Math.floor(maxWidth / avgCharWidth);
+
+            words.forEach(word => {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                if (testLine.length > maxCharsPerLine) {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            });
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            return lines;
+        };
+
+        let currentPage = null;
+        let currentY = 0;
+
+        const createNewPage = () => {
+            currentPage = pdfDoc.addPage([792, 612]);
+            
+            // Header
+            currentPage.drawText("Reporte de NAPs", { x: 30, y: 560, size: 20, font: fontBold, color: rgb(0, 0.35, 0.73) });
+            currentPage.drawText("Velocity Dashboard - Reporte de Campo", { x: 30, y: 540, size: 10, font: font, color: rgb(0.4, 0.4, 0.4) });
+            
+            const dateStr = new Date().toLocaleString();
+            currentPage.drawText(`Fecha de Emisión: ${dateStr}`, { x: 500, y: 560, size: 9, font: font, color: rgb(0.4, 0.4, 0.4) });
+            currentPage.drawText(`Total registros: ${list.length}`, { x: 500, y: 545, size: 9, font: font, color: rgb(0.4, 0.4, 0.4) });
+
+            currentY = 500;
+            drawHeaderRow();
+        };
+
+        const drawHeaderRow = () => {
+            const headers = [
+                { text: 'Fecha', x: 30, w: 70 },
+                { text: 'Nombre NAP', x: 100, w: 85 },
+                { text: 'Zona', x: 185, w: 85 },
+                { text: 'Técnico', x: 270, w: 95 },
+                { text: 'Coordenadas', x: 365, w: 100 },
+                { text: 'Puertos', x: 465, w: 50 },
+                { text: 'Niveles', x: 515, w: 50 },
+                { text: 'Acción / Comentario', x: 565, w: 145 },
+                { text: 'Revisada', x: 710, w: 50 }
+            ];
+
+            currentPage.drawRectangle({
+                x: 30,
+                y: currentY - 5,
+                width: 730,
+                height: 25,
+                color: rgb(0.95, 0.96, 0.98)
+            });
+
+            headers.forEach(h => {
+                currentPage.drawText(h.text, {
+                    x: h.x + 5,
+                    y: currentY + 5,
+                    size: 9,
+                    font: fontBold,
+                    color: rgb(0.2, 0.2, 0.2)
+                });
+            });
+
+            currentPage.drawLine({
+                start: { x: 30, y: currentY - 5 },
+                end: { x: 760, y: currentY - 5 },
+                thickness: 1,
+                color: rgb(0.8, 0.8, 0.8)
+            });
+
+            currentY -= 30;
+        };
+
+        createNewPage();
+
+        for (const n of list) {
+            const actionText = cleanText(`${n.action || ''} ${n.comments || ''}`);
+            const actionLines = wrapText(actionText, 135, 8);
+            
+            const techName = cleanText(n.techName || '—');
+            const techLines = wrapText(techName, 85, 8);
+
+            const name = cleanText(n.name || '—');
+            const nameLines = wrapText(name, 75, 8);
+
+            const zone = cleanText(n.zone || '—');
+            const zoneLines = wrapText(zone, 75, 8);
+
+            const maxLines = Math.max(actionLines.length, techLines.length, nameLines.length, zoneLines.length, 1);
+            const rowHeight = Math.max(25, maxLines * 12 + 10);
+
+            if (currentY - rowHeight < 40) {
+                createNewPage();
+            }
+
+            currentPage.drawRectangle({
+                x: 30,
+                y: currentY - rowHeight + 5,
+                width: 730,
+                height: rowHeight,
+                color: n.resolved ? rgb(0.97, 0.99, 0.98) : rgb(1, 1, 1)
+            });
+
+            currentPage.drawLine({
+                start: { x: 30, y: currentY - rowHeight + 5 },
+                end: { x: 760, y: currentY - rowHeight + 5 },
+                thickness: 0.5,
+                color: rgb(0.9, 0.9, 0.9)
+            });
+
+            currentPage.drawText(cleanText(n.date || '—'), { x: 35, y: currentY - 5, size: 8, font: font });
+
+            nameLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 105, y: currentY - 5 - (idx * 10), size: 8, font: fontBold });
+            });
+
+            zoneLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 190, y: currentY - 5 - (idx * 10), size: 8, font: font });
+            });
+
+            techLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 275, y: currentY - 5 - (idx * 10), size: 8, font: font });
+            });
+
+            const coordsStr = cleanText(n.coords || '—');
+            currentPage.drawText(coordsStr, { x: 370, y: currentY - 5, size: 8, font: font, color: rgb(0, 0.35, 0.73) });
+            
+            if (n.coords && n.coords.match(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/)) {
+                const query = encodeURIComponent(n.coords.replace(/\s/g, ''));
+                const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
+                
+                const x1 = 370;
+                const y1 = currentY - rowHeight + 10;
+                const x2 = 370 + 80;
+                const y2 = currentY + 5;
+                
+                const linkAnnotation = pdfDoc.context.obj({
+                  Type: 'Annot',
+                  Subtype: 'Link',
+                  Rect: [x1, y1, x2, y2],
+                  Border: [0, 0, 0],
+                  A: {
+                    Type: 'Action',
+                    S: 'URI',
+                    URI: PDFLib.PDFString.of(mapsUrl)
+                  }
+                });
+                const annots = currentPage.node.get(PDFLib.PDFName.of('Annots')) || pdfDoc.context.obj([]);
+                annots.push(linkAnnotation);
+                currentPage.node.set(PDFLib.PDFName.of('Annots'), annots);
+            }
+
+            currentPage.drawText(cleanText(n.ports || '—'), { x: 470, y: currentY - 5, size: 8, font: font });
+
+            currentPage.drawText(cleanText(n.levels || '—'), { x: 520, y: currentY - 5, size: 8, font: fontBold, color: rgb(0.85, 0.1, 0.1) });
+
+            actionLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 570, y: currentY - 5 - (idx * 10), size: 7.5, font: font });
+            });
+
+            const checkBox = form.createCheckBox(`nap_resolved_${n.id}`);
+            if (n.resolved) {
+                checkBox.check();
+            }
+            
+            checkBox.addToPage(currentPage, {
+                x: 725,
+                y: currentY - 12,
+                width: 14,
+                height: 14
+            });
+
+            currentY -= rowHeight;
+        }
+
+        const pdfBytes = await pdfDoc.save();
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute('download', `reporte_naps_${new Date().toLocaleDateString('en-CA')}.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+    } catch (error) {
+        console.error("Error generating NAPs PDF:", error);
+        alert("Ocurrió un error al generar el PDF interactivo.");
+    } finally {
+        if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+    }
+};
+
+window.importNapsFromPDF = async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Procesando PDF...');
+
+    const reader = new FileReader();
+    reader.onload = async function(e) {
+        try {
+            const arrayBuffer = e.target.result;
+            const pdfDoc = await PDFLib.PDFDocument.load(arrayBuffer);
+            const form = pdfDoc.getForm();
+            const fields = form.getFields();
+
+            let updatedCount = 0;
+
+            fields.forEach(field => {
+                const name = field.getName();
+                if (name.startsWith('nap_resolved_') && field instanceof PDFLib.PDFCheckBox) {
+                    const id = name.replace('nap_resolved_', '');
+                    const isChecked = field.isChecked();
+                    
+                    const nap = state.trackedNaps.find(n => String(n.id) === String(id));
+                    if (nap) {
+                        if (nap.resolved !== isChecked) {
+                            nap.resolved = isChecked;
+                            updatedCount++;
+                        }
+                    }
+                }
+            });
+
+            if (updatedCount > 0) {
+                saveTrackedNaps();
+                showNotification(
+                    'PDF Importado Exitosamente',
+                    `Se actualizaron ${updatedCount} NAPs desde el PDF de campo.`,
+                    'success'
+                );
+                if (state.tab === 'naps') renderTab('naps');
+            } else {
+                showNotification(
+                    'PDF Sin Cambios',
+                    'No se detectaron cambios en el estado de las NAPs en el PDF importado.',
+                    'info'
+                );
+            }
+        } catch (err) {
+            console.error("Error al importar PDF:", err);
+            alert("Error al procesar el archivo PDF. Asegúrese de que sea el archivo PDF exportado desde Velocity y no esté corrupto.");
+        } finally {
+            if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+        }
+    };
+    reader.readAsArrayBuffer(file);
+    event.target.value = '';
 };
 
 window.importNapsFromCSV = function(event) {
@@ -2366,6 +2818,8 @@ window.viewNapClients = async function(localId, napName) {
         showNotification('Error', 'No se pudo obtener la información de los clientes.', 'issue');
     }
 };
+
+
 
 // ── CUENTAS ───────────────────────────────────────────────────────────────
 Views.users = () => {
@@ -2652,8 +3106,13 @@ window.setIssueFilter = function(key, val) {
     renderTab('reports');
 };
 
+window.setReportSearch = (value) => {
+    state.issueFilter.search = value;
+    if (state.tab === 'reports') renderTab('reports');
+};
+
 window.clearIssueFilters = function() {
-    state.issueFilter = { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc' };
+    state.issueFilter = { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' };
     renderTab('reports');
 };
 
@@ -2691,10 +3150,15 @@ window.syncNow = async function() {
     });
 
     try {
-        await Promise.allSettled([
+        const promises = [
             loadTodayOrders(true),
+            loadIssues(true, 1),
             serverSync()
-        ]);
+        ];
+        if (state.tab === 'reports') {
+            promises[1] = loadIssues(true); // Carga completa de reportes si el usuario está en la pestaña de reportes
+        }
+        await Promise.allSettled(promises);
         state.lastSync = Date.now();
         if (typeof renderTab === 'function') renderTab(state.tab);
     } catch(e) { console.error(e); }
@@ -3564,10 +4028,8 @@ window.openFeedbackModal = async function(id) {
 
     if (!order) {
         console.warn('[Velocity] No se encontró la orden en ningún estado local:', id);
-        // Fallback final: crear un objeto mínimo de búsqueda
         order = { id, rawId: id, client: 'Cargando datos...', typeColor: '#6b7280' };
     } else {
-        // Normalizar nombre de cliente si no está
         if (!order.client && order.client_id) {
             order.client = state.clients[order.client_id]?.name || order.title || 'Reporte';
         }
@@ -3581,7 +4043,7 @@ window.openFeedbackModal = async function(id) {
 
     const html = `
     <div id="${modalId}" class="fixed inset-0 z-[101] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div class="bg-surface-container-lowest w-full max-w-lg max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
+        <div class="bg-surface-container-lowest w-full max-w-xl max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
             <!-- Header -->
             <div class="p-6 border-b border-outline-variant/5 flex items-center justify-between bg-surface-container-low/40">
                 <div class="flex items-center gap-4">
@@ -3589,8 +4051,8 @@ window.openFeedbackModal = async function(id) {
                         <span class="material-symbols-outlined text-2xl">chat</span>
                     </div>
                     <div class="min-w-0">
-                        <h3 class="font-black text-on-surface text-base">Bitácora de Comentarios</h3>
-                        <p class="text-[10px] text-primary font-black uppercase tracking-[0.1em] mt-0.5 truncate max-w-[280px]" title="${clientName}">${clientName}</p>
+                        <h3 id="feedback-modal-title" class="font-black text-on-surface text-base">Bitácora de Comentarios</h3>
+                        <p class="text-[10px] text-primary font-black uppercase tracking-[0.1em] mt-0.5 truncate max-w-[380px]" title="${clientName}">${clientName}</p>
                     </div>
                 </div>
                 <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-all hover:rotate-90">
@@ -3603,22 +4065,8 @@ window.openFeedbackModal = async function(id) {
                 <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/30">
                     <span class="material-symbols-outlined text-4xl mb-3 animate-spin">history</span>
                     <p class="font-black text-xs tracking-widest uppercase italic mb-1">Cargando comentarios...</p>
-                    <p class="text-[8px] font-bold opacity-40 uppercase">Búsqueda rápida en progreso (Sonda 5.2)</p>
+                    <p class="text-[8px] font-bold opacity-40 uppercase">Búsqueda rápida en progreso</p>
                 </div>
-            </div>
-
-            <!-- Footer con Enlace Directo -->
-            <div id="feedback-footer" class="px-6 py-4 bg-surface-container-low border-t border-outline-variant/5 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
-                    <span class="text-[8px] font-black text-on-surface-variant/60 uppercase tracking-widest">Enlace Directo</span>
-                </div>
-                
-                <a id="wispro-link" href="https://www.cloud.wispro.co/order/orders/${order.rawId}" target="_blank" 
-                   class="flex items-center gap-2 px-5 py-2 bg-primary/10 hover:bg-primary/20 text-primary rounded-xl transition-all group border border-primary/20 shadow-sm text-xs font-black">
-                    <span class="tracking-wider uppercase text-[10px]">Ver en Wispro</span>
-                    <span class="material-symbols-outlined text-sm group-hover:translate-x-0.5 transition-transform">open_in_new</span>
-                </a>
             </div>
         </div>
     </div>`;
@@ -3629,7 +4077,6 @@ window.openFeedbackModal = async function(id) {
 
 window.loadFeedbacks = async function(target) {
     const timeline = document.getElementById('feedback-timeline');
-    const wisproLink = document.getElementById('wispro-link');
     if (!timeline) return;
     if (!target) return;
 
@@ -3637,8 +4084,17 @@ window.loadFeedbacks = async function(target) {
         let allFeedbacks = [];
         const seenBodies = new Set();
 
-        // 1. Verificar si el target ya contiene feedbacks en memoria local
-        if (target.feedbacks && Array.isArray(target.feedbacks) && target.feedbacks.length > 0) {
+        const id = target.rawId || target.id;
+
+        // 1. Restaurar feedbacks desde caché global si existen
+        if (id && state.feedbacksCache && state.feedbacksCache[id]) {
+            target.feedbacks = state.feedbacksCache[id];
+            target.feedbacksLoaded = true;
+        }
+
+        // Verificar si el target ya contiene feedbacks en memoria local (incluso si está vacío pero cargado)
+        let hasBeenLoadedBefore = !!(target.feedbacksLoaded || (target.feedbacks && Array.isArray(target.feedbacks) && target.feedbacks.length > 0));
+        if (target.feedbacks && Array.isArray(target.feedbacks)) {
             target.feedbacks.forEach(f => {
                 const body = (f.body || f.comment || '').trim();
                 if (body && !seenBodies.has(body)) {
@@ -3649,64 +4105,67 @@ window.loadFeedbacks = async function(target) {
         }
 
         // 2. Si es un reporte/issue, buscar órdenes correspondientes del mismo cliente en memoria local
-        const isIssue = target.client_id && !target.orderable_id;
+        const isIssue = !!(target.assignable_id || (target.client_id && !target.orderable_id));
+        let targetMatchingOrder = null;
         if (isIssue) {
             const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
-            const matchingOrder = allOrders.find(o => o.orderable_id === target.client_id);
-            if (matchingOrder && matchingOrder.feedbacks && Array.isArray(matchingOrder.feedbacks) && matchingOrder.feedbacks.length > 0) {
-                matchingOrder.feedbacks.forEach(f => {
-                    const body = (f.body || f.comment || '').trim();
-                    if (body && !seenBodies.has(body)) {
-                        allFeedbacks.push(f);
-                        seenBodies.add(body);
-                    }
-                });
-            }
-        }
-
-        // 3. Fallback: Si no hay feedbacks cargados en memoria, hacer búsqueda dinámica rápida
-        if (allFeedbacks.length === 0) {
-            const sequentialId = (target.id && String(target.id).length < 8) ? target.id : target.sequential_id;
-            console.log(`[Velocity] Sonda 5.2 local vacia, buscando #${sequentialId}...`);
-
-            const idsToTry = new Set();
-            if (target.rawId) idsToTry.add(target.rawId);
-            if (target.orderable_id) idsToTry.add(target.orderable_id);
-            if (target.ticketable_id) idsToTry.add(target.ticketable_id);
-
-            const searchModels = ['/order/orders', '/installation_orders', '/help_desk/issues', '/sale_desk/tickets'];
-            const searchQueries = searchModels.map(m => apiFetch(`${m}?q[sequential_id_eq]=${sequentialId}`, {}, true));
+            targetMatchingOrder = allOrders.find(o => {
+                const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                if (oClientId && target.client_id && String(oClientId) === String(target.client_id)) return true;
+                
+                const orderClientName = (o.client || '').toLowerCase().trim();
+                const targetClientName = ((state.clients && state.clients[target.client_id]?.name) || target.title || '').toLowerCase().trim();
+                if (orderClientName && targetClientName && orderClientName === targetClientName) return true;
+                
+                return false;
+            });
             
-            const searchResults = await Promise.allSettled(searchQueries);
-            searchResults.forEach(res => {
-                if (res.status === 'fulfilled' && res.value) {
-                    const items = res.value.data || res.value;
-                    if (Array.isArray(items) && items.length > 0) {
-                        items.forEach(item => {
-                            if (item.id) idsToTry.add(item.id);
-                            if (item.uuid) idsToTry.add(item.uuid);
-                            if (wisproLink && item.id && item.id.length > 10) {
-                                wisproLink.href = `https://www.cloud.wispro.co/order/orders/${item.id}`;
+            if (targetMatchingOrder) {
+                const mOid = targetMatchingOrder.rawId || targetMatchingOrder.id;
+                if (mOid && state.feedbacksCache && state.feedbacksCache[mOid]) {
+                    targetMatchingOrder.feedbacks = state.feedbacksCache[mOid];
+                    targetMatchingOrder.feedbacksLoaded = true;
+                }
+
+                if (targetMatchingOrder.feedbacksLoaded || (targetMatchingOrder.feedbacks && targetMatchingOrder.feedbacks.length > 0)) {
+                    if (targetMatchingOrder.feedbacks && Array.isArray(targetMatchingOrder.feedbacks)) {
+                        targetMatchingOrder.feedbacks.forEach(f => {
+                            const body = (f.body || f.comment || '').trim();
+                            if (body && !seenBodies.has(body)) {
+                                allFeedbacks.push(f);
+                                seenBodies.add(body);
                             }
                         });
                     }
+                    hasBeenLoadedBefore = true;
                 }
-            });
+            }
+        }
 
-            const endpoints = [];
-            idsToTry.forEach(id => {
-                if (!id) return;
-                endpoints.push(`/order/orders/${id}/feedbacks`);
-                endpoints.push(`/installation_orders/${id}/feedbacks`);
-                endpoints.push(`/help_desk/issues/${id}/feedbacks`);
-                endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
-                endpoints.push(`/help_desk/issues/${id}/comments`);
-            });
+        // 3. Fallback: Si no ha sido cargado antes en memoria local ni en caché, hacer búsqueda rápida en endpoints específicos
+        if (!hasBeenLoadedBefore) {
+            if (id) {
+                const endpoints = [];
+                if (isIssue) {
+                    // Si es un issue pero tenemos una orden coincidente, priorizamos los endpoints de la orden
+                    if (targetMatchingOrder) {
+                        const oid = targetMatchingOrder.rawId || targetMatchingOrder.id;
+                        if (oid) {
+                            endpoints.push(`/order/orders/${oid}/feedbacks`);
+                            endpoints.push(`/installation_orders/${oid}/feedbacks`);
+                        }
+                    }
+                    endpoints.push(`/help_desk/issues/${id}/feedbacks`);
+                    endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
+                } else {
+                    endpoints.push(`/order/orders/${id}/feedbacks`);
+                    endpoints.push(`/installation_orders/${id}/feedbacks`);
+                }
 
-            // Búsqueda en paralelo de todos los endpoints para máxima velocidad
-            if (endpoints.length > 0) {
-                const batchRes = await Promise.allSettled(endpoints.map(ep => apiFetch(ep, {}, true)));
-                batchRes.forEach(res => {
+                console.log(`[Velocity] Sonda 5.2 cargando feedbacks para ${isIssue ? 'Reporte' : 'Orden'} #${id}...`);
+                const results = await Promise.allSettled(endpoints.map(ep => apiFetch(ep, {}, true)));
+                
+                results.forEach(res => {
                     if (res.status === 'fulfilled' && res.value) {
                         const data = res.value.data || res.value;
                         if (Array.isArray(data)) {
@@ -3721,24 +4180,50 @@ window.loadFeedbacks = async function(target) {
                     }
                 });
             }
+            // Guardar en memoria local y caché global
+            target.feedbacks = allFeedbacks;
+            target.feedbacksLoaded = true;
+            if (id) state.feedbacksCache[id] = allFeedbacks;
+            
+            if (targetMatchingOrder) {
+                targetMatchingOrder.feedbacks = allFeedbacks;
+                targetMatchingOrder.feedbacksLoaded = true;
+                const mOid = targetMatchingOrder.rawId || targetMatchingOrder.id;
+                if (mOid) state.feedbacksCache[mOid] = allFeedbacks;
+                if (targetMatchingOrder.id) state.feedbacksCache[targetMatchingOrder.id] = allFeedbacks;
+            }
         }
 
         if (allFeedbacks.length === 0) {
+            const titleEl = document.getElementById('feedback-modal-title');
+            if (titleEl) titleEl.textContent = 'Bitácora de Comentarios (0)';
             timeline.innerHTML = `
                 <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant/15 italic text-center px-10">
                     <span class="material-symbols-outlined text-5xl mb-3">search_off</span>
                     <p class="text-xs font-black tracking-widest uppercase mb-1">Sin comentarios</p>
-                    <p class="text-[8px] opacity-40 uppercase">No se hallaron notas registradas en esta orden.</p>
+                    <p class="text-[8px] opacity-40 uppercase">No se hallaron notas registradas en esta visita.</p>
                 </div>`;
             return;
+        }
+
+        const titleEl = document.getElementById('feedback-modal-title');
+        if (titleEl) {
+            titleEl.textContent = `Bitácora de Comentarios (${allFeedbacks.length})`;
         }
 
         allFeedbacks.sort((a,b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 
         timeline.innerHTML = allFeedbacks.map(f => {
             const date = f.created_at ? new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--:--';
-            const senderName = f.author_name || f.technician_name || f.creator_name || f.user_name || 'Sistema';
-            const isSelf = senderName.toLowerCase().includes('admin') || senderName.toLowerCase().includes('supervisor');
+            
+            // Resolver el nombre del autor
+            const senderName = (state.techs && state.techs[f.creatable_id]) || f.author_name || f.technician_name || f.creator_name || f.user_name || 'Sistema';
+            
+            const activeUserEl = document.getElementById('active-user-name');
+            const activeUserName = activeUserEl ? activeUserEl.textContent.trim().toLowerCase() : '';
+            const isSelf = senderName.toLowerCase().includes('admin') || 
+                           senderName.toLowerCase().includes('supervisor') ||
+                           (activeUserName && senderName.toLowerCase().includes(activeUserName.split(' ')[0]));
             
             // Generar HSL único para el autor
             let hash = 0;
@@ -3746,19 +4231,19 @@ window.loadFeedbacks = async function(target) {
                 hash = senderName.charCodeAt(i) + ((hash << 5) - hash);
             }
             const hue = Math.abs(hash % 360);
-            const avatarColor = `hsl(${hue}, 60%, 45%)`;
+            const avatarColor = `hsl(${hue}, 60%, 40%)`;
             const initials = senderName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
             const bubbleClass = isSelf 
                 ? 'bg-gradient-to-br from-primary to-primary/80 text-white rounded-2xl rounded-tr-none border border-primary/10 shadow-md shadow-primary/5'
-                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/5 shadow-sm';
+                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm';
             
             const alignClass = isSelf ? 'justify-end' : 'justify-start';
 
             return `
             <div class="flex gap-3.5 ${alignClass} animate-in fade-in slide-in-from-bottom-2 duration-300">
                 ${!isSelf ? `
-                <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-extrabold text-xs shadow-sm" style="background:${avatarColor}">
+                <div class="w-8.5 h-8.5 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[11px] shadow-sm select-none" style="background:${avatarColor}">
                     ${initials}
                 </div>
                 ` : ''}
@@ -3768,13 +4253,13 @@ window.loadFeedbacks = async function(target) {
                         <span class="text-[9px] font-black text-on-surface-variant uppercase tracking-wider">${senderName}</span>
                         <span class="text-[8px] text-on-surface-variant/30 font-bold">${date}</span>
                     </div>
-                    <div class="p-4.5 ${bubbleClass} text-[13.5px] leading-relaxed select-text whitespace-pre-wrap break-words">
+                    <div class="p-3 px-4 ${bubbleClass} text-[13px] leading-relaxed select-text whitespace-pre-wrap break-words">
                         ${f.body || f.comment || '—'}
                     </div>
                 </div>
 
                 ${isSelf ? `
-                <div class="w-9 h-9 rounded-xl flex-shrink-0 flex items-center justify-center text-white font-extrabold text-xs shadow-sm" style="background:${avatarColor}">
+                <div class="w-8.5 h-8.5 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[11px] shadow-sm select-none" style="background:${avatarColor}">
                     ${initials}
                 </div>
                 ` : ''}
@@ -3877,11 +4362,16 @@ window.loadRecentCommentsAudit = async function() {
                     if (!author) author = 'Técnico';
                     
                     // Verificar si esta orden está asociada a algún issue (Mesa de Ayuda)
-                    const matchingIssue = allIssues.find(i => 
-                        String(i.client_id) === String(o.orderable_id) || 
-                        String(i.client_id) === String(o.clientId) || 
-                        String(i.id) === String(o.orderable_id)
-                    );
+                    const matchingIssue = allIssues.find(i => {
+                        const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                        if (oClientId && i.client_id && String(oClientId) === String(i.client_id)) return true;
+                        
+                        const orderClientName = (o.client || '').toLowerCase().trim();
+                        const issueClientName = ((state.clients && state.clients[i.client_id]?.name) || i.title || '').toLowerCase().trim();
+                        if (orderClientName && issueClientName && orderClientName === issueClientName) return true;
+                        
+                        return false;
+                    });
                     
                     if (matchingIssue) {
                         allComments.push({
@@ -4068,20 +4558,53 @@ window.loadLastCommentsForPlaceholders = async function() {
     
     // Función auxiliar para obtener feedbacks de Wispro de manera asíncrona y con caché simple
     const fetchFeedbacks = async (id, isIssue = false) => {
-        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
-        const order = allOrders.find(o => o.rawId === id || String(o.id) === String(id));
-        if (order && order.feedbacks && order.feedbacks.length > 0) {
-            return order.feedbacks;
+        if (state.feedbacksCache && state.feedbacksCache[id]) {
+            return state.feedbacksCache[id];
         }
 
+        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
         const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
-        const issue = allIssues.find(i => i.id === id);
-        if (issue && issue.feedbacks && issue.feedbacks.length > 0) {
-            return issue.feedbacks;
+
+        let order = null;
+        let issue = null;
+
+        if (isIssue) {
+            issue = allIssues.find(i => i.id === id);
+            if (issue) {
+                order = allOrders.find(o => {
+                    const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                    if (oClientId && issue.client_id && String(oClientId) === String(issue.client_id)) return true;
+                    
+                    const orderClientName = (o.client || '').toLowerCase().trim();
+                    const issueClientName = ((state.clients && state.clients[issue.client_id]?.name) || issue.title || '').toLowerCase().trim();
+                    if (orderClientName && issueClientName && orderClientName === issueClientName) return true;
+                    
+                    return false;
+                });
+            }
+        } else {
+            order = allOrders.find(o => o.rawId === id || String(o.id) === String(id));
+        }
+
+        // Si la orden ya tiene feedbacks en memoria local o cache, usarlos
+        if (order) {
+            const mOid = order.rawId || order.id;
+            if (mOid && state.feedbacksCache && state.feedbacksCache[mOid]) {
+                order.feedbacks = state.feedbacksCache[mOid];
+                order.feedbacksLoaded = true;
+            }
+            if (order.feedbacks && order.feedbacks.length > 0) {
+                state.feedbacksCache[id] = order.feedbacks;
+                return order.feedbacks;
+            }
         }
 
         const endpoints = [];
-        if (isIssue) {
+        if (order) {
+            const oid = order.rawId || order.id;
+            endpoints.push(`/order/orders/${oid}/feedbacks`);
+            endpoints.push(`/installation_orders/${oid}/feedbacks`);
+        } else if (isIssue) {
             endpoints.push(`/help_desk/issues/${id}/feedbacks`);
             endpoints.push(`/help_desk/issues/${id}/issue_feedbacks`);
         } else {
@@ -4093,13 +4616,37 @@ window.loadLastCommentsForPlaceholders = async function() {
             try {
                 const res = await apiFetch(url);
                 if (res && Array.isArray(res.data) && res.data.length > 0) {
-                    if (order) order.feedbacks = res.data;
-                    if (issue) issue.feedbacks = res.data;
+                    if (order) {
+                        order.feedbacks = res.data;
+                        order.feedbacksLoaded = true;
+                        if (order.rawId) state.feedbacksCache[order.rawId] = res.data;
+                        if (order.id) state.feedbacksCache[order.id] = res.data;
+                    }
+                    if (issue) {
+                        issue.feedbacks = res.data;
+                        issue.feedbacksLoaded = true;
+                        if (issue.id) state.feedbacksCache[issue.id] = res.data;
+                    }
+                    state.feedbacksCache[id] = res.data;
                     return res.data;
                 }
             } catch (e) {
                 // Probar siguiente endpoint
             }
+        }
+        
+        // Guardar array vacío para no re-consultar
+        state.feedbacksCache[id] = [];
+        if (order) {
+            order.feedbacks = [];
+            order.feedbacksLoaded = true;
+            if (order.rawId) state.feedbacksCache[order.rawId] = [];
+            if (order.id) state.feedbacksCache[order.id] = [];
+        }
+        if (issue) {
+            issue.feedbacks = [];
+            issue.feedbacksLoaded = true;
+            if (issue.id) state.feedbacksCache[issue.id] = [];
         }
         return [];
     };
@@ -4135,7 +4682,16 @@ window.loadLastCommentsForPlaceholders = async function() {
                 const issue = allIssues.find(i => i.id === id);
                 if (issue) {
                     const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
-                    const matchingOrder = allOrders.find(o => o.orderable_id === issue.client_id);
+                    const matchingOrder = allOrders.find(o => {
+                        const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                        if (oClientId && issue.client_id && String(oClientId) === String(issue.client_id)) return true;
+                        
+                        const orderClientName = (o.client || '').toLowerCase().trim();
+                        const issueClientName = ((state.clients && state.clients[issue.client_id]?.name) || issue.title || '').toLowerCase().trim();
+                        if (orderClientName && issueClientName && orderClientName === issueClientName) return true;
+                        
+                        return false;
+                    });
                     if (matchingOrder) {
                         feedbacks = await fetchFeedbacks(matchingOrder.rawId || matchingOrder.id, false);
                     }
@@ -4158,16 +4714,7 @@ window.loadLastCommentsForPlaceholders = async function() {
                     el.innerHTML = `<span class="material-symbols-outlined text-[12px] text-secondary">chat_bubble</span><span class="truncate max-w-[260px] block" title="${comment}"><strong>${author}:</strong> ${comment}</span>`;
                 }
             } else {
-                if (el.classList.contains('comment-preview-inline')) {
-                    el.innerHTML = `
-                        <div class="inline-flex items-center gap-1 text-on-surface-variant/40">
-                            <span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span>
-                            <span class="text-[11px] font-semibold italic">Sin notas</span>
-                        </div>
-                    `;
-                } else {
-                    el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Sin notas de cierre</span>`;
-                }
+                el.innerHTML = '';
             }
         } catch (err) {
             if (el.classList.contains('comment-preview-inline')) {

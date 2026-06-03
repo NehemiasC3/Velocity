@@ -53,6 +53,7 @@ const state = {
     napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all', search: '' },
     orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
     issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' },
+    pruebaFilter: { date: 'all', search: '' },
     orderSearch:  '',
     orderSort:    { key: 'id', dev: 'desc' },
     isSyncing:    false,

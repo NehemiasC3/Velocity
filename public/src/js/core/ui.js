@@ -198,7 +198,7 @@ window.switchTab = function(tab) {
     });
 
     // Título
-    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes' };
+    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes', prueba: 'Prueba' };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
@@ -242,7 +242,7 @@ function renderTab(tab) {
         setTimeout(window.initTechsMap, 100);
     }
 
-    if ((tab === 'orders' || tab === 'reports') && typeof window.loadLastCommentsForPlaceholders === 'function') {
+    if ((tab === 'orders' || tab === 'reports' || tab === 'prueba') && typeof window.loadLastCommentsForPlaceholders === 'function') {
         setTimeout(window.loadLastCommentsForPlaceholders, 150);
     }
 

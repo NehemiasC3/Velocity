@@ -493,15 +493,20 @@ function renderOrderCard(o) {
         ${napInfo}
         <div class="flex items-center justify-between mt-4">
             <div class="relative inline-block">
-                <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-secondary/10 hover:bg-secondary/5 transition-all active:scale-95">
-                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                    Bitácora
-                </button>
                 ${o.feedbacksCount > 0 ? `
-                    <div class="absolute -top-1.5 -right-1.5 bg-secondary text-white text-[9px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[15px] text-center">
+                    <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 bg-secondary/10 hover:bg-secondary/20 text-secondary font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-secondary/20 transition-all active:scale-95 shadow-sm">
+                        <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                        Bitácora
+                    </button>
+                    <div class="absolute -top-1.5 -right-1.5 bg-secondary text-white text-[9px] font-black px-1.5 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[16px] text-center">
                         ${o.feedbacksCount}
                     </div>
-                ` : ''}
+                ` : `
+                    <button onclick="window.openFeedbackModal('${o.id}')" class="flex items-center gap-2 bg-transparent hover:bg-surface-container-high text-on-surface-variant/30 hover:text-on-surface-variant font-bold text-xs uppercase tracking-widest px-3 py-2 rounded-xl border border-outline-variant/15 transition-all active:scale-95">
+                        <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                        Bitácora
+                    </button>
+                `}
             </div>
         </div>
         ${buttons}
@@ -794,38 +799,45 @@ window.openFeedbackModal = async function(id) {
     document.getElementById(modalId)?.remove();
 
     const html = `
-    <div id="${modalId}" class="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-        <div class="bg-surface-container-lowest w-full max-w-lg max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
+    <div id="${modalId}" class="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div class="w-full max-w-xl max-h-[85vh] rounded-[2.25rem] shadow-[0_32px_80px_rgba(0,0,0,0.45)] flex flex-col overflow-hidden border animate-in zoom-in-95 slide-in-from-bottom-4 duration-300" style="background-color: var(--surface-container-lowest); border-color: var(--outline-variant);">
             <!-- Header -->
-            <div class="p-5 border-b border-outline-variant/10 flex items-center justify-between bg-surface-container-low/50">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white" style="background:${order.typeColor}">
-                        <span class="material-symbols-outlined">history_edu</span>
+            <div class="p-6 flex items-center justify-between border-b backdrop-blur-md" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white relative overflow-hidden flex-shrink-0" style="background: linear-gradient(135deg, ${order.typeColor} 0%, ${order.typeColor}dd 100%); box-shadow: 0 8px 24px -4px ${order.typeColor}50">
+                        <div class="absolute inset-0 bg-white/15 backdrop-blur-[1px]"></div>
+                        <span class="material-symbols-outlined text-2xl relative z-10">forum</span>
                     </div>
-                    <div>
-                        <h3 id="tech-feedback-modal-title" class="font-black text-on-surface text-base">Bitácora #${order.id}</h3>
-                        <p class="text-[10px] text-on-surface-variant font-bold uppercase tracking-widest truncate max-w-[180px]">${order.client}</p>
+                    <div class="min-w-0">
+                        <h3 id="tech-feedback-modal-title" class="font-extrabold text-lg tracking-tight font-headline animate-pulse" style="color: var(--on-surface);">Bitácora #${order.id}</h3>
+                        <p class="text-[10px] font-black uppercase tracking-widest mt-1.5 truncate max-w-[340px] flex items-center gap-1.5" title="${order.client}" style="color: var(--secondary);">
+                            <span class="w-1.5 h-1.5 rounded-full bg-secondary/80 animate-pulse" style="background-color: var(--secondary);"></span>
+                            ${order.client}
+                        </p>
                     </div>
                 </div>
-                <button onclick="document.getElementById('${modalId}').remove()" class="w-8 h-8 rounded-full hover:bg-surface-container-high flex items-center justify-center">
-                    <span class="material-symbols-outlined text-on-surface-variant text-xl">close</span>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full text-on-surface-variant hover:text-error hover:bg-error/15 flex items-center justify-center transition-all duration-200 hover:rotate-90 hover:scale-105 active:scale-95 border shadow-sm" style="background-color: var(--surface-container-high); border-color: var(--outline-variant);">
+                    <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
 
             <!-- Body (Timeline) -->
-            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-5 space-y-4 bg-surface-container-lowest/50">
-                <div class="flex flex-col items-center justify-center py-12 text-on-surface-variant/30">
-                    <span class="material-symbols-outlined text-4xl mb-2 animate-spin">sync</span>
-                    <p class="font-bold text-[10px] uppercase tracking-widest">Sincronizando...</p>
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
+                <div class="flex flex-col items-center justify-center py-24 text-center" style="color: var(--on-surface-variant); opacity: 0.3;">
+                    <div class="relative w-12 h-12 mb-4 flex items-center justify-center">
+                        <span class="material-symbols-outlined text-4xl animate-spin">sync</span>
+                    </div>
+                    <p class="font-black text-xs tracking-widest uppercase italic mb-1">Sincronizando Bitácora...</p>
+                    <p class="text-[8px] font-bold uppercase tracking-wider">Cargando comentarios del servidor</p>
                 </div>
             </div>
 
             <!-- Footer -->
-            <div class="px-5 py-3 bg-surface-container-low border-t border-outline-variant/10 flex items-center justify-between">
-                <span class="text-[9px] font-black uppercase text-on-surface-variant/50 italic">Historial Integrado Wispro • Sólo Lectura</span>
-                <div class="flex items-center gap-1.5 opacity-60">
-                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
-                    <span class="text-[9px] font-bold text-on-surface-variant">Live Link</span>
+            <div class="px-6 py-4 border-t flex items-center justify-between" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
+                <span class="text-[9px] font-black uppercase tracking-wider" style="color: var(--on-surface-variant); opacity: 0.5;">Historial Integrado Wispro • Sólo Lectura</span>
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
+                    <span class="text-[9px] font-extrabold uppercase tracking-widest" style="color: var(--on-surface-variant); opacity: 0.7;">Live Link</span>
                 </div>
             </div>
         </div>
@@ -875,7 +887,7 @@ window.loadFeedbacks = async function(target) {
             const titleEl = document.getElementById('tech-feedback-modal-title');
             if (titleEl) titleEl.textContent = `Bitácora #${target.id} (0)`;
             timeline.innerHTML = `
-                <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant/20 italic">
+                <div class="flex flex-col items-center justify-center py-16 italic text-center" style="color: var(--on-surface-variant); opacity: 0.4;">
                     <span class="material-symbols-outlined text-4xl mb-2">auto_stories</span>
                     <p class="text-[10px] font-bold tracking-widest uppercase">Sin historial de eventos</p>
                 </div>`;
@@ -889,13 +901,36 @@ window.loadFeedbacks = async function(target) {
 
         allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
 
-        timeline.innerHTML = allFeedbacks.map(f => {
+        timeline.innerHTML = allFeedbacks.map((f, idx) => {
             const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
             
             // Resolver el nombre del autor
             const sender = (techState.techs && techState.techs[f.creatable_id]) || f.author_name || f.technician_name || f.creator_name || 'Sistema';
             
             const isMe = sender.toLowerCase().includes(techState.profile?.name?.split(' ')[0].toLowerCase());
+            const isSistema = sender.toLowerCase() === 'sistema';
+            const roleLabel = isSistema ? 'Sistema' : isMe ? 'Yo' : 'Técnico';
+            
+            let cardBgColor = 'var(--surface-container-low)';
+            let cardBorderColor = 'var(--outline-variant)';
+            let cardLeftBorderColor = '';
+            let badgeBgColor = '';
+            let badgeTextColor = '';
+
+            if (isSistema) {
+                cardBgColor = 'color-mix(in srgb, var(--surface-container-high) 60%, transparent)';
+                cardLeftBorderColor = 'color-mix(in srgb, var(--on-surface-variant) 40%, transparent)';
+                badgeBgColor = 'color-mix(in srgb, var(--on-surface-variant) 15%, transparent)';
+                badgeTextColor = 'var(--on-surface-variant)';
+            } else if (isMe) {
+                cardLeftBorderColor = 'var(--secondary)';
+                badgeBgColor = 'var(--secondary)';
+                badgeTextColor = 'var(--on-secondary)';
+            } else {
+                cardLeftBorderColor = 'var(--primary)';
+                badgeBgColor = 'var(--primary)';
+                badgeTextColor = 'var(--on-primary)';
+            }
             
             // Generar HSL único para el autor
             let hash = 0;
@@ -903,38 +938,41 @@ window.loadFeedbacks = async function(target) {
                 hash = sender.charCodeAt(i) + ((hash << 5) - hash);
             }
             const hue = Math.abs(hash % 360);
-            const avatarColor = `hsl(${hue}, 60%, 40%)`;
+            const avatarColor = `hsl(${hue}, 55%, 42%)`;
             const initials = sender.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
 
-            const bubbleClass = isMe 
-                ? 'bg-gradient-to-br from-secondary to-secondary/80 text-white rounded-2xl rounded-tr-none border border-secondary/10 shadow-md shadow-secondary/5'
-                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm';
-            
-            const alignClass = isMe ? 'justify-end' : 'justify-start';
+            const isLast = idx === allFeedbacks.length - 1;
 
             return `
-            <div class="flex gap-3.5 ${alignClass} animate-in fade-in slide-in-from-bottom-2 duration-300">
-                ${!isMe ? `
-                <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[10px] shadow-sm select-none" style="background:${avatarColor}">
-                    ${initials}
-                </div>
-                ` : ''}
+            <div class="relative pl-12 pb-6 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <!-- Line connecting this avatar to the next -->
+                ${isLast ? '' : `<div class="absolute left-[17px] top-10 bottom-0 w-[2px]" style="background-color: var(--outline-variant); opacity: 0.2;"></div>`}
                 
-                <div class="max-w-[75%] space-y-1">
-                    <div class="flex items-center gap-2 px-1 ${isMe ? 'flex-row-reverse' : ''}">
-                        <span class="text-[9px] font-black text-on-surface uppercase tracking-wider">${sender}</span>
-                        <span class="text-[8px] text-on-surface-variant opacity-50 font-bold">${date}</span>
-                    </div>
-                    <div class="p-3 px-4 ${bubbleClass} text-xs leading-relaxed select-text whitespace-pre-wrap break-words">
-                        ${f.body || f.comment || '—'}
-                    </div>
-                </div>
-
-                ${isMe ? `
-                <div class="w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[10px] shadow-sm select-none" style="background:${avatarColor}">
+                <!-- Avatar -->
+                <div class="absolute left-0 top-0.5 w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-[11px] shadow-[0_4px_12px_rgba(0,0,0,0.15)] select-none border border-white/20" style="background: linear-gradient(135deg, ${avatarColor} 0%, ${avatarColor}dd 100%)">
                     ${initials}
                 </div>
-                ` : ''}
+                
+                <!-- Comment Card -->
+                <div class="flex-1 min-w-0 rounded-2xl p-4 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] hover:translate-x-0.5 transition-all duration-300 border border-l-[4px]" style="background-color: ${cardBgColor}; border-color: ${cardBorderColor}; border-left-color: ${cardLeftBorderColor};">
+                    <!-- Card Header -->
+                    <div class="flex items-center justify-between gap-2 mb-2.5">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs font-bold truncate max-w-[180px]" style="color: var(--on-surface);">${sender}</span>
+                            <span class="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider select-none" style="background-color: ${badgeBgColor}; color: ${badgeTextColor};">
+                                ${roleLabel}
+                            </span>
+                        </div>
+                        <span class="text-[10px] font-bold flex items-center gap-1 select-none whitespace-nowrap" style="color: var(--on-surface-variant); opacity: 0.6;">
+                            <span class="material-symbols-outlined text-[11px]">schedule</span> ${date}
+                        </span>
+                    </div>
+                    
+                    <!-- Card Body -->
+                    <p class="text-[13px] leading-relaxed font-normal tracking-wide whitespace-pre-wrap break-words select-text" style="color: var(--on-surface-variant);">
+                        ${f.body || f.comment || '—'}
+                    </p>
+                </div>
             </div>`;
         }).join('');
 

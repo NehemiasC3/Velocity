@@ -1636,6 +1636,833 @@ Views.reports = () => {
     </div>`;
 };
 
+// ── PRUEBA TAB (COMBINADO) ──────────────────────────────────────────────────
+Views.prueba = () => {
+    const { date, search } = state.pruebaFilter;
+    const today    = new Date(); today.setHours(0,0,0,0);
+    const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
+
+    // Helper functions
+    const getNapForIssue = (issue) => {
+        if (state.napOverrides && state.napOverrides[issue.id]?.nap) {
+            return state.napOverrides[issue.id].nap;
+        }
+        if (issue.nap) return issue.nap;
+        if (issue.client_id) {
+            const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+            const matchingOrder = allOrders.find(o => {
+                const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                return oClientId && String(oClientId) === String(issue.client_id) && o.nap;
+            });
+            if (matchingOrder) return matchingOrder.nap;
+        }
+        return null;
+    };
+
+    const getNapForOrder = (order) => {
+        const oid = order.rawId || order.id;
+        if (state.napOverrides && state.napOverrides[oid]?.nap) {
+            return state.napOverrides[oid].nap;
+        }
+        return order.nap;
+    };
+
+    const getCommentBadgeHtml = (id, isIssue) => {
+        let feedbacks = state.feedbacksCache[id];
+        if (isIssue && (!feedbacks || feedbacks.length === 0)) {
+            const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+            const issue = allIssues.find(i => String(i.id) === String(id));
+            if (issue) {
+                const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+                const matchingOrder = allOrders.find(o => {
+                    const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                    if (oClientId && issue.client_id && String(oClientId) === String(issue.client_id)) return true;
+                    const orderClientName = (o.client || '').toLowerCase().trim();
+                    const issueClientName = ((state.clients && state.clients[issue.client_id]?.name) || issue.title || '').toLowerCase().trim();
+                    if (orderClientName && issueClientName && orderClientName === issueClientName) return true;
+                    return false;
+                });
+                if (matchingOrder) {
+                    feedbacks = state.feedbacksCache[matchingOrder.rawId || matchingOrder.id];
+                }
+            }
+        }
+        const count = feedbacks ? feedbacks.length : 0;
+        return count > 0 ? `<div class="comment-badge absolute -top-1.5 -right-1.5 bg-secondary text-white text-[8px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[14px] text-center">${count}</div>` : '';
+    };
+
+    // 1. Filtrar Activas
+    let activeIssues = state.issues.filter(issue => {
+        let techName = state.techs[issue.assignable_id];
+        if (!techName && issue.assignable_id) {
+            const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+            const found = (db.technicians || []).find(t =>
+                String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id)
+            );
+            techName = found?.name;
+        }
+        if (!techName) techName = 'Sin asignar';
+
+        if (date === 'sin_asignar') {
+            return techName === 'Sin asignar';
+        }
+
+        if (date === 'all') {
+            if (techName === 'Sin asignar') return true;
+            return TECNICOS_ACTIVOS.some(n =>
+                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+        }
+
+        if (techName === 'Sin asignar') return false;
+
+        const esActivo = TECNICOS_ACTIVOS.some(n =>
+            techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+        );
+        if (!esActivo) return false;
+
+        const venc = issue.expires_at ? new Date(issue.expires_at) : null;
+        if (!venc) return date === 'sin_fecha';
+        if (date === 'sin_fecha') return false;
+        venc.setHours(0,0,0,0);
+        if (date === 'hoy'     && venc.getTime() !== today.getTime())    return false;
+        if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
+        if (date === 'vencido' && venc >= today)                         return false;
+
+        return true;
+    });
+
+    let activeOrders = state.orders.filter(o => o.kind !== 'technical').filter(o => {
+        const techName = o.techName || 'Sin asignar';
+
+        if (date === 'sin_asignar') {
+            return techName === 'Sin asignar';
+        }
+
+        if (date === 'all') {
+            if (techName === 'Sin asignar') return true;
+            return TECNICOS_ACTIVOS.some(n =>
+                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+        }
+
+        if (techName === 'Sin asignar') return false;
+
+        const esActivo = TECNICOS_ACTIVOS.some(n =>
+            techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+        );
+        if (!esActivo) return false;
+
+        return date === 'hoy';
+    });
+
+    // 2. Aplicar Búsqueda Global
+    if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        
+        activeIssues = activeIssues.filter(issue => {
+            const client = state.clients[issue.client_id] || {};
+            const title = issue.title || issue.description || '';
+            const zm = title.match(/\(([^)]+)\)/);
+            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            const clientName = (state.clients[issue.client_id]?.name || issue.title || '').toLowerCase();
+            const descriptionText = title.toLowerCase();
+            const techNameLower = (state.techs[issue.assignable_id] || 'Sin asignar').toLowerCase();
+            const addressText = (client.address || '').toLowerCase();
+            const idStr = String(issue.public_id || issue.id);
+
+            return zoneName.toLowerCase().includes(q) ||
+                   clientName.includes(q) ||
+                   descriptionText.includes(q) ||
+                   techNameLower.includes(q) ||
+                   addressText.includes(q) ||
+                   idStr.includes(q);
+        });
+
+        activeOrders = activeOrders.filter(o => {
+            const zoneName = (o.zone || 'Sin zona').toLowerCase();
+            const clientName = (o.client || '').toLowerCase();
+            const techNameLower = (o.techName || 'Sin asignar').toLowerCase();
+            const addressText = (o.address || '').toLowerCase();
+            const idStr = String(o.id);
+            
+            return zoneName.includes(q) ||
+                   clientName.includes(q) ||
+                   techNameLower.includes(q) ||
+                   addressText.includes(q) ||
+                   idStr.includes(q);
+        });
+    }
+
+    // 3. Agrupar por técnico
+    const byTech = {};
+    activeIssues.forEach(issue => {
+        let techName = state.techs[issue.assignable_id];
+        if (!techName && issue.assignable_id) {
+            const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+            const found = (db.technicians || []).find(t =>
+                String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id)
+            );
+            techName = found?.name;
+        }
+        if (!techName) techName = 'Sin asignar';
+
+        if (!byTech[techName]) byTech[techName] = { issues: [], orders: [] };
+        byTech[techName].issues.push(issue);
+    });
+
+    activeOrders.forEach(o => {
+        const techName = o.techName || 'Sin asignar';
+        if (!byTech[techName]) byTech[techName] = { issues: [], orders: [] };
+        byTech[techName].orders.push(o);
+    });
+
+    const CONTRATISTAS = ['Daniel Opua','Jose Mendoza','Mario Gonzalez'];
+
+    const renderTechCard = (techName, issuesList, ordersList) => {
+        const color    = techName === 'Sin asignar' ? '#9ca3af' : techColor(techName);
+        const initials = techName === 'Sin asignar' ? 'SA' : techInitials(techName);
+        const isContratista = CONTRATISTAS.some(n => techName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+        const subtitle = techName === 'Sin asignar' ? 'Ticket Huérfano' : (isContratista ? 'Contratista' : 'Técnico Operativo');
+
+        // Agrupar por zona
+        const byZone = {};
+        issuesList.forEach(issue => {
+            const client = state.clients[issue.client_id] || {};
+            const title  = issue.title || issue.description || '';
+            const zm = title.match(/\(([^)]+)\)/);
+            const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            if (!byZone[zone]) byZone[zone] = { issues: 0, orders: 0 };
+            byZone[zone].issues++;
+        });
+        ordersList.forEach(o => {
+            const zone = o.zone || 'Sin zona';
+            if (!byZone[zone]) byZone[zone] = { issues: 0, orders: 0 };
+            byZone[zone].orders++;
+        });
+
+        const zoneRows = Object.entries(byZone).map(([zone, counts]) => {
+            const textParts = [];
+            if (counts.issues > 0) textParts.push(`${counts.issues} rep`);
+            if (counts.orders > 0) textParts.push(`${counts.orders} ord`);
+            const label = textParts.join(' + ');
+
+            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span class="material-symbols-outlined" style="font-size:13px;color:#9ca3af;">location_on</span>
+                    <span style="font-size:14px;font-weight:600;color:#374151;">${zone}</span>
+                </div>
+                <span style="font-size:13px;font-weight:800;color:${color};background:${color}15;padding:2px 10px;border-radius:999px;">${label}</span>
+            </div>`;
+        }).join('');
+
+        // Texto WhatsApp
+        let waText = '';
+        if (techName !== 'Sin asignar') {
+            const waLines = [
+                `*Tareas Asignadas — ${techName}*`,
+                `Fecha: ${new Date().toLocaleDateString('es-PA', { weekday: 'long', day: 'numeric', month: 'long' })}`,
+                ''
+            ];
+            
+            const techByZone = {};
+            issuesList.forEach(i => {
+                const client = state.clients[i.client_id] || {};
+                const title  = i.title || i.description || '';
+                const zm = title.match(/\(([^)]+)\)/);
+                const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+                if (!techByZone[zone]) techByZone[zone] = { issues: [], orders: [] };
+                techByZone[zone].issues.push(i);
+            });
+            ordersList.forEach(o => {
+                const zone = o.zone || 'Sin zona';
+                if (!techByZone[zone]) techByZone[zone] = { issues: [], orders: [] };
+                techByZone[zone].orders.push(o);
+            });
+
+            Object.entries(techByZone).forEach(([zone, zData]) => {
+                waLines.push(`*${zone}* (Rep: ${zData.issues.length}, Ord: ${zData.orders.length})`);
+                zData.issues.forEach(i => {
+                    const c   = state.clients[i.client_id] || {};
+                    const cat = state.categories[i.category_id] || '';
+                    const t   = (i.title||i.description||'').replace(/\s*\([^)]*\)\s*/g,'').trim();
+                    waLines.push(`  [Reporte] #${i.public_id} ${c.name||t} ${cat?'— '+cat:''}`);
+                });
+                zData.orders.forEach(o => {
+                    waLines.push(`  [Orden] #${o.id} ${o.client} (${o.typeLabel})`);
+                });
+                waLines.push('');
+            });
+            waLines.push(`Total: ${issuesList.length} reporte(s) + ${ordersList.length} orden(es)`);
+            waLines.push('— Velocity Rappido Panama');
+            waText = encodeURIComponent(waLines.join('\n'));
+        }
+
+        const detailIssuesHtml = issuesList.map(issue => {
+            const client   = state.clients[issue.client_id] || {};
+            const title    = issue.title || issue.description || 'Sin titulo';
+            const zm       = title.match(/\(([^)]+)\)/);
+            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            const cleanT   = title.replace(/\s*\([^)]*\)\s*/g,'').trim();
+            const category = state.categories[issue.category_id] || '';
+            const vencDate = issue.expires_at ? new Date(issue.expires_at) : null;
+            const todayChk = new Date(); todayChk.setHours(0,0,0,0);
+            let vencText = '—', vencCol = '#6b7280';
+            if (vencDate) {
+                const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+                vencText = `${vencDate.getDate()} ${months[vencDate.getMonth()]}.`;
+                const vd = new Date(vencDate); vd.setHours(0,0,0,0);
+                if (vd < todayChk) vencCol = '#dc2626';
+                else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
+                else vencCol = '#059669';
+            }
+
+            const nap = getNapForIssue(issue);
+            const napBadgeHtml = nap
+                ? `<span style="background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;margin-left:8px;">✓ ${nap}</span>`
+                : `<button onclick="window.openNapModal('${issue.id}', true)" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;border:none;cursor:pointer;margin-left:8px;">Sin NAP</button>`;
+
+            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
+                <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                        <span style="font-weight:800;color:#111827;font-size:13px;">#${issue.public_id||'—'}</span>
+                        ${category?`<span style="background:#f3f4f6;color:#374151;font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${category}</span>`:''}
+                        <span style="font-weight:700;color:${vencCol};font-size:12px;margin-left:auto;">${vencText}</span>
+                    </div>
+                    <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
+                            ${napBadgeHtml}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <div class="relative inline-block" data-issue-btn-id="${issue.id}">
+                                <button onclick="window.openFeedbackModal('${issue.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
+                                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                                </button>
+                                ${getCommentBadgeHtml(issue.id, true)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        const detailOrdersHtml = ordersList.map(o => {
+            const color = o.typeColor || '#6b7280';
+            const nap = getNapForOrder(o);
+            const isInstallation = o.kind === 'installation';
+            const napBadgeHtml = isInstallation
+                ? (nap
+                    ? `<span style="background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;margin-left:8px;">✓ ${nap}</span>`
+                    : `<button onclick="window.openNapModal('${o.rawId || o.id}', false)" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;border:none;cursor:pointer;margin-left:8px;">Sin NAP</button>`)
+                : '';
+
+            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
+                <div style="width:3px;height:35px;background:${color};border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
+                <div style="flex:1;min-width:0;">
+                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                        <span style="font-weight:800;color:#111827;font-size:13px;">#${o.id||'—'}</span>
+                        <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${o.typeLabel} (${o.state})</span>
+                        <span style="font-weight:700;color:#6b7280;font-size:12px;margin-left:auto;">${o.startTime}</span>
+                    </div>
+                    <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.client}</p>
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            ${o.zone?`<span style="font-size:11px;color:#6b7280;">${o.zone}</span>`: '<span></span>'}
+                            ${napBadgeHtml}
+                        </div>
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <div class="relative inline-block" data-order-btn-id="${o.rawId || o.id}">
+                                <button onclick="window.openFeedbackModal('${o.rawId || o.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
+                                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                                </button>
+                                ${getCommentBadgeHtml(o.rawId || o.id, false)}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        const safeId = techName.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9-]/g,'');
+        const totalItems = issuesList.length + ordersList.length;
+
+        return `<div style="background:white;border:1px solid #f0f0f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f3f4f6;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <div style="width:38px;height:38px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:800;flex-shrink:0;">${initials}</div>
+                    <div>
+                        <p style="font-weight:800;color:#111827;font-size:17px;margin:0;line-height:1.2;">${techName}</p>
+                        <p style="font-size:14.5px;font-weight:700;color:#4b5563;margin-top:4px;">${totalItems} tarea${totalItems!==1?'s':''} (${issuesList.length} rep + ${ordersList.length} ord)</p>
+                    </div>
+                </div>
+                ${techName !== 'Sin asignar' ? `
+                    <button onclick="window.sendReportWA('${waText}')" style="background:#25D366;color:white;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                        WhatsApp
+                    </button>
+                ` : ''}
+            </div>
+            <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
+            <div style="padding:0 16px 12px;">
+                <button onclick="window.toggleTechDetail('detail-${safeId}')"
+                    style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:13px;font-weight:700;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
+                    <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span> Ver tickets
+                </button>
+                <div id="detail-${safeId}" style="display:none;margin-top:8px;max-height:280px;overflow-y:auto;">
+                    ${detailIssuesHtml}
+                    ${detailOrdersHtml}
+                    ${(!detailIssuesHtml && !detailOrdersHtml) ? '<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin tickets pendientes</p>' : ''}
+                </div>
+            </div>
+        </div>`;
+    };
+
+    // Calculate filter button counts precisely
+    const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+
+    // Issues count calculation
+    state.issues.forEach(i => {
+        let tName = state.techs[i.assignable_id];
+        if (!tName && i.assignable_id) {
+            const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
+            tName = f?.name;
+        }
+        if (!tName) tName = 'Sin asignar';
+
+        if (tName === 'Sin asignar') {
+            counts.sin_asignar++;
+            counts.all++;
+            return;
+        }
+
+        const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+        if (!esAct) return;
+
+        counts.all++;
+        const venc = i.expires_at ? new Date(i.expires_at) : null;
+        if (!venc) {
+            counts.sin_fecha++;
+            return;
+        }
+        
+        venc.setHours(0,0,0,0);
+        const tTime = today.getTime();
+        const mTime = tomorrow.getTime();
+        const vTime = venc.getTime();
+        
+        if (vTime === tTime) counts.hoy++;
+        if (vTime === mTime) counts.manana++;
+        if (venc < today) counts.vencido++;
+    });
+
+    // Orders count calculation (excluding 'technical')
+    state.orders.filter(o => o.kind !== 'technical').forEach(o => {
+        const tName = o.techName || 'Sin asignar';
+        if (tName === 'Sin asignar') {
+            counts.sin_asignar++;
+            counts.all++;
+            return;
+        }
+
+        const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+        if (!esAct) return;
+
+        counts.all++;
+        counts.hoy++;
+    });
+
+    // Global WhatsApp Summary
+    const tmrw = new Date();
+    tmrw.setDate(tmrw.getDate() + 1);
+    const mNames = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    const titleDate = `${tmrw.getDate()} de ${mNames[tmrw.getMonth()]}`;
+
+    const globalLines = [`*Resumen General de Tareas — ${titleDate}*`, ''];
+    Object.entries(byTech).sort((a, b) => {
+        const totalA = a[1].issues.length + a[1].orders.length;
+        const totalB = b[1].issues.length + b[1].orders.length;
+        return totalB - totalA;
+    }).forEach(([name, data]) => {
+        const bz = {};
+        data.issues.forEach(i => {
+            const c = state.clients[i.client_id]||{};
+            const t = i.title||i.description||'';
+            const zm = t.match(/\(([^)]+)\)/);
+            const z = (zm?zm[1]:(c.zone||''))||'Sin zona';
+            if (!bz[z]) bz[z] = { issues: 0, orders: 0 };
+            bz[z].issues++;
+        });
+        data.orders.forEach(o => {
+            const z = o.zone || 'Sin zona';
+            if (!bz[z]) bz[z] = { issues: 0, orders: 0 };
+            bz[z].orders++;
+        });
+
+        const totalTasks = data.issues.length + data.orders.length;
+        globalLines.push(`*${name}* — ${totalTasks} tarea(s) (${data.issues.length} rep + ${data.orders.length} ord)`);
+        Object.entries(bz).forEach(([z, n]) => {
+            const parts = [];
+            if (n.issues > 0) parts.push(`${n.issues} rep`);
+            if (n.orders > 0) parts.push(`${n.orders} ord`);
+            globalLines.push(`  ${z}: ${parts.join(' + ')}`);
+        });
+        globalLines.push('');
+    });
+    const totalActiveIssues = activeIssues.length;
+    const totalActiveOrders = activeOrders.length;
+    const totalActiveTasks = totalActiveIssues + totalActiveOrders;
+    globalLines.push(`Total General: ${totalActiveTasks} tarea(s) (${totalActiveIssues} reportes + ${totalActiveOrders} órdenes)`);
+    globalLines.push('— Velocity Rappido Panama');
+
+    const globalWaText = encodeURIComponent(globalLines.join('\n'));
+
+    // Tech Cards HTML
+    const techCards = Object.entries(byTech)
+        .sort((a, b) => {
+            const totalA = a[1].issues.length + a[1].orders.length;
+            const totalB = b[1].issues.length + b[1].orders.length;
+            return totalB - totalA;
+        })
+        .map(([name, data]) => renderTechCard(name, data.issues, data.orders))
+        .join('');
+
+    // Date filters HTML
+    const dateFilters = [
+        {v:'all',l:'Todos',c:counts.all},
+        {v:'hoy',l:'Hoy',c:counts.hoy},
+        {v:'manana',l:'Mañana',c:counts.manana},
+        {v:'vencido',l:'Vencidos',c:counts.vencido},
+        {v:'sin_fecha',l:'Sin fecha',c:counts.sin_fecha},
+        {v:'sin_asignar',l:'Sin asignar',c:counts.sin_asignar}
+    ].map(f => {
+        const active = date === f.v;
+        const bg = active ? '#111827' : '#f3f4f6';
+        const color = active ? 'white' : '#374151';
+        const badgeBg = active ? 'rgba(255,255,255,0.2)' : '#e5e7eb';
+        return `<button onclick="window.setPruebaFilter('date','${f.v}')" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:${bg};color:${color};">
+            ${f.l} <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:999px;background:${badgeBg};">${f.c}</span>
+        </button>`;
+    }).join('');
+
+    // Finished List rendering
+    const renderFinishedList = (coll, titleText) => {
+        if (!coll.length) return '';
+        const formatTime = (iso) => {
+            if (!iso) return '';
+            const d = new Date(iso);
+            return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        };
+        const getElapsedTime = (iso) => {
+            if (!iso) return '—';
+            const closed = new Date(iso);
+            const now = new Date();
+            const diffMs = now.getTime() - closed.getTime();
+            if (isNaN(diffMs)) return '—';
+            if (diffMs < 0) return 'Hace unos momentos';
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            if (diffMins < 1) return 'Hace instantes';
+            if (diffMins < 60) return `Hace ${diffMins}m`;
+            const diffHours = Math.floor(diffMins / 60);
+            const remMins = diffMins % 60;
+            if (diffHours < 24) {
+                return `Hace ${diffHours}h ${remMins > 0 ? remMins + 'm' : ''}`;
+            }
+            const diffDays = Math.floor(diffHours / 24);
+            return `Hace ${diffDays}d`;
+        };
+        const rows = coll.map(entry => {
+            if (entry.type === 'issue') {
+                const i = entry.item;
+                let tName = state.techs[i.assignable_id];
+                if (!tName && i.assignable_id) {
+                    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+                    const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
+                    tName = f?.name || 'Sin asignar';
+                }
+                if (!tName) tName = 'Sin asignar';
+                
+                const finishedTime = i.closed_at || i.finalized_at || i.updated_at;
+                const timeStr = formatTime(finishedTime);
+                const elapsedStr = getElapsedTime(finishedTime);
+                const clientName = state.clients[i.client_id]?.name || i.title || 'Reporte';
+                const idStr = i.public_id || i.id;
+
+                return `
+                <tr class="hover:bg-surface-container-low/30 transition-colors">
+                    <!-- Columna 1: Reporte / Orden -->
+                    <td class="py-3 px-4">
+                        <div class="flex items-center gap-2">
+                            <span class="bg-surface-container text-on-surface-variant font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-outline-variant/10">
+                                #${idStr} (Reporte)
+                            </span>
+                            <span class="text-sm font-bold text-on-surface truncate max-w-[240px]" title="${clientName}">
+                                ${clientName}
+                            </span>
+                        </div>
+                    </td>
+                    <!-- Columna 2: Técnico -->
+                    <td class="py-3 px-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-black text-[10px]">
+                                ${tName === 'Sin asignar' ? 'SA' : tName.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+                            </div>
+                            <span class="text-xs font-bold text-on-surface-variant">
+                                ${tName}
+                            </span>
+                        </div>
+                    </td>
+                    <!-- Columna 3: Hora finalizado -->
+                    <td class="py-3 px-4 text-right">
+                        <span class="text-xs font-bold text-on-surface-variant">
+                            ${timeStr}
+                        </span>
+                    </td>
+                    <!-- Columna 4: Tiempo transcurrido y Auditoría -->
+                    <td class="py-3 px-4 text-right">
+                        <div class="flex items-center justify-end gap-2">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                                <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+                                ${elapsedStr}
+                            </span>
+                            <div class="relative inline-block" data-issue-btn-id="${i.id}">
+                                <button onclick="window.openFeedbackModal('${i.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg border border-outline-variant/10 transition-all active:scale-95 shadow-sm" title="Ver comentarios / Auditoría">
+                                    <span class="material-symbols-outlined text-[16px]">history_edu</span>
+                                </button>
+                                ${getCommentBadgeHtml(i.id, true)}
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+            } else {
+                const o = entry.item;
+                const finishedTime = o.end_at || o.updated_at;
+                const timeStr = formatTime(finishedTime);
+                const elapsedStr = getElapsedTime(finishedTime);
+                const clientName = o.client || 'Orden';
+                const idStr = o.id;
+
+                return `
+                <tr class="hover:bg-surface-container-low/30 transition-colors">
+                    <!-- Columna 1: Reporte / Orden -->
+                    <td class="py-3 px-4">
+                        <div class="flex items-center gap-2">
+                            <span class="bg-surface-container text-on-surface-variant font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-outline-variant/10">
+                                #${idStr} (${o.typeLabel})
+                            </span>
+                            <span class="text-sm font-bold text-on-surface truncate max-w-[240px]" title="${clientName}">
+                                ${clientName}
+                            </span>
+                        </div>
+                    </td>
+                    <!-- Columna 2: Técnico -->
+                    <td class="py-3 px-4">
+                        <div class="flex items-center gap-2">
+                            <div class="w-6 h-6 rounded-full bg-secondary/10 flex items-center justify-center text-secondary font-black text-[10px]">
+                                ${o.techName === 'Sin asignar' ? 'SA' : o.techName.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()}
+                            </div>
+                            <span class="text-xs font-bold text-on-surface-variant">
+                                ${o.techName}
+                            </span>
+                        </div>
+                    </td>
+                    <!-- Columna 3: Hora finalizado -->
+                    <td class="py-3 px-4 text-right">
+                        <span class="text-xs font-bold text-on-surface-variant">
+                            ${timeStr}
+                        </span>
+                    </td>
+                    <!-- Columna 4: Tiempo transcurrido y Auditoría -->
+                    <td class="py-3 px-4 text-right">
+                        <div class="flex items-center justify-end gap-2">
+                            <span class="inline-flex items-center gap-1 text-[11px] font-black text-emerald-600 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-950/30 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/50">
+                                <span class="material-symbols-outlined text-[10px]" style="font-variation-settings: 'FILL' 1;">schedule</span>
+                                ${elapsedStr}
+                            </span>
+                            <div class="relative inline-block" data-order-btn-id="${o.rawId || o.id}">
+                                <button onclick="window.openFeedbackModal('${o.rawId || o.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg border border-outline-variant/10 transition-all active:scale-95 shadow-sm" title="Ver comentarios / Auditoría">
+                                    <span class="material-symbols-outlined text-[16px]">history_edu</span>
+                                </button>
+                                ${getCommentBadgeHtml(o.rawId || o.id, false)}
+                            </div>
+                        </div>
+                    </td>
+                </tr>`;
+            }
+        }).join('');
+
+        return `
+        <div class="mt-8 p-6 bg-surface-container-low/30 border border-outline-variant/10 rounded-[2rem] shadow-md space-y-4">
+            <div class="flex items-center gap-3 mb-2">
+                <span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                <h3 class="text-xs font-black text-on-surface uppercase tracking-widest">${titleText} (${coll.length})</h3>
+            </div>
+            <div class="overflow-x-auto w-full rounded-2xl border border-outline-variant/10 bg-surface-container-lowest/60">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="border-b border-outline-variant/10 bg-surface-container-low/50">
+                            <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Reporte / Orden</th>
+                            <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Técnico</th>
+                            <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Finalizado</th>
+                            <th class="py-3 px-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-right">Tiempo / Comentarios</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-outline-variant/5">
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    };
+
+    // Finished List Data
+    const tStr = new Date().toLocaleDateString('en-CA');
+    const fiToday = (state.finishedIssues || []).filter(i => (i.updated_at || '').slice(0,10) === tStr);
+    const foToday = (state.finishedOrders || []).filter(o => o.kind !== 'technical' && ((o.end_at || o.updated_at || '').slice(0,10) === tStr));
+
+    // Filter finished issues and orders by search text
+    let activeFinishedIssues = fiToday;
+    let activeFinishedOrders = foToday;
+
+    if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        
+        activeFinishedIssues = activeFinishedIssues.filter(issue => {
+            const client = state.clients[issue.client_id] || {};
+            const title = issue.title || issue.description || '';
+            const zm = title.match(/\(([^)]+)\)/);
+            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            const clientName = (state.clients[issue.client_id]?.name || issue.title || '').toLowerCase();
+            const descriptionText = title.toLowerCase();
+            const techNameLower = (state.techs[issue.assignable_id] || 'Sin asignar').toLowerCase();
+            const addressText = (client.address || '').toLowerCase();
+            const idStr = String(issue.public_id || issue.id);
+
+            return zoneName.toLowerCase().includes(q) ||
+                   clientName.includes(q) ||
+                   descriptionText.includes(q) ||
+                   techNameLower.includes(q) ||
+                   addressText.includes(q) ||
+                   idStr.includes(q);
+        });
+
+        activeFinishedOrders = activeFinishedOrders.filter(o => {
+            const zoneName = (o.zone || 'Sin zona').toLowerCase();
+            const clientName = (o.client || '').toLowerCase();
+            const techNameLower = (o.techName || 'Sin asignar').toLowerCase();
+            const addressText = (o.address || '').toLowerCase();
+            const idStr = String(o.id);
+            
+            return zoneName.includes(q) ||
+                   clientName.includes(q) ||
+                   techNameLower.includes(q) ||
+                   addressText.includes(q) ||
+                   idStr.includes(q);
+        });
+    }
+
+    const allFinished = [];
+    activeFinishedIssues.forEach(i => {
+        allFinished.push({
+            type: 'issue',
+            item: i,
+            time: new Date(i.closed_at || i.finalized_at || i.updated_at)
+        });
+    });
+    activeFinishedOrders.forEach(o => {
+        allFinished.push({
+            type: 'order',
+            item: o,
+            time: new Date(o.end_at || o.updated_at)
+        });
+    });
+    allFinished.sort((a, b) => b.time - a.time);
+
+    let finishedSectionHtml = '';
+    if (date === 'all' || date === 'hoy') {
+        finishedSectionHtml = renderFinishedList(allFinished, 'Tareas Finalizadas (Hoy)');
+    }
+
+    return `<div>
+        <div class="flex items-center justify-between mb-4">
+            <div>
+                <h2 class="text-2xl font-extrabold text-on-surface">Prueba Unificada (Mesa de Ayuda + Órdenes)</h2>
+                <p class="text-sm text-on-surface-variant mt-1">Reportes y órdenes activos agrupados por técnico</p>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:5px;">
+                    <span style="width:7px;height:7px;background:#f97316;border-radius:50%;display:inline-block;"></span>
+                    <span style="font-size:14px;font-weight:700;color:#c2410c;">Pendientes ${totalActiveTasks}</span>
+                </div>
+                <button onclick="window.sendReportWA('${globalWaText}')"
+                    style="display:flex;align-items:center;gap:5px;padding:8px 14px;background:#25D366;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                    Resumen Global
+                </button>
+                <button onclick="window.refreshPrueba()" style="width:34px;height:34px;border:1px solid #e5e7eb;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                    <span class="material-symbols-outlined inline-block ${state.isSyncing ? 'animate-spin' : ''}" style="font-size:17px;color:#6b7280;">sync</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="relative group mb-4 max-w-md">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+            <input type="text" 
+                id="prueba-search-input"
+                placeholder="Buscar por zona, cliente, técnico, ID... (Enter)" 
+                value="${search || ''}"
+                onkeydown="if(event.key === 'Enter') { window.setPruebaSearch(this.value); }"
+                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+            >
+            ${search ? `
+                <button onclick="window.setPruebaSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            ` : ''}
+        </div>
+
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
+        ${totalActiveTasks === 0
+            ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin tareas pendientes</p></div>`
+            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;">${techCards}</div>`
+        }
+
+        ${finishedSectionHtml}
+    </div>`;
+};
+
+window.refreshPrueba = async function() {
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Actualizando datos...');
+    const icons = document.querySelectorAll('.material-symbols-outlined');
+    icons.forEach(i => {
+        if (i.textContent.trim() === 'sync') i.classList.add('animate-spin');
+    });
+
+    try {
+        await Promise.allSettled([
+            loadTodayOrders(true),
+            loadIssues(true)
+        ]);
+        if (typeof renderTab === 'function') renderTab('prueba');
+    } catch(e) { console.error(e); }
+    
+    icons.forEach(i => i.classList.remove('animate-spin'));
+    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+};
+
+window.setPruebaFilter = function(key, value) {
+    state.pruebaFilter[key] = value;
+    renderTab('prueba');
+};
+
+window.setPruebaSearch = function(q) {
+    state.pruebaFilter.search = q;
+    renderTab('prueba');
+};
+
 // ── NAPs TRACKER ──────────────────────────────────────────────────────────
 Views.naps = () => {
     let list = [...state.trackedNaps];
@@ -3155,8 +3982,8 @@ window.syncNow = async function() {
             loadIssues(true, 1),
             serverSync()
         ];
-        if (state.tab === 'reports') {
-            promises[1] = loadIssues(true); // Carga completa de reportes si el usuario está en la pestaña de reportes
+        if (state.tab === 'reports' || state.tab === 'prueba') {
+            promises[1] = loadIssues(true); // Carga completa de reportes si el usuario está en la pestaña de reportes o prueba
         }
         await Promise.allSettled(promises);
         state.lastSync = Date.now();
@@ -3399,19 +4226,34 @@ window.closeTechModal = function() {
 };
 
 // Modal NAP
-window.openNapModal = function(orderId) {
-    const order = state.orders.find(o => String(o.id) === String(orderId));
-    if (!order) return;
+window.openNapModal = function(id, isIssue = false) {
+    let title = '';
+    let subtitle = '';
+    let existing = {};
 
-    const existing = state.napOverrides[orderId] || {};
+    if (isIssue) {
+        const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+        const issue = allIssues.find(i => String(i.id) === String(id));
+        if (!issue) return;
+        title = `Asignar NAP — Reporte #${issue.public_id || issue.id}`;
+        subtitle = state.clients[issue.client_id]?.name || issue.title || '';
+        existing = state.napOverrides[id] || {};
+    } else {
+        const order = state.orders.find(o => String(o.id) === String(id));
+        if (!order) return;
+        title = `Asignar NAP — #${order.id}`;
+        subtitle = order.client;
+        existing = state.napOverrides[id] || {};
+    }
+
     const html = `
     <div id="nap-modal" class="fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)document.getElementById('nap-modal').remove()">
         <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 space-y-4">
             <div class="flex justify-between items-center">
-                <h3 class="font-black text-gray-900 text-lg">Asignar NAP — #${order.id}</h3>
+                <h3 class="font-black text-gray-900 text-lg">${title}</h3>
                 <button onclick="document.getElementById('nap-modal').remove()" class="text-gray-400 hover:text-gray-600"><span class="material-symbols-outlined">close</span></button>
             </div>
-            <p class="text-sm text-gray-500">${order.client}</p>
+            <p class="text-sm text-gray-500">${subtitle}</p>
             <div class="space-y-3">
                 <div>
                     <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Nombre NAP</label>
@@ -3438,7 +4280,7 @@ window.openNapModal = function(orderId) {
                     </div>
                 </div>
             </div>
-            <button onclick="window.saveNap('${orderId}')" class="w-full py-3 rounded-xl text-white font-bold text-sm active:scale-95 transition-transform" style="background:linear-gradient(135deg,#0059bb,#0070ea);">
+            <button onclick="window.saveNap('${id}', ${isIssue})" class="w-full py-3 rounded-xl text-white font-bold text-sm active:scale-95 transition-transform" style="background:linear-gradient(135deg,#0059bb,#0070ea);">
                 Confirmar NAP
             </button>
         </div>
@@ -3446,7 +4288,7 @@ window.openNapModal = function(orderId) {
     document.body.insertAdjacentHTML('beforeend', html);
 };
 
-window.saveNap = function(orderId) {
+window.saveNap = function(id, isIssue = false) {
     const nap       = document.getElementById('nap-name')?.value.trim();
     const port      = document.getElementById('nap-port')?.value.trim();
     const marquilla = document.getElementById('nap-marquilla')?.value.trim();
@@ -3455,13 +4297,20 @@ window.saveNap = function(orderId) {
 
     if (!nap) { alert('El nombre de la NAP es obligatorio'); return; }
 
-    state.napOverrides[orderId] = { nap, port, marquilla, lat, lng };
+    state.napOverrides[id] = { nap, port, marquilla, lat, lng };
 
-    // Actualizar en state.orders
-    const order = state.orders.find(o => String(o.id) === String(orderId));
-    if (order) { order.nap = nap; order.marquilla = marquilla; }
+    if (isIssue) {
+        const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+        const issue = allIssues.find(i => String(i.id) === String(id));
+        if (issue) {
+            issue.nap = nap;
+            issue.marquilla = marquilla;
+        }
+    } else {
+        const order = state.orders.find(o => String(o.id) === String(id));
+        if (order) { order.nap = nap; order.marquilla = marquilla; }
+    }
 
-    // Persistir
     cacheSet('orders', { orders: state.orders, napOverrides: state.napOverrides }, CFG.cacheTTL.orders);
 
     document.getElementById('nap-modal')?.remove();
@@ -4554,7 +5403,9 @@ window.renderAuditComments = function() {
 window.loadLastCommentsForPlaceholders = async function() {
     const orderElements = document.querySelectorAll('[data-last-comment-order-id]');
     const issueElements = document.querySelectorAll('[data-last-comment-issue-id]');
-    console.log(`[Velocity Audit] loadLastCommentsForPlaceholders local. Órdenes: ${orderElements.length}, Issues: ${issueElements.length}`);
+    const orderBtnElements = document.querySelectorAll('[data-order-btn-id]');
+    const issueBtnElements = document.querySelectorAll('[data-issue-btn-id]');
+    console.log(`[Velocity Audit] loadLastCommentsForPlaceholders local. Órdenes: ${orderElements.length}, Issues: ${issueElements.length}, OrderBtns: ${orderBtnElements.length}, IssueBtns: ${issueBtnElements.length}`);
     
     // Función auxiliar para obtener feedbacks de Wispro de manera asíncrona y con caché simple
     const fetchFeedbacks = async (id, isIssue = false) => {
@@ -4727,6 +5578,68 @@ window.loadLastCommentsForPlaceholders = async function() {
             } else {
                 el.innerHTML = `<span class="material-symbols-outlined text-[12px] opacity-40">chat_bubble</span><span class="text-on-surface-variant/40">Error al cargar notas</span>`;
             }
+        }
+    });
+
+    orderBtnElements.forEach(async (el) => {
+        const id = el.getAttribute('data-order-btn-id');
+        if (!id) return;
+        try {
+            const feedbacks = await fetchFeedbacks(id, false);
+            const count = feedbacks ? feedbacks.length : 0;
+            let badgeEl = el.querySelector('.comment-badge');
+            if (count > 0) {
+                if (!badgeEl) {
+                    badgeEl = document.createElement('div');
+                    badgeEl.className = 'comment-badge absolute -top-1.5 -right-1.5 bg-secondary text-white text-[8px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[14px] text-center';
+                    el.appendChild(badgeEl);
+                }
+                badgeEl.textContent = count;
+            } else if (badgeEl) {
+                badgeEl.remove();
+            }
+        } catch (err) {
+            console.error('Error loading feedbacks for order button', id, err);
+        }
+    });
+
+    issueBtnElements.forEach(async (el) => {
+        const id = el.getAttribute('data-issue-btn-id');
+        if (!id) return;
+        try {
+            let feedbacks = await fetchFeedbacks(id, true);
+            if (!feedbacks || feedbacks.length === 0) {
+                const allIssues = [...(state.issues || []), ...(state.finishedIssues || [])];
+                const issue = allIssues.find(i => String(i.id) === String(id));
+                if (issue) {
+                    const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+                    const matchingOrder = allOrders.find(o => {
+                        const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                        if (oClientId && issue.client_id && String(oClientId) === String(issue.client_id)) return true;
+                        const orderClientName = (o.client || '').toLowerCase().trim();
+                        const issueClientName = ((state.clients && state.clients[issue.client_id]?.name) || issue.title || '').toLowerCase().trim();
+                        if (orderClientName && issueClientName && orderClientName === issueClientName) return true;
+                        return false;
+                    });
+                    if (matchingOrder) {
+                        feedbacks = await fetchFeedbacks(matchingOrder.rawId || matchingOrder.id, false);
+                    }
+                }
+            }
+            const count = feedbacks ? feedbacks.length : 0;
+            let badgeEl = el.querySelector('.comment-badge');
+            if (count > 0) {
+                if (!badgeEl) {
+                    badgeEl = document.createElement('div');
+                    badgeEl.className = 'comment-badge absolute -top-1.5 -right-1.5 bg-secondary text-white text-[8px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[14px] text-center';
+                    el.appendChild(badgeEl);
+                }
+                badgeEl.textContent = count;
+            } else if (badgeEl) {
+                badgeEl.remove();
+            }
+        } catch (err) {
+            console.error('Error loading feedbacks for issue button', id, err);
         }
     });
 };

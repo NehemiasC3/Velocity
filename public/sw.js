@@ -1,4 +1,4 @@
-const CACHE_NAME = 'velocity-v3.1.2.2';
+const CACHE_NAME = 'velocity-v3.2.0';
 const ASSETS = [
   'index.html',
   'manifest.json',
@@ -8,12 +8,18 @@ const ASSETS = [
   'pages/login.html',
   'pages/supervisor.html',
   'pages/technician.html',
-  'src/css/hamster.css',
   'src/js/config.js',
   'src/js/components/smart_assistant.js',
   'src/js/core/state.js',
   'src/js/core/api.js',
   'src/js/core/ui.js',
+  'src/js/views/dashboard.js',
+  'src/js/views/office.js',
+  'src/js/views/orders.js',
+  'src/js/views/technicians.js',
+  'src/js/views/naps.js',
+  'src/js/views/users.js',
+  'src/js/views/settings.js',
   'src/js/supervisor.js',
   'src/js/technician.js',
   'https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap',

@@ -315,6 +315,15 @@ app.post('/api/test-report-email', validateToken, async (req, res) => {
 // ── REPORTES DIARIOS AUTOMÁTICOS POR CORREO ─────────────────────────────
 let lastReportDay = '';
 
+function extractNapNumber(val) {
+    if (val === null || val === undefined) return -Infinity;
+    if (typeof val === 'number') return val;
+    const cleanStr = String(val).trim();
+    if (!cleanStr) return -Infinity;
+    const match = cleanStr.match(/-?\d+(\.\d+)?/);
+    return match ? parseFloat(match[0]) : -Infinity;
+}
+
 async function sendDailyReportEmail() {
     const db = getDB();
     const url = db.settings?.googleSheetUrl;
@@ -331,12 +340,26 @@ async function sendDailyReportEmail() {
 
     console.log(`[Velocity Reports] Preparando reporte diario para enviar a: ${recipient}...`);
 
+    const criticalNaps = (db.trackedNaps || [])
+        .filter(n => {
+            const val = extractNapNumber(n.levels);
+            return val !== -Infinity && val <= -23;
+        })
+        .map(n => ({
+            name: n.name || '—',
+            zone: n.zone || '—',
+            techName: n.techName || '—',
+            levels: n.levels || '—',
+            resolved: n.resolved ? 'Resuelto' : 'Abierto'
+        }));
+
     const payload = {
         action: 'send_daily_report',
         recipientEmail: recipient,
         date: new Date().toLocaleDateString('es-ES'),
         totalTrackedNaps: db.trackedNaps?.length || 0,
-        pendingNapsCount: db.trackedNaps?.filter(n => !n.resolved)?.length || 0
+        pendingNapsCount: db.trackedNaps?.filter(n => !n.resolved)?.length || 0,
+        criticalNaps: criticalNaps
     };
 
     try {

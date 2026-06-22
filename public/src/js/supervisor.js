@@ -27,7 +27,7 @@ window.updateNapsBadge = function() {
 };
 
 window.updateReportsBadge = function() {
-    const badge = document.getElementById('reports-badge');
+    const badge = document.getElementById('office-badge');
     if (!badge) return;
     
     let count = 0;
@@ -1700,8 +1700,8 @@ Views.prueba = () => {
         return count > 0 ? `<div class="comment-badge absolute -top-1.5 -right-1.5 bg-secondary text-white text-[8px] font-black px-1 py-0.5 rounded-full border border-surface-container-lowest shadow-sm min-w-[14px] text-center">${count}</div>` : '';
     };
 
-    // 1. Filtrar Activas
-    let activeIssues = state.issues.filter(issue => {
+    // Helper function to check if an issue passes the given date filter
+    const passIssueFilter = (issue, dateFilter) => {
         let techName = state.techs[issue.assignable_id];
         if (!techName && issue.assignable_id) {
             const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
@@ -1712,24 +1712,9 @@ Views.prueba = () => {
         }
         if (!techName) techName = 'Sin asignar';
 
-        if (date === 'sin_asignar') {
+        if (dateFilter === 'sin_asignar') {
             return techName === 'Sin asignar';
         }
-
-        // Si es "Todos" (all) o "Hoy" (hoy), mostramos los reportes pendientes/vencidos o sin fecha
-        const venc = issue.expires_at ? new Date(issue.expires_at) : null;
-        if (date === 'all' || date === 'hoy') {
-            if (techName === 'Sin asignar') return true;
-            const esActivo = TECNICOS_ACTIVOS.some(n =>
-                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-            );
-            if (!esActivo) return false;
-            // Incluir si no tiene fecha, si venció, o si vence hoy
-            if (!venc) return true;
-            venc.setHours(0,0,0,0);
-            return venc.getTime() <= today.getTime();
-        }
-
         if (techName === 'Sin asignar') return false;
 
         const esActivo = TECNICOS_ACTIVOS.some(n =>
@@ -1737,38 +1722,30 @@ Views.prueba = () => {
         );
         if (!esActivo) return false;
 
-        if (!venc) return date === 'sin_fecha';
-        if (date === 'sin_fecha') return false;
-        venc.setHours(0,0,0,0);
-        if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
-        if (date === 'vencido' && venc >= today)                         return false;
+        const issueDateStr = issue.expires_at ? new Date(issue.expires_at).toLocaleDateString('en-CA') : '';
+        if (!issueDateStr) return false;
 
-        return true;
-    });
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toLocaleDateString('en-CA');
 
-    let activeOrders = state.orders.filter(o => {
-        // EN PRUEBA SOLO CONSIDERAR INSTALACIONES
+        const isToday = issueDateStr === todayStr;
+        const isTomorrow = issueDateStr === tomorrowStr;
+
+        if (!isToday && !isTomorrow) return false; // Excluye vencidos u otras fechas
+
+        if (dateFilter === 'all') return true;
+        if (dateFilter === 'hoy') return isToday;
+        if (dateFilter === 'manana') return isTomorrow;
+
+        return false;
+    };
+
+    // Helper function to check if an order passes the given date filter
+    const passOrderFilter = (o, dateFilter) => {
         if (o.kind !== 'installation') return false;
 
-        const sched = o.start_at ? new Date(o.start_at) : null;
         const techName = o.techName || 'Sin asignar';
-
-        if (date === 'sin_asignar') {
-            return techName === 'Sin asignar';
-        }
-
-        // Para "Todos" (all) o "Hoy" (hoy), solo mostrar instalaciones de hoy
-        if (date === 'all' || date === 'hoy') {
-            if (techName === 'Sin asignar') return true;
-            const esActivo = TECNICOS_ACTIVOS.some(n =>
-                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-            );
-            if (!esActivo) return false;
-            if (!sched) return false;
-            sched.setHours(0,0,0,0);
-            return sched.getTime() === today.getTime();
-        }
-
         if (techName === 'Sin asignar') return false;
 
         const esActivo = TECNICOS_ACTIVOS.some(n =>
@@ -1776,14 +1753,28 @@ Views.prueba = () => {
         );
         if (!esActivo) return false;
 
-        if (!sched) return date === 'sin_fecha';
-        if (date === 'sin_fecha') return false;
-        sched.setHours(0,0,0,0);
-        if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
-        if (date === 'vencido') return false;
+        const orderDateStr = o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '';
+        if (!orderDateStr) return false;
 
-        return true;
-    });
+        const todayStr = new Date().toLocaleDateString('en-CA');
+        const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+        const tomorrowStr = tomorrowDate.toLocaleDateString('en-CA');
+
+        const isToday = orderDateStr === todayStr;
+        const isTomorrow = orderDateStr === tomorrowStr;
+
+        if (!isToday && !isTomorrow) return false; // Excluye instalaciones vencidas o de otras fechas
+
+        if (dateFilter === 'all') return true;
+        if (dateFilter === 'hoy') return isToday;
+        if (dateFilter === 'manana') return isTomorrow;
+
+        return false;
+    };
+
+    // 1. Filtrar Activas
+    let activeIssues = state.issues.filter(issue => passIssueFilter(issue, date));
+    let activeOrders = state.orders.filter(o => passOrderFilter(o, date));
 
     // Calcular totales globales del tipo ANTES de aplicar el filtro de tipo
     const totalIssuesCount = activeIssues.length;
@@ -1938,83 +1929,22 @@ Views.prueba = () => {
 
     // Calculate filter button counts precisely, respecting the active type filter
     const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
-    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const checkIssues = activeType === 'all' || activeType === 'issues';
+    const checkOrders = activeType === 'all' || activeType === 'orders';
+    const filterKeys = ['all', 'hoy', 'manana', 'vencido', 'sin_fecha', 'sin_asignar'];
 
-    // Issues count calculation
-    if (activeType === 'all' || activeType === 'issues') {
+    if (checkIssues) {
         state.issues.forEach(i => {
-            let tName = state.techs[i.assignable_id];
-            if (!tName && i.assignable_id) {
-                const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
-                tName = f?.name;
-            }
-            if (!tName) tName = 'Sin asignar';
-
-            if (tName === 'Sin asignar') {
-                counts.sin_asignar++;
-                counts.all++;
-                counts.hoy++; // Unassigned count towards today/all
-                return;
-            }
-
-            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-            if (!esAct) return;
-
-            counts.all++;
-            const venc = i.expires_at ? new Date(i.expires_at) : null;
-            if (!venc) {
-                counts.sin_fecha++;
-                counts.hoy++; // No date is active today
-                return;
-            }
-            
-            venc.setHours(0,0,0,0);
-            const tTime = today.getTime();
-            const mTime = tomorrow.getTime();
-            const vTime = venc.getTime();
-            
-            if (vTime === tTime || vTime < tTime) counts.hoy++;
-            if (vTime === mTime) counts.manana++;
-            if (vTime < tTime) counts.vencido++;
+            filterKeys.forEach(k => {
+                if (passIssueFilter(i, k)) counts[k]++;
+            });
         });
     }
-
-    // Orders count calculation (only installation)
-    if (activeType === 'all' || activeType === 'orders') {
+    if (checkOrders) {
         state.orders.forEach(o => {
-            if (o.kind !== 'installation') return;
-
-            const sched = o.start_at ? new Date(o.start_at) : null;
-            if (!sched) return;
-            sched.setHours(0,0,0,0);
-
-            const tTime = today.getTime();
-            const mTime = tomorrow.getTime();
-            const sTime = sched.getTime();
-
-            // Only count if scheduled for today or tomorrow (ignore future/past for basic daily counts)
-            if (sTime !== tTime && sTime !== mTime) return;
-
-            const tName = o.techName || 'Sin asignar';
-            if (tName === 'Sin asignar') {
-                counts.sin_asignar++;
-                if (sTime === tTime) {
-                    counts.all++;
-                    counts.hoy++;
-                }
-                return;
-            }
-
-            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-            if (!esAct) return;
-
-            if (sTime === tTime) {
-                counts.all++;
-                counts.hoy++;
-            }
-            if (sTime === mTime) {
-                counts.manana++;
-            }
+            filterKeys.forEach(k => {
+                if (passOrderFilter(o, k)) counts[k]++;
+            });
         });
     }
 
@@ -2078,8 +2008,6 @@ Views.prueba = () => {
         {v:'all',l:'Todos',c:counts.all},
         {v:'hoy',l:'Hoy',c:counts.hoy},
         {v:'manana',l:'Mañana',c:counts.manana},
-        {v:'vencido',l:'Vencidos',c:counts.vencido},
-        {v:'sin_fecha',l:'Sin fecha',c:counts.sin_fecha},
         {v:'sin_asignar',l:'Sin asignar',c:counts.sin_asignar}
     ].map(f => {
         const active = date === f.v;
@@ -2685,8 +2613,7 @@ window.openPruebaMapModal = function() {
             return parseFloat(str);
         };
 
-        // 1. Filtrar Activas
-        let activeIssues = state.issues.filter(issue => {
+        const passIssueFilterLoc = (issue, dateFilter) => {
             let techName = state.techs[issue.assignable_id];
             if (!techName && issue.assignable_id) {
                 const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
@@ -2697,22 +2624,9 @@ window.openPruebaMapModal = function() {
             }
             if (!techName) techName = 'Sin asignar';
 
-            if (date === 'sin_asignar') {
+            if (dateFilter === 'sin_asignar') {
                 return techName === 'Sin asignar';
             }
-
-            const venc = issue.expires_at ? new Date(issue.expires_at) : null;
-            if (date === 'all' || date === 'hoy') {
-                if (techName === 'Sin asignar') return true;
-                const esActivo = TECNICOS_ACTIVOS.some(n =>
-                    techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-                );
-                if (!esActivo) return false;
-                if (!venc) return true;
-                venc.setHours(0,0,0,0);
-                return venc.getTime() <= today.getTime();
-            }
-
             if (techName === 'Sin asignar') return false;
 
             const esActivo = TECNICOS_ACTIVOS.some(n =>
@@ -2720,36 +2634,29 @@ window.openPruebaMapModal = function() {
             );
             if (!esActivo) return false;
 
-            if (!venc) return date === 'sin_fecha';
-            if (date === 'sin_fecha') return false;
-            venc.setHours(0,0,0,0);
-            if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
-            if (date === 'vencido' && venc >= today)                         return false;
+            const issueDateStr = issue.expires_at ? new Date(issue.expires_at).toLocaleDateString('en-CA') : '';
+            if (!issueDateStr) return false;
 
-            return true;
-        });
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const tomorrowStr = tomorrowDate.toLocaleDateString('en-CA');
 
-        let activeOrders = state.orders.filter(o => {
+            const isToday = issueDateStr === todayStr;
+            const isTomorrow = issueDateStr === tomorrowStr;
+
+            if (!isToday && !isTomorrow) return false; // Excluye vencidos u otras fechas
+
+            if (dateFilter === 'all') return true;
+            if (dateFilter === 'hoy') return isToday;
+            if (dateFilter === 'manana') return isTomorrow;
+
+            return false;
+        };
+
+        const passOrderFilterLoc = (o, dateFilter) => {
             if (o.kind !== 'installation') return false;
 
-            const sched = o.start_at ? new Date(o.start_at) : null;
             const techName = o.techName || 'Sin asignar';
-
-            if (date === 'sin_asignar') {
-                return techName === 'Sin asignar';
-            }
-
-            if (date === 'all' || date === 'hoy') {
-                if (techName === 'Sin asignar') return true;
-                const esActivo = TECNICOS_ACTIVOS.some(n =>
-                    techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-                );
-                if (!esActivo) return false;
-                if (!sched) return false;
-                sched.setHours(0,0,0,0);
-                return sched.getTime() === today.getTime();
-            }
-
             if (techName === 'Sin asignar') return false;
 
             const esActivo = TECNICOS_ACTIVOS.some(n =>
@@ -2757,14 +2664,28 @@ window.openPruebaMapModal = function() {
             );
             if (!esActivo) return false;
 
-            if (!sched) return date === 'sin_fecha';
-            if (date === 'sin_fecha') return false;
-            sched.setHours(0,0,0,0);
-            if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
-            if (date === 'vencido') return false;
+            const orderDateStr = o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '';
+            if (!orderDateStr) return false;
 
-            return true;
-        });
+            const todayStr = new Date().toLocaleDateString('en-CA');
+            const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+            const tomorrowStr = tomorrowDate.toLocaleDateString('en-CA');
+
+            const isToday = orderDateStr === todayStr;
+            const isTomorrow = orderDateStr === tomorrowStr;
+
+            if (!isToday && !isTomorrow) return false; // Excluye instalaciones vencidas o de otras fechas
+
+            if (dateFilter === 'all') return true;
+            if (dateFilter === 'hoy') return isToday;
+            if (dateFilter === 'manana') return isTomorrow;
+
+            return false;
+        };
+
+        // 1. Filtrar Activas
+        let activeIssues = state.issues.filter(issue => passIssueFilterLoc(issue, date));
+        let activeOrders = state.orders.filter(o => passOrderFilterLoc(o, date));
 
         const activeType = type || 'all';
         if (activeType === 'issues') {
@@ -4828,10 +4749,15 @@ Views.settings = () => {
         </div>
 
         <!-- Cerrar sesión -->
-        <div class="bg-error-container/20 border border-error/20 p-5 rounded-2xl">
+        <div class="bg-error-container/20 border border-error/20 p-5 rounded-2xl mb-4">
             <button onclick="window.logout()" class="text-error font-bold text-sm uppercase tracking-widest flex items-center justify-center w-full gap-2 active:scale-95">
                 <span class="material-symbols-outlined text-[18px]">logout</span> Cerrar Sesión
             </button>
+        </div>
+
+        <!-- Versión del Sistema -->
+        <div class="text-center py-4 opacity-40 text-xs font-semibold select-none">
+            Velocity Ecosistema v${CFG.version || '2.0.1-PRO-FIXED'}
         </div>
     </div>`;
 };
@@ -4844,17 +4770,17 @@ window.setOrderFilter = function(key, val) {
 
 window.setIssueFilter = function(key, val) {
     state.issueFilter[key] = val;
-    renderTab('reports');
+    renderTab('office');
 };
 
 window.setReportSearch = (value) => {
     state.issueFilter.search = value;
-    if (state.tab === 'reports') renderTab('reports');
+    if (state.tab === 'office') renderTab('office');
 };
 
 window.clearIssueFilters = function() {
     state.issueFilter = { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' };
-    renderTab('reports');
+    renderTab('office');
 };
 
 window.sendReportWA = function(encodedText) {
@@ -4910,8 +4836,8 @@ window.syncNow = async function() {
             loadIssues(true, 1),
             serverSync()
         ];
-        if (state.tab === 'reports' || state.tab === 'prueba') {
-            promises[1] = loadIssues(true); // Carga completa de reportes si el usuario está en la pestaña de reportes o prueba
+        if (state.tab === 'office' || state.tab === 'orders') {
+            promises[1] = loadIssues(true); // Carga completa de reportes si el usuario está en la pestaña de oficina u órdenes
         }
         await Promise.allSettled(promises);
         state.lastSync = Date.now();

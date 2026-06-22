@@ -1,6 +1,9 @@
 // Cargar configuración desde config.js
 const CFG = typeof VELOCITY_CONFIG !== 'undefined' ? VELOCITY_CONFIG : {};
 
+// Inicializar el objeto de vistas global
+window.Views = {};
+
 // ── PALETAS ───────────────────────────────────────────────────────────────
 const TECH_PALETTE = {
     'Luis David':         '#0059bb',
@@ -52,9 +55,8 @@ const state = {
     napOverrides: {},   // ticketId → {nap, marquilla, lat, lng}
     trackedNaps:  [],   // registro manual de NAPs
     napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all', search: '' },
-    orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
+    ordersFilter: { date: 'hoy', search: '', type: 'all' },
     issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' },
-    pruebaFilter: { date: 'all', search: '', type: 'all' },
     orderSearch:  '',
     orderSort:    { key: 'id', dev: 'desc' },
     isSyncing:    false,

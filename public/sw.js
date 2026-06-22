@@ -1,10 +1,16 @@
-const CACHE_NAME = 'velocity-v2';
+const CACHE_NAME = 'velocity-v3.1.2.2';
 const ASSETS = [
   'index.html',
+  'manifest.json',
+  'logo-velocity.svg',
+  'icon-192.png',
+  'icon-512.png',
   'pages/login.html',
   'pages/supervisor.html',
   'pages/technician.html',
+  'src/css/hamster.css',
   'src/js/config.js',
+  'src/js/components/smart_assistant.js',
   'src/js/core/state.js',
   'src/js/core/api.js',
   'src/js/core/ui.js',

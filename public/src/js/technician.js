@@ -129,7 +129,7 @@ function defaultInventory() {
 
 async function loadMyOrders() {
     try {
-
+        const todayStr = new Date().toLocaleDateString('en-CA');
         const d = await tFetch('/order/orders?per_page=1000&q%5Bs%5D=start_at+desc');
 
         // Buscar el employee_id del técnico en Wispro
@@ -143,11 +143,12 @@ async function loadMyOrders() {
         });
 
         const myEmployee = employees.find(e =>
-            e.name?.toLowerCase().includes(techState.profile.name.split(' ')[0].toLowerCase()) ||
-            e.email?.toLowerCase() === techState.profile.email?.toLowerCase()
+            (techState.profile.wisproId && String(e.id) === String(techState.profile.wisproId)) ||
+            (techState.profile.email && e.email?.toLowerCase() === techState.profile.email?.toLowerCase()) ||
+            e.name?.toLowerCase().includes(techState.profile.name.split(' ')[0].toLowerCase())
         );
 
-        const myEmpId = myEmployee?.id;
+        const myEmpId = techState.profile.wisproId || myEmployee?.id;
 
         // Filtrar órdenes del día asignadas a este técnico
         const myOrders = (d.data || []).filter(o => {
@@ -799,7 +800,7 @@ window.openFeedbackModal = async function(id) {
     document.getElementById(modalId)?.remove();
 
     const html = `
-    <div id="${modalId}" class="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div class="w-full max-w-xl max-h-[85vh] rounded-[2.25rem] shadow-[0_32px_80px_rgba(0,0,0,0.45)] flex flex-col overflow-hidden border animate-in zoom-in-95 slide-in-from-bottom-4 duration-300" style="background-color: var(--surface-container-lowest); border-color: var(--outline-variant);">
             <!-- Header -->
             <div class="p-6 flex items-center justify-between border-b backdrop-blur-md" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
@@ -969,9 +970,7 @@ window.loadFeedbacks = async function(target) {
                     </div>
                     
                     <!-- Card Body -->
-                    <p class="text-[13px] leading-relaxed font-normal tracking-wide whitespace-pre-wrap break-words select-text" style="color: var(--on-surface-variant);">
-                        ${f.body || f.comment || '—'}
-                    </p>
+                    <p class="text-[13px] leading-relaxed font-normal tracking-wide whitespace-pre-wrap break-words select-text" style="color: var(--on-surface-variant);">${f.body || f.comment || '—'}</p>
                 </div>
             </div>`;
         }).join('');

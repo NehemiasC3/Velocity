@@ -313,12 +313,14 @@ const Views = {};
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 Views.dashboard = () => {
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayActiveOrders = state.orders.filter(o => (o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '') === todayStr);
     const fToday = state.finishedOrders || [];
-    const allTodayOrders = [...state.orders, ...fToday];
+    const allTodayOrders = [...todayActiveOrders, ...fToday];
     const total       = allTodayOrders.length;
     const done        = fToday.length;
-    const pending     = state.orders.length;
-    const noNap       = state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
+    const pending     = todayActiveOrders.length;
+    const noNap       = todayActiveOrders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
     
     const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     // Función para validar que la orden se inició hoy
@@ -472,15 +474,17 @@ Views.dashboard = () => {
 // ── ÓRDENES ───────────────────────────────────────────────────────────────
 Views.orders = () => {
     const { type, tech, zone } = state.orderFilter;
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayActiveOrders = state.orders.filter(o => (o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '') === todayStr);
     
     // state.finishedOrders ya viene filtrado por el día de hoy desde loadTodayOrders
     const fToday = state.finishedOrders || [];
-    const allTodayOrders = [...state.orders, ...fToday];
+    const allTodayOrders = [...todayActiveOrders, ...fToday];
 
     // 1. Filtrar Activas
     let filteredActive = type === 'no_nap'
-        ? state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
-        : type === 'all' ? [...state.orders] : state.orders.filter(o => o.kind === type);
+        ? todayActiveOrders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap)
+        : type === 'all' ? [...todayActiveOrders] : todayActiveOrders.filter(o => o.kind === type);
 
     if (tech !== 'all') filteredActive = filteredActive.filter(o => o.techName?.toLowerCase().includes(tech.split(' ')[0].toLowerCase()));
     if (zone !== 'all') filteredActive = filteredActive.filter(o => o.zone === zone);
@@ -529,7 +533,7 @@ Views.orders = () => {
     // KPI Calculations
     const totalDay = allTodayOrders.length;
     const completionRate = totalDay > 0 ? Math.round((fToday.length / totalDay) * 100) : 0;
-    const criticalNoNap = state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
+    const criticalNoNap = todayActiveOrders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length;
     
     // Time computation (Solo exitosas con tiempos válidos)
     const timed = fToday.filter(o => o.rawStart && o.rawEnd && o.result === 'success');
@@ -546,12 +550,12 @@ Views.orders = () => {
 
     // Tabs / Pills Logic
     const counts = {
-        all:          state.orders.length,
-        technical:    state.orders.filter(o => o.kind === 'technical').length,
-        installation: state.orders.filter(o => o.kind === 'installation').length,
-        feasibility:  state.orders.filter(o => o.kind === 'feasibility').length,
-        resignation:  state.orders.filter(o => o.kind === 'resignation').length,
-        no_nap:       state.orders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length,
+        all:          todayActiveOrders.length,
+        technical:    todayActiveOrders.filter(o => o.kind === 'technical').length,
+        installation: todayActiveOrders.filter(o => o.kind === 'installation').length,
+        feasibility:  todayActiveOrders.filter(o => o.kind === 'feasibility').length,
+        resignation:  todayActiveOrders.filter(o => o.kind === 'resignation').length,
+        no_nap:       todayActiveOrders.filter(o => (o.kind === 'technical' || o.kind === 'installation') && !o.nap).length,
         finished:     fToday.length
     };
 
@@ -881,10 +885,12 @@ Views.orders = () => {
 
 // ── TÉCNICOS ──────────────────────────────────────────────────────────────
 Views.technicians = () => {
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayActiveOrders = state.orders.filter(o => (o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '') === todayStr);
     const cards = TECNICOS_ACTIVOS.map(nombre => {
         const color     = TECH_PALETTE[nombre];
         const initials  = techInitials(nombre);
-        const myOrders  = state.orders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+        const myOrders  = todayActiveOrders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
         const done      = myOrders.filter(o => o.result === 'success').length;
         const pending   = myOrders.filter(o => o.state === 'pending').length;
         const pct       = myOrders.length > 0 ? Math.round(done / myOrders.length * 100) : 0;
@@ -978,9 +984,11 @@ window.initTechsMap = function() {
     }).addTo(techsMapInstance);
 
     const bounds = [];
+    const todayStr = new Date().toLocaleDateString('en-CA');
+    const todayActiveOrders = state.orders.filter(o => (o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '') === todayStr);
     
     TECNICOS_ACTIVOS.forEach(nombre => {
-        const myOrders = state.orders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+        const myOrders = todayActiveOrders.filter(o => o.techName?.toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
         if (myOrders.length === 0) return;
         
         // Determinar ubicación: Si está 'in_course', usar esa. Si no, usar la próxima 'pending'.
@@ -1050,8 +1058,68 @@ Views.reports = () => {
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
     const nextWeek = new Date(today); nextWeek.setDate(nextWeek.getDate()+7);
 
-    // Filtrar por fecha o estado de asignación
-    let allIssues = state.issues.filter(issue => {
+    // 1. Aplicar Búsqueda Inteligente primero
+    let searchFilteredIssues = [...state.issues];
+    if (search && search.trim()) {
+        const q = search.toLowerCase().trim();
+        searchFilteredIssues = searchFilteredIssues.filter(issue => {
+            const client = state.clients[issue.client_id] || {};
+            const title = issue.title || issue.description || '';
+            const zm = title.match(/\(([^)]+)\)/);
+            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+            const clientName = (state.clients[issue.client_id]?.name || issue.title || '').toLowerCase();
+            const descriptionText = title.toLowerCase();
+            
+            let techName = state.techs[issue.assignable_id] || '';
+            if (!techName && issue.assignable_id) {
+                const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+                const found = (db.technicians || []).find(t => String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id));
+                techName = found?.name || '';
+            }
+            const techNameLower = (techName || 'Sin asignar').toLowerCase();
+            const addressText = (client.address || '').toLowerCase();
+            const idStr = String(issue.public_id || issue.id);
+
+            return zoneName.toLowerCase().includes(q) ||
+                   clientName.includes(q) ||
+                   descriptionText.includes(q) ||
+                   techNameLower.includes(q) ||
+                   addressText.includes(q) ||
+                   idStr.includes(q);
+        });
+    }
+
+    // 2. Calcular los contadores basándose en la lista filtrada por búsqueda
+    const counts = { all: 0, hoy: 0, manana: 0, semana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    
+    searchFilteredIssues.forEach(i => {
+        if (!i.assignable_id) { counts.sin_asignar++; counts.all++; return; }
+        
+        let tName = state.techs[i.assignable_id];
+        if (!tName) {
+            const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
+            tName = f?.name;
+        }
+        const esAct = tName && TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+        if (!esAct) return;
+
+        counts.all++;
+        const venc = i.expires_at ? new Date(i.expires_at) : null;
+        if (!venc) { counts.sin_fecha++; return; }
+        
+        venc.setHours(0,0,0,0);
+        const tTime = today.getTime();
+        const mTime = tomorrow.getTime();
+        const vTime = venc.getTime();
+        
+        if (vTime === tTime) counts.hoy++;
+        if (vTime === mTime) counts.manana++;
+        if (venc < today) counts.vencido++;
+    });
+
+    // 3. Filtrar por fecha o estado de asignación sobre la lista filtrada por búsqueda
+    let allIssues = searchFilteredIssues.filter(issue => {
         if (date === 'sin_asignar') {
             return !issue.assignable_id;
         }
@@ -1094,18 +1162,6 @@ Views.reports = () => {
         }
         return true;
     });
-
-    // Filtrar por búsqueda de ubicación (zona) si se especifica
-    if (search && search.trim()) {
-        const q = search.toLowerCase().trim();
-        allIssues = allIssues.filter(issue => {
-            const client = state.clients[issue.client_id] || {};
-            const title = issue.title || issue.description || '';
-            const zm = title.match(/\(([^)]+)\)/);
-            const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
-            return zone.toLowerCase().includes(q);
-        });
-    }
 
     // Agrupar por tecnico — usar assignable_id que es el "Asignado a" de Mesa de Ayuda
     const byTech = {};
@@ -1151,74 +1207,62 @@ Views.reports = () => {
             byZone[zone].push(issue);
         });
 
-        const zoneRows = Object.entries(byZone).map(([zone, zIssues]) =>
-            `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6;">
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span class="material-symbols-outlined" style="font-size:13px;color:#9ca3af;">location_on</span>
-                    <span style="font-size:14px;font-weight:600;color:#374151;">${zone}</span>
-                </div>
-                <span style="font-size:13px;font-weight:800;color:${color};background:${color}15;padding:2px 10px;border-radius:999px;">${zIssues.length}</span>
-            </div>`
-        ).join('');
+        const zoneRows = Object.entries(byZone).map(([zone, zIssues]) => {
+            const zoneSafeId = `${techName.replace(/\s+/g,'-')}-${zone.replace(/\s+/g,'-')}`.toLowerCase().replace(/[^a-z0-9-]/g,'');
 
-        // Texto WhatsApp
-        let waText = '';
-        if (techName !== 'Sin asignar') {
-            const waLines = [`*Reportes Pendientes — ${techName}*`,
-                `Fecha: ${new Date().toLocaleDateString('es-PA',{weekday:'long',day:'numeric',month:'long'})}`, ''];
-            Object.entries(byZone).forEach(([zone, zIssues]) => {
-                waLines.push(`*${zone}* (${zIssues.length})`);
-                zIssues.forEach(i => {
-                    const c   = state.clients[i.client_id] || {};
-                    const cat = state.categories[i.category_id] || '';
-                    const t   = (i.title||i.description||'').replace(/\s*\([^)]*\)\s*/g,'').trim();
-                    waLines.push(`  #${i.public_id} ${c.name||t} ${cat?'— '+cat:''}`);
-                });
-                waLines.push('');
-            });
-            waLines.push(`Total: ${issues.length} reporte${issues.length!==1?'s':''}`);
-            waLines.push('— Velocity Rappido Panama');
-            waText = encodeURIComponent(waLines.join('\n'));
-        }
-
-        const detailRows = issues.map(issue => {
-            const client   = state.clients[issue.client_id] || {};
-            const title    = issue.title || issue.description || 'Sin titulo';
-            const zm       = title.match(/\(([^)]+)\)/);
-            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
-            const cleanT   = title.replace(/\s*\([^)]*\)\s*/g,'').trim();
-            const category = state.categories[issue.category_id] || '';
-            const vencDate = issue.expires_at ? new Date(issue.expires_at) : null;
-            const todayChk = new Date(); todayChk.setHours(0,0,0,0);
-            let vencText = '—', vencCol = '#6b7280';
-            if (vencDate) {
-                const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-                vencText = `${vencDate.getDate()} ${months[vencDate.getMonth()]}.`;
-                const vd = new Date(vencDate); vd.setHours(0,0,0,0);
-                if (vd < todayChk) vencCol = '#dc2626';
-                else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
-                else vencCol = '#059669';
-            }
-            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
-                <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
-                <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                        <span style="font-weight:800;color:#111827;font-size:13px;">#${issue.public_id||'—'}</span>
-                        ${category?`<span style="background:#f3f4f6;color:#374151;font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${category}</span>`:''}
-                        <span style="font-weight:700;color:${vencCol};font-size:12px;margin-left:auto;">${vencText}</span>
-                    </div>
-                    <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
-                        ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
-                        <div style="display:flex;align-items:center;gap:4px;">
-                            <div data-last-comment-issue-id="${issue.id}" class="comment-preview-inline flex-shrink-0">
-                                <span class="material-symbols-outlined text-[14px] text-secondary/50 animate-spin">sync</span>
+            const zIssuesHtml = zIssues.map(issue => {
+                const client   = state.clients[issue.client_id] || {};
+                const title    = issue.title || issue.description || 'Sin titulo';
+                const zm       = title.match(/\(([^)]+)\)/);
+                const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+                const cleanT   = title.replace(/\s*\([^)]*\)\s*/g,'').trim();
+                const category = state.categories[issue.category_id] || '';
+                const vencDate = issue.expires_at ? new Date(issue.expires_at) : null;
+                const todayChk = new Date(); todayChk.setHours(0,0,0,0);
+                let vencText = '—', vencCol = '#6b7280';
+                if (vencDate) {
+                    const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+                    vencText = `${vencDate.getDate()} ${months[vencDate.getMonth()]}.`;
+                    const vd = new Date(vencDate); vd.setHours(0,0,0,0);
+                    if (vd < todayChk) vencCol = '#dc2626';
+                    else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
+                    else vencCol = '#059669';
+                }
+                return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
+                    <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
+                            <span style="font-weight:800;color:#111827;font-size:13px;">#${issue.public_id||'—'}</span>
+                            ${category?`<span style="background:#f3f4f6;color:#374151;font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${category}</span>`:''}
+                            <span style="font-weight:700;color:${vencCol};font-size:12px;margin-left:auto;">${vencText}</span>
+                        </div>
+                        <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
+                        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
+                            ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <div data-last-comment-issue-id="${issue.id}" class="comment-preview-inline flex-shrink-0">
+                                    <span class="material-symbols-outlined text-[14px] text-secondary/50 animate-spin">sync</span>
+                                </div>
+                                <button onclick="window.openFeedbackModal('${issue.id}', true)" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
+                                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
+                                </button>
                             </div>
-                            <button onclick="window.openFeedbackModal('${issue.id}', true)" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
-                                <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                            </button>
                         </div>
                     </div>
+                </div>`;
+            }).join('');
+
+            return `<div style="border-bottom:1px solid #f3f4f6; padding:4px 0;">
+                <div onclick="window.toggleZoneDetail('zone-detail-${zoneSafeId}')" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;cursor:pointer;user-select:none;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="material-symbols-outlined zone-arrow-icon" style="font-size:18px;color:#9ca3af;transition:transform 0.2s;">expand_more</span>
+                        <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">location_on</span>
+                        <span style="font-size:14px;font-weight:700;color:#374151;">${zone}</span>
+                    </div>
+                    <span style="font-size:13px;font-weight:800;color:${color};background:${color}15;padding:2px 10px;border-radius:999px;">${zIssues.length}</span>
+                </div>
+                <div id="zone-detail-${zoneSafeId}" style="display:none;padding:6px 0 6px 12px;border-left:2px solid #e5e7eb;margin-left:8px;margin-top:4px;">
+                    ${zIssuesHtml}
                 </div>
             </div>`;
         }).join('');
@@ -1236,13 +1280,6 @@ Views.reports = () => {
                 </div>
             </div>
             <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
-            <div style="padding:0 16px 12px;">
-                <button onclick="window.toggleTechDetail('detail-${safeId}')"
-                    style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:13px;font-weight:700;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
-                    <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span> Ver tickets
-                </button>
-                <div id="detail-${safeId}" style="display:none;margin-top:8px;max-height:280px;overflow-y:auto;">${detailRows}</div>
-            </div>
         </div>`;
     };
 
@@ -1368,32 +1405,7 @@ Views.reports = () => {
         .map(([name, issues]) => renderTechCard(name, issues))
         .join('');
 
-    const counts = { all: 0, hoy: 0, manana: 0, semana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
-    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    state.issues.forEach(i => {
-        if (!i.assignable_id) { counts.sin_asignar++; counts.all++; return; }
-        
-        let tName = state.techs[i.assignable_id];
-        if (!tName) {
-            const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
-            tName = f?.name;
-        }
-        const esAct = tName && TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-        if (!esAct) return;
 
-        counts.all++;
-        const venc = i.expires_at ? new Date(i.expires_at) : null;
-        if (!venc) { counts.sin_fecha++; return; }
-        
-        venc.setHours(0,0,0,0);
-        const tTime = today.getTime();
-        const mTime = tomorrow.getTime();
-        const vTime = venc.getTime();
-        
-        if (vTime === tTime) counts.hoy++;
-        if (vTime === mTime) counts.manana++;
-        if (venc < today) counts.vencido++;
-    });
 
     const dateFilters = [
         {v:'all',l:'Todos',c:counts.all},
@@ -1423,11 +1435,6 @@ Views.reports = () => {
                     <span style="width:7px;height:7px;background:#f97316;border-radius:50%;display:inline-block;"></span>
                     <span style="font-size:14px;font-weight:700;color:#c2410c;">Pendiente ${allIssues.length}</span>
                 </div>
-                <button onclick="window.sendReportWA('${globalWaText}')"
-                    style="display:flex;align-items:center;gap:5px;padding:8px 14px;background:#25D366;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    Resumen Global
-                </button>
                 <button onclick="window.refreshIssues()" style="width:34px;height:34px;border:1px solid #e5e7eb;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
                     <span class="material-symbols-outlined inline-block ${state.isSyncing ? 'animate-spin' : ''}" style="font-size:17px;color:#6b7280;">sync</span>
                 </button>
@@ -1438,7 +1445,7 @@ Views.reports = () => {
             <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
             <input type="text" 
                 id="report-search-input"
-                placeholder="Buscar por ubicación/zona... (Enter)" 
+                placeholder="Buscar por zona, cliente, técnico, ID... (Enter)" 
                 value="${search || ''}"
                 onkeydown="if(event.key === 'Enter') { window.setReportSearch(this.value); }"
                 class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
@@ -1515,7 +1522,7 @@ Views.reports = () => {
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
         ${allIssues.length === 0
             ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin reportes pendientes</p></div>`
-            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;">${techCards}</div>`
+            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;">${techCards}</div>`
         }
 
         ${(() => {
@@ -1638,7 +1645,7 @@ Views.reports = () => {
 
 // ── PRUEBA TAB (COMBINADO) ──────────────────────────────────────────────────
 Views.prueba = () => {
-    const { date, search } = state.pruebaFilter;
+    const { date, search, type } = state.pruebaFilter;
     const today    = new Date(); today.setHours(0,0,0,0);
     const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
 
@@ -1648,6 +1655,8 @@ Views.prueba = () => {
             return state.napOverrides[issue.id].nap;
         }
         if (issue.nap) return issue.nap;
+        const clientNap = (issue.client_id && state.clients[issue.client_id]?.nap) || (issue.contract_id && state.clients[issue.contract_id]?.nap);
+        if (clientNap) return clientNap;
         if (issue.client_id) {
             const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
             const matchingOrder = allOrders.find(o => {
@@ -1707,11 +1716,18 @@ Views.prueba = () => {
             return techName === 'Sin asignar';
         }
 
-        if (date === 'all') {
+        // Si es "Todos" (all) o "Hoy" (hoy), mostramos los reportes pendientes/vencidos o sin fecha
+        const venc = issue.expires_at ? new Date(issue.expires_at) : null;
+        if (date === 'all' || date === 'hoy') {
             if (techName === 'Sin asignar') return true;
-            return TECNICOS_ACTIVOS.some(n =>
+            const esActivo = TECNICOS_ACTIVOS.some(n =>
                 techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
             );
+            if (!esActivo) return false;
+            // Incluir si no tiene fecha, si venció, o si vence hoy
+            if (!venc) return true;
+            venc.setHours(0,0,0,0);
+            return venc.getTime() <= today.getTime();
         }
 
         if (techName === 'Sin asignar') return false;
@@ -1721,29 +1737,36 @@ Views.prueba = () => {
         );
         if (!esActivo) return false;
 
-        const venc = issue.expires_at ? new Date(issue.expires_at) : null;
         if (!venc) return date === 'sin_fecha';
         if (date === 'sin_fecha') return false;
         venc.setHours(0,0,0,0);
-        if (date === 'hoy'     && venc.getTime() !== today.getTime())    return false;
         if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
         if (date === 'vencido' && venc >= today)                         return false;
 
         return true;
     });
 
-    let activeOrders = state.orders.filter(o => o.kind !== 'technical').filter(o => {
+    let activeOrders = state.orders.filter(o => {
+        // EN PRUEBA SOLO CONSIDERAR INSTALACIONES
+        if (o.kind !== 'installation') return false;
+
+        const sched = o.start_at ? new Date(o.start_at) : null;
         const techName = o.techName || 'Sin asignar';
 
         if (date === 'sin_asignar') {
             return techName === 'Sin asignar';
         }
 
-        if (date === 'all') {
+        // Para "Todos" (all) o "Hoy" (hoy), solo mostrar instalaciones de hoy
+        if (date === 'all' || date === 'hoy') {
             if (techName === 'Sin asignar') return true;
-            return TECNICOS_ACTIVOS.some(n =>
+            const esActivo = TECNICOS_ACTIVOS.some(n =>
                 techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
             );
+            if (!esActivo) return false;
+            if (!sched) return false;
+            sched.setHours(0,0,0,0);
+            return sched.getTime() === today.getTime();
         }
 
         if (techName === 'Sin asignar') return false;
@@ -1753,8 +1776,26 @@ Views.prueba = () => {
         );
         if (!esActivo) return false;
 
-        return date === 'hoy';
+        if (!sched) return date === 'sin_fecha';
+        if (date === 'sin_fecha') return false;
+        sched.setHours(0,0,0,0);
+        if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
+        if (date === 'vencido') return false;
+
+        return true;
     });
+
+    // Calcular totales globales del tipo ANTES de aplicar el filtro de tipo
+    const totalIssuesCount = activeIssues.length;
+    const totalOrdersCount = activeOrders.length;
+    const totalCombinedCount = totalIssuesCount + totalOrdersCount;
+
+    const activeType = type || 'all';
+    if (activeType === 'issues') {
+        activeOrders = [];
+    } else if (activeType === 'orders') {
+        activeIssues = [];
+    }
 
     // 2. Aplicar Búsqueda Global
     if (search && search.trim()) {
@@ -1832,156 +1873,46 @@ Views.prueba = () => {
             const title  = issue.title || issue.description || '';
             const zm = title.match(/\(([^)]+)\)/);
             const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
-            if (!byZone[zone]) byZone[zone] = { issues: 0, orders: 0 };
-            byZone[zone].issues++;
+            if (!byZone[zone]) byZone[zone] = { issues: [], orders: [] };
+            byZone[zone].issues.push(issue);
         });
         ordersList.forEach(o => {
             const zone = o.zone || 'Sin zona';
-            if (!byZone[zone]) byZone[zone] = { issues: 0, orders: 0 };
-            byZone[zone].orders++;
+            if (!byZone[zone]) byZone[zone] = { issues: [], orders: [] };
+            byZone[zone].orders.push(o);
         });
 
-        const zoneRows = Object.entries(byZone).map(([zone, counts]) => {
-            const textParts = [];
-            if (counts.issues > 0) textParts.push(`${counts.issues} rep`);
-            if (counts.orders > 0) textParts.push(`${counts.orders} ord`);
-            const label = textParts.join(' + ');
-
-            return `<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid #f3f4f6;">
-                <div style="display:flex;align-items:center;gap:6px;">
-                    <span class="material-symbols-outlined" style="font-size:13px;color:#9ca3af;">location_on</span>
-                    <span style="font-size:14px;font-weight:600;color:#374151;">${zone}</span>
-                </div>
-                <span style="font-size:13px;font-weight:800;color:${color};background:${color}15;padding:2px 10px;border-radius:999px;">${label}</span>
-            </div>`;
-        }).join('');
-
-        // Texto WhatsApp
-        let waText = '';
-        if (techName !== 'Sin asignar') {
-            const waLines = [
-                `*Tareas Asignadas — ${techName}*`,
-                `Fecha: ${new Date().toLocaleDateString('es-PA', { weekday: 'long', day: 'numeric', month: 'long' })}`,
-                ''
-            ];
-            
-            const techByZone = {};
-            issuesList.forEach(i => {
-                const client = state.clients[i.client_id] || {};
-                const title  = i.title || i.description || '';
-                const zm = title.match(/\(([^)]+)\)/);
-                const zone = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
-                if (!techByZone[zone]) techByZone[zone] = { issues: [], orders: [] };
-                techByZone[zone].issues.push(i);
-            });
-            ordersList.forEach(o => {
-                const zone = o.zone || 'Sin zona';
-                if (!techByZone[zone]) techByZone[zone] = { issues: [], orders: [] };
-                techByZone[zone].orders.push(o);
-            });
-
-            Object.entries(techByZone).forEach(([zone, zData]) => {
-                waLines.push(`*${zone}* (Rep: ${zData.issues.length}, Ord: ${zData.orders.length})`);
-                zData.issues.forEach(i => {
-                    const c   = state.clients[i.client_id] || {};
-                    const cat = state.categories[i.category_id] || '';
-                    const t   = (i.title||i.description||'').replace(/\s*\([^)]*\)\s*/g,'').trim();
-                    waLines.push(`  [Reporte] #${i.public_id} ${c.name||t} ${cat?'— '+cat:''}`);
-                });
-                zData.orders.forEach(o => {
-                    waLines.push(`  [Orden] #${o.id} ${o.client} (${o.typeLabel})`);
-                });
-                waLines.push('');
-            });
-            waLines.push(`Total: ${issuesList.length} reporte(s) + ${ordersList.length} orden(es)`);
-            waLines.push('— Velocity Rappido Panama');
-            waText = encodeURIComponent(waLines.join('\n'));
-        }
-
-        const detailIssuesHtml = issuesList.map(issue => {
-            const client   = state.clients[issue.client_id] || {};
-            const title    = issue.title || issue.description || 'Sin titulo';
-            const zm       = title.match(/\(([^)]+)\)/);
-            const zoneName = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
-            const cleanT   = title.replace(/\s*\([^)]*\)\s*/g,'').trim();
-            const category = state.categories[issue.category_id] || '';
-            const vencDate = issue.expires_at ? new Date(issue.expires_at) : null;
-            const todayChk = new Date(); todayChk.setHours(0,0,0,0);
-            let vencText = '—', vencCol = '#6b7280';
-            if (vencDate) {
-                const months = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
-                vencText = `${vencDate.getDate()} ${months[vencDate.getMonth()]}.`;
-                const vd = new Date(vencDate); vd.setHours(0,0,0,0);
-                if (vd < todayChk) vencCol = '#dc2626';
-                else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
-                else vencCol = '#059669';
+        const zoneRows = Object.entries(byZone).map(([zone, data]) => {
+            const counts = { issues: data.issues.length, orders: data.orders.length };
+            const badges = [];
+            if (counts.issues > 0) {
+                badges.push(`
+                <span style="display:inline-flex;align-items:center;gap:3px;color:#c2410c;background:#fff7ed;border:1px solid #fed7aa;padding:1px 6px;border-radius:6px;font-size:11px;font-weight:800;" title="${counts.issues} Reporte(s)">
+                    <span class="material-symbols-outlined" style="font-size:12px;font-variation-settings:'FILL' 1;">build</span>
+                    ${counts.issues} rep
+                </span>`);
             }
+            if (counts.orders > 0) {
+                badges.push(`
+                <span style="display:inline-flex;align-items:center;gap:3px;color:#0059bb;background:#e8eeff;border:1px solid #c5c6ce;padding:1px 6px;border-radius:6px;font-size:11px;font-weight:800;" title="${counts.orders} Instalación(es)">
+                    <span class="material-symbols-outlined" style="font-size:12px;font-variation-settings:'FILL' 1;">router</span>
+                    ${counts.orders} inst
+                </span>`);
+            }
+            const badgesHtml = `<div style="display:flex;gap:4px;align-items:center;">${badges.join('')}</div>`;
 
-            const nap = getNapForIssue(issue);
-            const napBadgeHtml = nap
-                ? `<span style="background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;margin-left:8px;">✓ ${nap}</span>`
-                : `<button onclick="window.openNapModal('${issue.id}', true)" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;border:none;cursor:pointer;margin-left:8px;">Sin NAP</button>`;
+            const safeTechName = techName.replace(/'/g, "\\'");
+            const safeZoneName = zone.replace(/'/g, "\\'");
+            const encodedIssues = encodeURIComponent(JSON.stringify(data.issues));
+            const encodedOrders = encodeURIComponent(JSON.stringify(data.orders));
 
-            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
-                <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
-                <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                        <span style="font-weight:800;color:#111827;font-size:13px;">#${issue.public_id||'—'}</span>
-                        ${category?`<span style="background:#f3f4f6;color:#374151;font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${category}</span>`:''}
-                        <span style="font-weight:700;color:${vencCol};font-size:12px;margin-left:auto;">${vencText}</span>
+            return `<div style="border-bottom:1px solid #f3f4f6; padding:4px 0;">
+                <div onclick="window.openZoneModal('${safeTechName}', '${safeZoneName}', '${encodedIssues}', '${encodedOrders}')" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;cursor:pointer;user-select:none;transition:background 0.2s;border-radius:6px;" class="hover:bg-surface-container-low/50 px-2">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                        <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">location_on</span>
+                        <span style="font-size:14px;font-weight:700;color:#374151;">${zone}</span>
                     </div>
-                    <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${client.name||cleanT}</p>
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
-                        <div style="display:flex;align-items:center;gap:4px;">
-                            ${zoneName?`<span style="font-size:11px;color:#6b7280;">${zoneName}</span>`: '<span></span>'}
-                            ${napBadgeHtml}
-                        </div>
-                        <div style="display:flex;align-items:center;gap:4px;">
-                            <div class="relative inline-block" data-issue-btn-id="${issue.id}">
-                                <button onclick="window.openFeedbackModal('${issue.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
-                                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                                </button>
-                                ${getCommentBadgeHtml(issue.id, true)}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-        }).join('');
-
-        const detailOrdersHtml = ordersList.map(o => {
-            const color = o.typeColor || '#6b7280';
-            const nap = getNapForOrder(o);
-            const isInstallation = o.kind === 'installation';
-            const napBadgeHtml = isInstallation
-                ? (nap
-                    ? `<span style="background:#f0fdf4;color:#059669;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;margin-left:8px;">✓ ${nap}</span>`
-                    : `<button onclick="window.openNapModal('${o.rawId || o.id}', false)" style="background:#fee2e2;color:#dc2626;font-size:11px;font-weight:700;padding:2px 6px;border-radius:999px;border:none;cursor:pointer;margin-left:8px;">Sin NAP</button>`)
-                : '';
-
-            return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
-                <div style="width:3px;height:35px;background:${color};border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
-                <div style="flex:1;min-width:0;">
-                    <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
-                        <span style="font-weight:800;color:#111827;font-size:13px;">#${o.id||'—'}</span>
-                        <span style="background:${color}15;color:${color};font-size:11px;font-weight:600;padding:1px 6px;border-radius:999px;">${o.typeLabel} (${o.state})</span>
-                        <span style="font-weight:700;color:#6b7280;font-size:12px;margin-left:auto;">${o.startTime}</span>
-                    </div>
-                    <p style="font-size:13px;color:#0059bb;font-weight:500;margin:2px 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.client}</p>
-                    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:2px;">
-                        <div style="display:flex;align-items:center;gap:4px;">
-                            ${o.zone?`<span style="font-size:11px;color:#6b7280;">${o.zone}</span>`: '<span></span>'}
-                            ${napBadgeHtml}
-                        </div>
-                        <div style="display:flex;align-items:center;gap:4px;">
-                            <div class="relative inline-block" data-order-btn-id="${o.rawId || o.id}">
-                                <button onclick="window.openFeedbackModal('${o.rawId || o.id}')" class="w-7 h-7 flex items-center justify-center text-secondary hover:bg-secondary/10 rounded-lg transition-all" title="Ver Bitácora Completa">
-                                    <span class="material-symbols-outlined text-[18px]">history_edu</span>
-                                </button>
-                                ${getCommentBadgeHtml(o.rawId || o.id, false)}
-                            </div>
-                        </div>
-                    </div>
+                    ${badgesHtml}
                 </div>
             </div>`;
         }).join('');
@@ -1995,85 +1926,97 @@ Views.prueba = () => {
                     <div style="width:38px;height:38px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:800;flex-shrink:0;">${initials}</div>
                     <div>
                         <p style="font-weight:800;color:#111827;font-size:17px;margin:0;line-height:1.2;">${techName}</p>
-                        <p style="font-size:14.5px;font-weight:700;color:#4b5563;margin-top:4px;">${totalItems} tarea${totalItems!==1?'s':''} (${issuesList.length} rep + ${ordersList.length} ord)</p>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
+                            <span style="font-size:13px;font-weight:700;color:#4b5563;">${totalItems} tarea${totalItems!==1?'s':''}</span>
+                        </div>
                     </div>
                 </div>
-                ${techName !== 'Sin asignar' ? `
-                    <button onclick="window.sendReportWA('${waText}')" style="background:#25D366;color:white;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:4px;">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                        WhatsApp
-                    </button>
-                ` : ''}
             </div>
             <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
-            <div style="padding:0 16px 12px;">
-                <button onclick="window.toggleTechDetail('detail-${safeId}')"
-                    style="width:100%;padding:6px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;font-size:13px;font-weight:700;color:#6b7280;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;">
-                    <span class="material-symbols-outlined" style="font-size:14px;">expand_more</span> Ver tickets
-                </button>
-                <div id="detail-${safeId}" style="display:none;margin-top:8px;max-height:280px;overflow-y:auto;">
-                    ${detailIssuesHtml}
-                    ${detailOrdersHtml}
-                    ${(!detailIssuesHtml && !detailOrdersHtml) ? '<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin tickets pendientes</p>' : ''}
-                </div>
-            </div>
         </div>`;
     };
 
-    // Calculate filter button counts precisely
+    // Calculate filter button counts precisely, respecting the active type filter
     const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
 
     // Issues count calculation
-    state.issues.forEach(i => {
-        let tName = state.techs[i.assignable_id];
-        if (!tName && i.assignable_id) {
-            const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
-            tName = f?.name;
-        }
-        if (!tName) tName = 'Sin asignar';
+    if (activeType === 'all' || activeType === 'issues') {
+        state.issues.forEach(i => {
+            let tName = state.techs[i.assignable_id];
+            if (!tName && i.assignable_id) {
+                const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
+                tName = f?.name;
+            }
+            if (!tName) tName = 'Sin asignar';
 
-        if (tName === 'Sin asignar') {
-            counts.sin_asignar++;
+            if (tName === 'Sin asignar') {
+                counts.sin_asignar++;
+                counts.all++;
+                counts.hoy++; // Unassigned count towards today/all
+                return;
+            }
+
+            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+            if (!esAct) return;
+
             counts.all++;
-            return;
-        }
+            const venc = i.expires_at ? new Date(i.expires_at) : null;
+            if (!venc) {
+                counts.sin_fecha++;
+                counts.hoy++; // No date is active today
+                return;
+            }
+            
+            venc.setHours(0,0,0,0);
+            const tTime = today.getTime();
+            const mTime = tomorrow.getTime();
+            const vTime = venc.getTime();
+            
+            if (vTime === tTime || vTime < tTime) counts.hoy++;
+            if (vTime === mTime) counts.manana++;
+            if (vTime < tTime) counts.vencido++;
+        });
+    }
 
-        const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-        if (!esAct) return;
+    // Orders count calculation (only installation)
+    if (activeType === 'all' || activeType === 'orders') {
+        state.orders.forEach(o => {
+            if (o.kind !== 'installation') return;
 
-        counts.all++;
-        const venc = i.expires_at ? new Date(i.expires_at) : null;
-        if (!venc) {
-            counts.sin_fecha++;
-            return;
-        }
-        
-        venc.setHours(0,0,0,0);
-        const tTime = today.getTime();
-        const mTime = tomorrow.getTime();
-        const vTime = venc.getTime();
-        
-        if (vTime === tTime) counts.hoy++;
-        if (vTime === mTime) counts.manana++;
-        if (venc < today) counts.vencido++;
-    });
+            const sched = o.start_at ? new Date(o.start_at) : null;
+            if (!sched) return;
+            sched.setHours(0,0,0,0);
 
-    // Orders count calculation (excluding 'technical')
-    state.orders.filter(o => o.kind !== 'technical').forEach(o => {
-        const tName = o.techName || 'Sin asignar';
-        if (tName === 'Sin asignar') {
-            counts.sin_asignar++;
-            counts.all++;
-            return;
-        }
+            const tTime = today.getTime();
+            const mTime = tomorrow.getTime();
+            const sTime = sched.getTime();
 
-        const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-        if (!esAct) return;
+            // Only count if scheduled for today or tomorrow (ignore future/past for basic daily counts)
+            if (sTime !== tTime && sTime !== mTime) return;
 
-        counts.all++;
-        counts.hoy++;
-    });
+            const tName = o.techName || 'Sin asignar';
+            if (tName === 'Sin asignar') {
+                counts.sin_asignar++;
+                if (sTime === tTime) {
+                    counts.all++;
+                    counts.hoy++;
+                }
+                return;
+            }
+
+            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+            if (!esAct) return;
+
+            if (sTime === tTime) {
+                counts.all++;
+                counts.hoy++;
+            }
+            if (sTime === mTime) {
+                counts.manana++;
+            }
+        });
+    }
 
     // Global WhatsApp Summary
     const tmrw = new Date();
@@ -2131,7 +2074,7 @@ Views.prueba = () => {
         .join('');
 
     // Date filters HTML
-    const dateFilters = [
+    let dateFilters = [
         {v:'all',l:'Todos',c:counts.all},
         {v:'hoy',l:'Hoy',c:counts.hoy},
         {v:'manana',l:'Mañana',c:counts.manana},
@@ -2143,10 +2086,17 @@ Views.prueba = () => {
         const bg = active ? '#111827' : '#f3f4f6';
         const color = active ? 'white' : '#374151';
         const badgeBg = active ? 'rgba(255,255,255,0.2)' : '#e5e7eb';
-        return `<button onclick="window.setPruebaFilter('date','${f.v}')" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:${bg};color:${color};">
+        return `<button onclick="window.setPruebaFilter('date','${f.v}')" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:${bg};color:${color};transition:all 0.2s;">
             ${f.l} <span style="font-size:11px;font-weight:800;padding:2px 6px;border-radius:999px;background:${badgeBg};">${f.c}</span>
         </button>`;
     }).join('');
+
+    // Append Ver Mapa button next to Sin asignar button
+    dateFilters += `
+    <button onclick="window.openPruebaMapModal()" style="display:flex;align-items:center;gap:6px;padding:6px 14px;border-radius:999px;font-size:13px;font-weight:700;border:none;cursor:pointer;background:#e8eeff;color:#0059bb;transition:all 0.2s;box-shadow:0 1px 2px rgba(0,0,0,0.05);" class="hover:bg-primary/10 hover:shadow active:scale-95">
+        <span class="material-symbols-outlined text-[18px]">map</span>
+        Ver Mapa
+    </button>`;
 
     // Finished List rendering
     const renderFinishedList = (coll, titleText) => {
@@ -2190,18 +2140,23 @@ Views.prueba = () => {
                 const elapsedStr = getElapsedTime(finishedTime);
                 const clientName = state.clients[i.client_id]?.name || i.title || 'Reporte';
                 const idStr = i.public_id || i.id;
+                const nap = getNapForIssue(i);
+                const napBadgeHtml = nap
+                    ? `<span class="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50">✓ ${nap}</span>`
+                    : `<button onclick="window.openNapModal('${i.id}', true)" class="bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-red-200 dark:border-red-800/50 cursor-pointer">Sin NAP</button>`;
 
                 return `
                 <tr class="hover:bg-surface-container-low/30 transition-colors">
                     <!-- Columna 1: Reporte / Orden -->
                     <td class="py-3 px-4">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <span class="bg-surface-container text-on-surface-variant font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-outline-variant/10">
                                 #${idStr} (Reporte)
                             </span>
                             <span class="text-sm font-bold text-on-surface truncate max-w-[240px]" title="${clientName}">
                                 ${clientName}
                             </span>
+                            ${napBadgeHtml}
                         </div>
                     </td>
                     <!-- Columna 2: Técnico -->
@@ -2244,18 +2199,26 @@ Views.prueba = () => {
                 const elapsedStr = getElapsedTime(finishedTime);
                 const clientName = o.client || 'Orden';
                 const idStr = o.id;
+                const nap = getNapForOrder(o);
+                const isInstallation = o.kind === 'installation';
+                const napBadgeHtml = isInstallation
+                    ? (nap
+                        ? `<span class="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-emerald-200 dark:border-emerald-800/50">✓ ${nap}</span>`
+                        : `<button onclick="window.openNapModal('${o.rawId || o.id}', false)" class="bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-400 font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-red-200 dark:border-red-800/50 cursor-pointer">Sin NAP</button>`)
+                    : '';
 
                 return `
                 <tr class="hover:bg-surface-container-low/30 transition-colors">
                     <!-- Columna 1: Reporte / Orden -->
                     <td class="py-3 px-4">
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
                             <span class="bg-surface-container text-on-surface-variant font-extrabold text-[10px] px-2 py-0.5 rounded-lg border border-outline-variant/10">
                                 #${idStr} (${o.typeLabel})
                             </span>
                             <span class="text-sm font-bold text-on-surface truncate max-w-[240px]" title="${clientName}">
                                 ${clientName}
                             </span>
+                            ${napBadgeHtml}
                         </div>
                     </td>
                     <!-- Columna 2: Técnico -->
@@ -2321,11 +2284,11 @@ Views.prueba = () => {
     // Finished List Data
     const tStr = new Date().toLocaleDateString('en-CA');
     const fiToday = (state.finishedIssues || []).filter(i => (i.updated_at || '').slice(0,10) === tStr);
-    const foToday = (state.finishedOrders || []).filter(o => o.kind !== 'technical' && ((o.end_at || o.updated_at || '').slice(0,10) === tStr));
+    const foToday = (state.finishedOrders || []).filter(o => o.kind === 'installation' && (o.end_at || o.updated_at || '').slice(0,10) === tStr);
 
-    // Filter finished issues and orders by search text
-    let activeFinishedIssues = fiToday;
-    let activeFinishedOrders = foToday;
+    // Filter finished issues and orders by search text and task type
+    let activeFinishedIssues = activeType === 'orders' ? [] : fiToday;
+    let activeFinishedOrders = activeType === 'issues' ? [] : foToday;
 
     if (search && search.trim()) {
         const q = search.toLowerCase().trim();
@@ -2386,22 +2349,35 @@ Views.prueba = () => {
         finishedSectionHtml = renderFinishedList(allFinished, 'Tareas Finalizadas (Hoy)');
     }
 
+    // (Totales globales ya calculados al inicio)
+
+    const typeButtons = [
+        { v: 'all', l: `Todos (${totalCombinedCount})` },
+        { v: 'issues', l: `Reportes (${totalIssuesCount})` },
+        { v: 'orders', l: `Instalaciones (${totalOrdersCount})` }
+    ].map(item => {
+        const active = activeType === item.v;
+        const bg = active ? 'var(--secondary)' : 'var(--surface-container-high)';
+        const color = active ? 'var(--on-secondary)' : 'var(--on-surface-variant)';
+        return `<button onclick="window.setPruebaFilter('type','${item.v}')" style="padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;border:none;cursor:pointer;background:${bg};color:${color};transition:all 0.2s;display:inline-flex;align-items:center;gap:4px;">
+            ${item.l}
+        </button>`;
+    }).join('');
+
     return `<div>
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
             <div>
                 <h2 class="text-2xl font-extrabold text-on-surface">Prueba Unificada (Mesa de Ayuda + Órdenes)</h2>
                 <p class="text-sm text-on-surface-variant mt-1">Reportes y órdenes activos agrupados por técnico</p>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:5px;">
                     <span style="width:7px;height:7px;background:#f97316;border-radius:50%;display:inline-block;"></span>
                     <span style="font-size:14px;font-weight:700;color:#c2410c;">Pendientes ${totalActiveTasks}</span>
                 </div>
-                <button onclick="window.sendReportWA('${globalWaText}')"
-                    style="display:flex;align-items:center;gap:5px;padding:8px 14px;background:#25D366;color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                    Resumen Global
-                </button>
+                <div style="display:flex;gap:4px;background:var(--surface-container-low);padding:4px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);align-items:center;">
+                    ${typeButtons}
+                </div>
                 <button onclick="window.refreshPrueba()" style="width:34px;height:34px;border:1px solid #e5e7eb;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
                     <span class="material-symbols-outlined inline-block ${state.isSyncing ? 'animate-spin' : ''}" style="font-size:17px;color:#6b7280;">sync</span>
                 </button>
@@ -2427,7 +2403,7 @@ Views.prueba = () => {
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
         ${totalActiveTasks === 0
             ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin tareas pendientes</p></div>`
-            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;">${techCards}</div>`
+            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;">${techCards}</div>`
         }
 
         ${finishedSectionHtml}
@@ -2461,6 +2437,944 @@ window.setPruebaFilter = function(key, value) {
 window.setPruebaSearch = function(q) {
     state.pruebaFilter.search = q;
     renderTab('prueba');
+};
+
+window.openZoneModal = function(techName, zoneName, encodedIssues, encodedOrders) {
+    const modal = document.getElementById('zone-modal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('zone-modal-title');
+    const bodyEl = document.getElementById('zone-modal-body');
+
+    if (titleEl) {
+        titleEl.textContent = `${zoneName} — ${techName}`;
+    }
+
+    const issues = JSON.parse(decodeURIComponent(encodedIssues) || '[]');
+    const orders = JSON.parse(decodeURIComponent(encodedOrders) || '[]');
+
+    let html = '';
+
+    const getNapForIssue = (issue) => {
+        if (state.napOverrides && state.napOverrides[issue.id]?.nap) {
+            return state.napOverrides[issue.id].nap;
+        }
+        if (issue.nap) return issue.nap;
+        const clientNap = (issue.client_id && state.clients[issue.client_id]?.nap) || (issue.contract_id && state.clients[issue.contract_id]?.nap);
+        if (clientNap) return clientNap;
+        if (issue.client_id) {
+            const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+            const matchingOrder = allOrders.find(o => {
+                const oClientId = o.client_id || (o.orderable_id && state.clients[o.orderable_id]?.client_id) || o.orderable_id;
+                return oClientId && String(oClientId) === String(issue.client_id) && o.nap;
+            });
+            if (matchingOrder) return matchingOrder.nap;
+        }
+        return null;
+    };
+
+    const getNapForOrder = (order) => {
+        const oid = order.rawId || order.id;
+        if (state.napOverrides && state.napOverrides[oid]?.nap) {
+            return state.napOverrides[oid].nap;
+        }
+        return order.nap;
+    };
+
+    if (issues.length === 0 && orders.length === 0) {
+        html = `<p class="text-center py-8 text-on-surface-variant/60 text-sm">No hay tareas en esta zona.</p>`;
+    } else {
+        if (issues.length > 0) {
+            html += `<div class="mb-5">
+                <h4 class="text-xs font-black text-secondary uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[16px]">build</span> Reportes (${issues.length})
+                </h4>
+                <div class="space-y-3">`;
+            issues.forEach(i => {
+                const client = state.clients[i.client_id] || {};
+                const clientName = client.name || i.title || 'Cliente desconocido';
+                
+                // Get zone/lugar
+                const title = i.title || i.description || '';
+                const zm = title.match(/\(([^)]+)\)/);
+                const clientZone = (zm ? zm[1] : (client.zone || '')) || zoneName || 'Sin zona';
+                
+                const desc = i.description || i.title || '';
+                const napVal = getNapForIssue(i);
+                const isNapUnassigned = !napVal || napVal.toLowerCase().includes('sin asignar') || napVal.toLowerCase().includes('n/a') || napVal === 'Sin colocar';
+                const napText = isNapUnassigned ? 'Sin colocar' : napVal;
+                
+                const dateStr = i.expires_at ? new Date(i.expires_at).toLocaleDateString('es-ES') : 'Sin fecha';
+
+                // Navigation data
+                const lat = client.latitude || '';
+                const lng = client.longitude || '';
+                const safeAddress = (client.address || '').replace(/'/g, "\\'");
+                const safeClientName = clientName.replace(/'/g, "\\'");
+
+                html += `
+                    <div class="p-4 bg-surface-container-low hover:bg-surface-container-high transition-all duration-200 rounded-2xl border border-outline-variant/10 shadow-sm flex flex-col gap-2">
+                        <div class="flex justify-between items-start gap-2">
+                            <span class="text-sm font-bold text-on-surface leading-tight">${clientName}</span>
+                            <span onclick="window.openClientGPS('${lat}', '${lng}', '${safeAddress}', '${safeClientName}')" 
+                                  class="text-[12px] font-extrabold text-secondary bg-secondary/10 hover:bg-secondary/20 transition-all duration-150 px-3 py-1 rounded-full flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
+                                  title="Ver ubicación en Google Maps">
+                                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">location_on</span>
+                                ${clientZone}
+                            </span>
+                        </div>
+                        <p class="text-xs text-on-surface-variant leading-relaxed bg-surface-container-lowest/50 p-2 rounded-lg border border-outline-variant/5">${desc}</p>
+                        <div class="flex flex-wrap items-center justify-between gap-2 mt-1 text-[11px] font-semibold">
+                            <span class="flex items-center gap-1 px-2.5 py-0.5 rounded-full ${isNapUnassigned ? 'bg-error-container/20 text-error border border-error/10' : 'bg-surface-container-highest/60 text-on-surface-variant'}">
+                                <span class="material-symbols-outlined text-[13px] ${isNapUnassigned ? 'text-error' : 'text-on-surface-variant/80'}">settings_input_hdmi</span>
+                                NAP: <strong>${napText}</strong>
+                            </span>
+                            <span class="flex items-center gap-1 text-on-surface-variant/70">
+                                <span class="material-symbols-outlined text-[13px]">calendar_today</span>
+                                Vence: <strong class="text-on-surface">${dateStr}</strong>
+                            </span>
+                        </div>
+                    </div>`;
+            });
+            html += `</div></div>`;
+        }
+
+        if (orders.length > 0) {
+            html += `<div>
+                <h4 class="text-xs font-black text-primary uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                    <span class="material-symbols-outlined text-[16px]">router</span> Instalaciones (${orders.length})
+                </h4>
+                <div class="space-y-3">`;
+            orders.forEach(o => {
+                const clientName = o.client || 'Cliente desconocido';
+                const clientZone = o.zone || zoneName || 'Sin zona';
+                const address = o.address || 'Sin dirección';
+                
+                const napVal = getNapForOrder(o);
+                const isNapUnassigned = !napVal || napVal.toLowerCase().includes('sin asignar') || napVal.toLowerCase().includes('n/a') || napVal === 'Sin colocar';
+                const napText = isNapUnassigned ? 'Sin colocar' : napVal;
+                
+                const dateStr = o.start_at ? new Date(o.start_at).toLocaleDateString('es-ES') : 'Sin fecha';
+
+                // Navigation data
+                const clientFromCache = state.clients[o.client_id] || state.clients[o.orderable_id] || {};
+                const lat = o.latitude || clientFromCache.latitude || '';
+                const lng = o.longitude || clientFromCache.longitude || '';
+                const safeAddress = address.replace(/'/g, "\\'");
+                const safeClientName = clientName.replace(/'/g, "\\'");
+
+                html += `
+                    <div class="p-4 bg-surface-container-low hover:bg-surface-container-high transition-all duration-200 rounded-2xl border border-outline-variant/10 shadow-sm flex flex-col gap-2">
+                        <div class="flex justify-between items-start gap-2">
+                            <span class="text-sm font-bold text-on-surface leading-tight">${clientName}</span>
+                            <span onclick="window.openClientGPS('${lat}', '${lng}', '${safeAddress}', '${safeClientName}')" 
+                                  class="text-[12px] font-extrabold text-primary bg-primary/10 hover:bg-primary/20 transition-all duration-150 px-3 py-1 rounded-full flex items-center gap-1 cursor-pointer shrink-0 active:scale-95 shadow-sm"
+                                  title="Ver ubicación en Google Maps">
+                                <span class="material-symbols-outlined text-[14px]" style="font-variation-settings:'FILL' 1;">location_on</span>
+                                ${clientZone}
+                            </span>
+                        </div>
+                        <p class="text-xs text-on-surface-variant leading-relaxed flex items-center gap-1 bg-surface-container-lowest/50 p-2 rounded-lg border border-outline-variant/5">
+                            <span class="material-symbols-outlined text-[14px] text-on-surface-variant/70 shrink-0">home</span>
+                            <span class="truncate">${address}</span>
+                        </p>
+                        <div class="flex flex-wrap items-center justify-between gap-2 mt-1 text-[11px] font-semibold">
+                            <span class="flex items-center gap-1 px-2.5 py-0.5 rounded-full ${isNapUnassigned ? 'bg-error-container/20 text-error border border-error/10' : 'bg-surface-container-highest/60 text-on-surface-variant'}">
+                                <span class="material-symbols-outlined text-[13px] ${isNapUnassigned ? 'text-error' : 'text-on-surface-variant/80'}">settings_input_hdmi</span>
+                                NAP: <strong>${napText}</strong>
+                            </span>
+                            <span class="flex items-center gap-1 text-on-surface-variant/70">
+                                <span class="material-symbols-outlined text-[13px]">calendar_today</span>
+                                Fecha: <strong class="text-on-surface">${dateStr}</strong>
+                            </span>
+                        </div>
+                    </div>`;
+            });
+            html += `</div></div>`;
+        }
+    }
+
+    if (bodyEl) {
+        bodyEl.innerHTML = html;
+    }
+
+    modal.classList.remove('hidden');
+    // Transition/animation class trigger
+    const contentBox = modal.querySelector('div');
+    if (contentBox) {
+        setTimeout(() => {
+            contentBox.classList.remove('scale-95');
+            contentBox.classList.add('scale-100');
+        }, 10);
+    }
+};
+
+window.closeZoneModal = function() {
+    const modal = document.getElementById('zone-modal');
+    if (!modal) return;
+    const contentBox = modal.querySelector('div');
+    if (contentBox) {
+        contentBox.classList.remove('scale-100');
+        contentBox.classList.add('scale-95');
+    }
+    setTimeout(() => {
+        modal.classList.add('hidden');
+    }, 150);
+};
+
+window.openClientGPS = function(lat, lng, address, clientName) {
+    let url = '';
+    const cleanLat = lat ? String(lat).replace(/,/g, '.').trim() : '';
+    const cleanLng = lng ? String(lng).replace(/,/g, '.').trim() : '';
+    if (cleanLat && cleanLng && !isNaN(parseFloat(cleanLat)) && !isNaN(parseFloat(cleanLng))) {
+        url = `https://www.google.com/maps/search/?api=1&query=${parseFloat(cleanLat)},${parseFloat(cleanLng)}`;
+    } else if (address && address.trim() && address.trim() !== 'Sin dirección') {
+        url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim() + ' Panama')}`;
+    } else if (clientName && clientName.trim() && clientName.trim() !== 'Cliente desconocido') {
+        url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(clientName.trim() + ' Panama')}`;
+    }
+    
+    if (url) {
+        window.open(url, '_blank');
+    } else {
+        alert('No se encontraron coordenadas ni dirección para este cliente.');
+    }
+};
+
+window.openPruebaMapModal = function() {
+    // Remove existing modal if any
+    document.getElementById('prueba-map-modal')?.remove();
+
+    const html = `
+    <div id="prueba-map-modal" class="fixed inset-0 z-[250] bg-black/40 backdrop-blur-sm flex items-center justify-center p-2" onclick="if(event.target === this) window.closePruebaMapModal()">
+        <div class="bg-surface-container-lowest w-[98vw] max-w-none rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col h-[96vh]" onclick="event.stopPropagation()">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-surface-container-highest">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-secondary">map</span>
+                    <h3 class="font-bold text-on-surface text-base Inter">Mapa de Clientes (Filtro Activo)</h3>
+                </div>
+                <button onclick="window.closePruebaMapModal()" class="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-error-container/30 flex items-center justify-center active:scale-95">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div class="flex-1 w-full bg-surface-container-high relative">
+                <div id="leaflet-prueba-fullscreen-map" style="height: 100%; width: 100%;"></div>
+            </div>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    setTimeout(() => {
+        const map = L.map('leaflet-prueba-fullscreen-map').setView([8.9833, -79.5167], 8);
+        L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+            maxZoom: 20,
+            subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+            attribution: '&copy; Google Maps'
+        }).addTo(map);
+
+        const bounds = [];
+        const { date, search, type } = state.pruebaFilter;
+        const today    = new Date(); today.setHours(0,0,0,0);
+        const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate()+1);
+
+        // Helper to parse localized coordinates
+        const parseCoord = (val) => {
+            if (val === undefined || val === null) return NaN;
+            const str = String(val).replace(/,/g, '.').trim();
+            return parseFloat(str);
+        };
+
+        // 1. Filtrar Activas
+        let activeIssues = state.issues.filter(issue => {
+            let techName = state.techs[issue.assignable_id];
+            if (!techName && issue.assignable_id) {
+                const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+                const found = (db.technicians || []).find(t =>
+                    String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id)
+                );
+                techName = found?.name;
+            }
+            if (!techName) techName = 'Sin asignar';
+
+            if (date === 'sin_asignar') {
+                return techName === 'Sin asignar';
+            }
+
+            const venc = issue.expires_at ? new Date(issue.expires_at) : null;
+            if (date === 'all' || date === 'hoy') {
+                if (techName === 'Sin asignar') return true;
+                const esActivo = TECNICOS_ACTIVOS.some(n =>
+                    techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+                );
+                if (!esActivo) return false;
+                if (!venc) return true;
+                venc.setHours(0,0,0,0);
+                return venc.getTime() <= today.getTime();
+            }
+
+            if (techName === 'Sin asignar') return false;
+
+            const esActivo = TECNICOS_ACTIVOS.some(n =>
+                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+            if (!esActivo) return false;
+
+            if (!venc) return date === 'sin_fecha';
+            if (date === 'sin_fecha') return false;
+            venc.setHours(0,0,0,0);
+            if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
+            if (date === 'vencido' && venc >= today)                         return false;
+
+            return true;
+        });
+
+        let activeOrders = state.orders.filter(o => {
+            if (o.kind !== 'installation') return false;
+
+            const sched = o.start_at ? new Date(o.start_at) : null;
+            const techName = o.techName || 'Sin asignar';
+
+            if (date === 'sin_asignar') {
+                return techName === 'Sin asignar';
+            }
+
+            if (date === 'all' || date === 'hoy') {
+                if (techName === 'Sin asignar') return true;
+                const esActivo = TECNICOS_ACTIVOS.some(n =>
+                    techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+                );
+                if (!esActivo) return false;
+                if (!sched) return false;
+                sched.setHours(0,0,0,0);
+                return sched.getTime() === today.getTime();
+            }
+
+            if (techName === 'Sin asignar') return false;
+
+            const esActivo = TECNICOS_ACTIVOS.some(n =>
+                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+            if (!esActivo) return false;
+
+            if (!sched) return date === 'sin_fecha';
+            if (date === 'sin_fecha') return false;
+            sched.setHours(0,0,0,0);
+            if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
+            if (date === 'vencido') return false;
+
+            return true;
+        });
+
+        const activeType = type || 'all';
+        if (activeType === 'issues') {
+            activeOrders = [];
+        } else if (activeType === 'orders') {
+            activeIssues = [];
+        }
+
+        if (search && search.trim()) {
+            const q = search.toLowerCase().trim();
+            activeIssues = activeIssues.filter(issue => {
+                const client = state.clients[issue.client_id] || {};
+                const title = issue.title || issue.description || '';
+                const zm = title.match(/\(([^)]+)\)/);
+                const zoneNameVal = (zm ? zm[1] : (client.zone || '')) || 'Sin zona';
+                const clientName = (state.clients[issue.client_id]?.name || issue.title || '').toLowerCase();
+                const descriptionText = title.toLowerCase();
+                const techNameLower = (state.techs[issue.assignable_id] || 'Sin asignar').toLowerCase();
+                const addressText = (client.address || '').toLowerCase();
+                const idStr = String(issue.public_id || issue.id);
+
+                return zoneNameVal.toLowerCase().includes(q) ||
+                       clientName.includes(q) ||
+                       descriptionText.includes(q) ||
+                       techNameLower.includes(q) ||
+                       addressText.includes(q) ||
+                       idStr.includes(q);
+            });
+
+            activeOrders = activeOrders.filter(o => {
+                const zoneNameVal = (o.zone || 'Sin zona').toLowerCase();
+                const clientName = (o.client || '').toLowerCase();
+                const techNameLower = (o.techName || 'Sin asignar').toLowerCase();
+                const addressText = (o.address || '').toLowerCase();
+                const idStr = String(o.id);
+                
+                return zoneNameVal.includes(q) ||
+                       clientName.includes(q) ||
+                       techNameLower.includes(q) ||
+                       addressText.includes(q) ||
+                       idStr.includes(q);
+            });
+        }
+
+        // Gather all with coordinates
+        const mapItems = [];
+
+        activeIssues.forEach(i => {
+            const client = state.clients[i.client_id] || {};
+            const lat = parseCoord(client.latitude);
+            const lng = parseCoord(client.longitude);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                mapItems.push({
+                    type: 'issue',
+                    id: i.id,
+                    name: client.name || i.title || 'Reporte',
+                    zone: client.zone || 'Sin zona',
+                    lat,
+                    lng,
+                    details: i.description || i.title || '',
+                    tech: state.techs[i.assignable_id] || 'Sin asignar'
+                });
+            }
+        });
+
+        activeOrders.forEach(o => {
+            const clientFromCache = state.clients[o.client_id] || state.clients[o.orderable_id] || {};
+            const lat = parseCoord(o.latitude || clientFromCache.latitude);
+            const lng = parseCoord(o.longitude || clientFromCache.longitude);
+            if (!isNaN(lat) && !isNaN(lng)) {
+                mapItems.push({
+                    type: 'order',
+                    id: o.id,
+                    name: o.client || 'Instalación',
+                    zone: o.zone || 'Sin zona',
+                    lat,
+                    lng,
+                    details: o.address || 'Sin dirección',
+                    tech: o.techName || 'Sin asignar'
+                });
+            }
+        });
+
+        mapItems.forEach(c => {
+            bounds.push([c.lat, c.lng]);
+            const isIssue = c.type === 'issue';
+            const color = isIssue ? '#ef4444' : '#0059bb'; // Red for reports, Blue for installations
+            const iconSymbol = isIssue ? 'build' : 'router';
+
+            const markerHtml = `
+                <div style="background:${color};width:28px;height:28px;border-radius:50%;border:2px solid white;box-shadow:0 3px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;color:white;">
+                    <span class="material-symbols-outlined" style="font-size:16px;">${iconSymbol}</span>
+                </div>
+            `;
+
+            const icon = L.divIcon({
+                html: markerHtml,
+                className: '',
+                iconSize: [28, 28],
+                iconAnchor: [14, 14]
+            });
+
+            L.marker([c.lat, c.lng], { icon }).addTo(map)
+                .bindPopup(`
+                    <div style="text-align:left;padding:4px;min-width:220px;font-family:inherit;">
+                        <div style="margin-bottom:4px;">
+                            <strong style="font-size:13px;color:#111827;">${c.name}</strong>
+                        </div>
+                        <div style="display:flex;gap:4px;align-items:center;margin-bottom:6px;">
+                            <span style="font-size:9px;font-weight:bold;color:${isIssue ? '#c2410c' : '#0059bb'};background:${isIssue ? '#fff7ed' : '#e8eeff'};padding:2px 6px;border-radius:4px;display:inline-block;">
+                                ${isIssue ? 'Reporte / Ticket' : 'Instalación'}
+                            </span>
+                            <span style="font-size:9px;font-weight:bold;color:#4b5563;background:#f3f4f6;padding:2px 6px;border-radius:4px;">
+                                ${c.tech}
+                            </span>
+                        </div>
+                        <div style="font-size:11px;color:#4b5563;line-height:1.4;">
+                            <strong>Zona:</strong> ${c.zone}<br>
+                            <strong>Detalle:</strong> ${c.details}<br>
+                            <strong>Coords:</strong> ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}
+                        </div>
+                    </div>
+                `);
+        });
+
+        if (bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        } else {
+            map.setView([8.9833, -79.5167], 8);
+        }
+
+        window.pruebaMapInstance = map;
+    }, 100);
+};
+
+window.closePruebaMapModal = function() {
+    const modal = document.getElementById('prueba-map-modal');
+    if (modal) {
+        modal.remove();
+    }
+    if (window.pruebaMapInstance) {
+        window.pruebaMapInstance.remove();
+        window.pruebaMapInstance = null;
+    }
+};
+
+// ── INVENTORY VISTA ────────────────────────────────────────────────────────
+Views.inventory = () => {
+    // 1. Obtener clientes combinados (clientes reales + simulados)
+    const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const clientsCache = dbSync.clients_cache || [];
+    
+    // Obtener contratos y órdenes para extraer clientes si no están en caché
+    const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+    const clientMap = new Map();
+
+    // Poblar mapa de clientes
+    clientsCache.forEach(c => {
+        if (c.id) {
+            clientMap.set(String(c.id), {
+                id: c.id,
+                name: c.name || 'Cliente sin nombre',
+                zone: c.zone_name || c.address_city || 'Sin Zona',
+                phone: c.phone_mobile || c.phone || '—',
+                onn: false,
+                playtv: false,
+                camara: false,
+                extensor: false
+            });
+        }
+    });
+
+    // Si dbSync.clients_cache está vacío, poblar desde state.clients
+    if (clientMap.size === 0 && state.clients) {
+        Object.entries(state.clients).forEach(([id, c]) => {
+            if (id && c.name) {
+                clientMap.set(String(id), {
+                    id: id,
+                    name: c.name,
+                    zone: c.zone || 'Sin Zona',
+                    phone: c.phone || '—',
+                    onn: false,
+                    playtv: false,
+                    camara: false,
+                    extensor: false
+                });
+            }
+        });
+    }
+
+    // Agregar de órdenes del día si no existen en el mapa
+    allOrders.forEach(o => {
+        const cid = o.clientId || o.client_id;
+        if (cid && !clientMap.has(String(cid))) {
+            clientMap.set(String(cid), {
+                id: cid,
+                name: o.client || 'Cliente sin nombre',
+                zone: o.zone || 'Sin Zona',
+                phone: o.phone || '—',
+                onn: false,
+                playtv: false,
+                camara: false,
+                extensor: false
+            });
+        }
+    });
+
+    // Inicializar o cargar inventario guardado por cliente desde dbSync
+    if (!dbSync.client_inventory) {
+        dbSync.client_inventory = {};
+    }
+
+    // Lógica para auto-detectar desde notas técnicas de Wispro si la orden finalizada contiene texto descriptivo
+    allOrders.forEach(o => {
+        const cid = o.clientId || o.client_id;
+        if (cid) {
+            const clientInv = dbSync.client_inventory[cid] || { onn: false, playtv: false, camara: false, extensor: false };
+            const desc = (o.description || '').toLowerCase();
+            const comment = (o.comments || '').toLowerCase();
+            const textToInspect = desc + ' ' + comment;
+
+            if (textToInspect.includes('onn')) clientInv.onn = true;
+            if (textToInspect.includes('playtv') || textToInspect.includes('play tv')) clientInv.playtv = true;
+            if (textToInspect.includes('camara') || textToInspect.includes('cámara')) clientInv.camara = true;
+            if (textToInspect.includes('extensor') || textToInspect.includes('repetidor')) clientInv.extensor = true;
+
+            dbSync.client_inventory[cid] = clientInv;
+        }
+    });
+
+    // Aplicar valores guardados a la lista en memoria
+    const clientList = Array.from(clientMap.values()).map(c => {
+        const saved = dbSync.client_inventory[c.id] || { onn: false, playtv: false, camara: false, extensor: false };
+        return {
+            ...c,
+            onn: saved.onn,
+            playtv: saved.playtv,
+            camara: saved.camara,
+            extensor: saved.extensor
+        };
+    });
+
+    // 2. Calcular Totales para KPIs
+    let totalOnn = 0;
+    let totalPlaytv = 0;
+    let totalCamara = 0;
+    let totalExtensor = 0;
+
+    clientList.forEach(c => {
+        if (c.onn) totalOnn++;
+        if (c.playtv) totalPlaytv++;
+        if (c.camara) totalCamara++;
+        if (c.extensor) totalExtensor++;
+    });
+
+    // 3. Aplicar Filtro y Búsqueda
+    let filtered = [...clientList];
+    const search = (state.orderSearch || '').toLowerCase().trim();
+    if (search) {
+        filtered = filtered.filter(c => 
+            c.name.toLowerCase().includes(search) ||
+            c.zone.toLowerCase().includes(search) ||
+            String(c.id).includes(search)
+        );
+    }
+
+    // 4. Renderizado de filas
+    const rows = filtered.map(c => {
+        return `
+        <tr class="border-b border-surface-container-high/50 hover:bg-surface-container-low/30 transition-colors">
+            <td class="p-4">
+                <div class="font-bold text-on-surface text-sm">${c.name}</div>
+                <div class="text-[10px] font-semibold text-on-surface-variant/60">ID: ${c.id.slice(0, 8)}...</div>
+            </td>
+            <td class="p-4 text-xs font-bold text-on-surface-variant">${c.zone}</td>
+            <td class="p-4 text-xs text-on-surface-variant">${c.phone}</td>
+            <td class="p-4 text-center">
+                <input type="checkbox" ${c.onn ? 'checked' : ''} 
+                    onchange="window.toggleClientEquipment('${c.id}', 'onn', this.checked)"
+                    class="w-5 h-5 accent-secondary cursor-pointer rounded">
+            </td>
+            <td class="p-4 text-center">
+                <input type="checkbox" ${c.playtv ? 'checked' : ''} 
+                    onchange="window.toggleClientEquipment('${c.id}', 'playtv', this.checked)"
+                    class="w-5 h-5 accent-secondary cursor-pointer rounded">
+            </td>
+            <td class="p-4 text-center">
+                <input type="checkbox" ${c.camara ? 'checked' : ''} 
+                    onchange="window.toggleClientEquipment('${c.id}', 'camara', this.checked)"
+                    class="w-5 h-5 accent-secondary cursor-pointer rounded">
+            </td>
+            <td class="p-4 text-center">
+                <input type="checkbox" ${c.extensor ? 'checked' : ''} 
+                    onchange="window.toggleClientEquipment('${c.id}', 'extensor', this.checked)"
+                    class="w-5 h-5 accent-secondary cursor-pointer rounded">
+            </td>
+        </tr>`;
+    }).join('');
+
+    // Guardar estado filtrado para las exportaciones
+    state.lastFilteredInventory = filtered;
+
+    return `
+    <div class="space-y-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 class="text-2xl font-black text-on-surface tracking-tight">Control de Equipamiento</h2>
+                <p class="text-xs text-on-surface-variant font-semibold mt-1">Gestión de dispositivos ONN, PlayTV+, Cámaras y Extensores por cliente</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="window.exportInventoryToCSV()" class="flex items-center gap-2 border border-outline-variant/30 text-on-surface-variant px-4 py-2 rounded-2xl text-xs font-bold hover:bg-surface-container transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-[18px]">download</span> Exportar CSV
+                </button>
+                <button onclick="window.exportInventoryToPDF()" class="bg-primary text-white hover:opacity-90 px-4 py-2 rounded-2xl text-xs font-black flex items-center gap-2 active:scale-95 transition-all shadow-md">
+                    <span class="material-symbols-outlined text-[18px]">print</span> Exportar PDF
+                </button>
+            </div>
+        </div>
+
+        <!-- KPIs Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4 relative overflow-hidden">
+                <div class="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">tv</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Dispositivos ONN</p>
+                    <h4 class="text-2xl font-black text-primary">${totalOnn}</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Entregados en campo</p>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4 relative overflow-hidden">
+                <div class="w-12 h-12 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">smart_display</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">App PlayTV+</p>
+                    <h4 class="text-2xl font-black text-secondary">${totalPlaytv}</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Cuentas activas</p>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4 relative overflow-hidden">
+                <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">videocam</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Cámaras</p>
+                    <h4 class="text-2xl font-black text-emerald-600">${totalCamara}</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Instaladas</p>
+                </div>
+            </div>
+            <div class="bg-surface-container-lowest border border-outline-variant/20 p-5 rounded-3xl flex items-center gap-4 relative overflow-hidden">
+                <div class="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center shadow-inner">
+                    <span class="material-symbols-outlined text-2xl font-bold">router</span>
+                </div>
+                <div>
+                    <p class="text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Extensores</p>
+                    <h4 class="text-2xl font-black text-amber-600">${totalExtensor}</h4>
+                    <p class="text-[10px] text-on-surface-variant/60 font-bold">Repetidores provistos</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Filtros y Búsqueda -->
+        <div class="relative group max-w-md">
+            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+            <input type="text" 
+                id="inventory-search-input"
+                placeholder="Buscar por cliente, zona... (Enter)" 
+                value="${state.orderSearch || ''}"
+                onkeydown="if(event.key === 'Enter') { window.setOrderSearch(this.value); }"
+                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+            >
+            ${state.orderSearch ? `
+                <button onclick="window.setOrderSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>
+            ` : ''}
+        </div>
+
+        <!-- Tabla de Equipos -->
+        <div class="bg-surface-container-lowest border border-outline-variant/15 rounded-3xl overflow-hidden">
+            <table class="w-full border-collapse">
+                <thead>
+                    <tr class="bg-surface-container-low/50 text-left border-b border-outline-variant/10">
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Cliente</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Zona</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest">Teléfono</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center">ONN</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center">PlayTV+</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center">Cámara</th>
+                        <th class="p-4 text-[10px] font-black text-on-surface-variant uppercase tracking-widest text-center">Extensor</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-surface-container-high/30">
+                    ${rows || `<tr><td colspan="7" class="p-12 text-center text-on-surface-variant/40"><span class="material-symbols-outlined text-4xl mb-2">inbox</span><p class="font-bold text-sm uppercase">Sin clientes encontrados</p></td></tr>`}
+                </tbody>
+            </table>
+        </div>
+    </div>`;
+};
+
+// Toggle de equipamiento manual con guardado local y push al servidor
+window.toggleClientEquipment = function(clientId, equipmentKey, isChecked) {
+    const dbSync = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!dbSync.client_inventory) {
+        dbSync.client_inventory = {};
+    }
+    if (!dbSync.client_inventory[clientId]) {
+        dbSync.client_inventory[clientId] = { onn: false, playtv: false, camara: false, extensor: false };
+    }
+    
+    dbSync.client_inventory[clientId][equipmentKey] = isChecked;
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(dbSync));
+    serverPush(dbSync);
+    
+    // Recargar vista para actualizar KPIs sin perder foco
+    renderTab('inventory');
+};
+
+// Exportar Inventario a CSV
+window.exportInventoryToCSV = function() {
+    const list = state.lastFilteredInventory || [];
+    if (!list.length) {
+        alert('No hay datos para exportar.');
+        return;
+    }
+    const headers = ['Cliente', 'Zona', 'Telefono', 'ONN', 'PlayTV+', 'Camara', 'Extensor'];
+    const rows = list.map(c => [
+        c.name || '',
+        c.zone || '',
+        c.phone || '',
+        c.onn ? 'SI' : 'NO',
+        c.playtv ? 'SI' : 'NO',
+        c.camara ? 'SI' : 'NO',
+        c.extensor ? 'SI' : 'NO'
+    ]);
+    
+    let csvContent = '\uFEFF'; // BOM UTF-8
+    csvContent += [headers.join(','), ...rows.map(r => r.map(val => `"${val.replace(/"/g, '""')}"`).join(','))].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute('download', `reporte_equipamiento_${new Date().toLocaleDateString('en-CA')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+// Exportar Inventario a PDF
+window.exportInventoryToPDF = async function() {
+    const list = state.lastFilteredInventory || [];
+    if (!list.length) {
+        alert('No hay datos para exportar.');
+        return;
+    }
+
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Generando PDF...');
+
+    try {
+        const { PDFDocument, rgb, StandardFonts } = PDFLib;
+        const pdfDoc = await PDFDocument.create();
+        const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+        const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+        const cleanText = (str) => {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/[\u2013\u2014]/g, "-")
+                .replace(/[\u2018\u2019]/g, "'")
+                .replace(/[\u201C\u201D]/g, '"');
+        };
+
+        const wrapText = (text, maxWidth, fontSize) => {
+            if (!text) return [];
+            const words = text.split(' ');
+            const lines = [];
+            let currentLine = '';
+            const avgCharWidth = fontSize * 0.55;
+            const maxCharsPerLine = Math.floor(maxWidth / avgCharWidth);
+
+            words.forEach(word => {
+                const testLine = currentLine ? `${currentLine} ${word}` : word;
+                if (testLine.length > maxCharsPerLine) {
+                    lines.push(currentLine);
+                    currentLine = word;
+                } else {
+                    currentLine = testLine;
+                }
+            });
+            if (currentLine) {
+                lines.push(currentLine);
+            }
+            return lines;
+        };
+
+        let currentPage = null;
+        let currentY = 0;
+
+        const createNewPage = () => {
+            currentPage = pdfDoc.addPage([792, 612]); // Landscape
+            
+            // Header
+            currentPage.drawText("Reporte de Equipamiento Entregado", { x: 30, y: 560, size: 20, font: fontBold, color: rgb(0, 0.35, 0.73) });
+            currentPage.drawText("Velocity Dashboard - Auditoría de Equipos y Aplicaciones", { x: 30, y: 540, size: 10, font: font, color: rgb(0.4, 0.4, 0.4) });
+            
+            const dateStr = new Date().toLocaleString();
+            currentPage.drawText(`Fecha de Emisión: ${dateStr}`, { x: 500, y: 560, size: 9, font: font, color: rgb(0.4, 0.4, 0.4) });
+            currentPage.drawText(`Total Registros: ${list.length}`, { x: 500, y: 545, size: 9, font: font, color: rgb(0.4, 0.4, 0.4) });
+
+            currentY = 500;
+            drawHeaderRow();
+        };
+
+        const drawHeaderRow = () => {
+            const headers = [
+                { text: 'Cliente', x: 30, w: 220 },
+                { text: 'Zona', x: 260, w: 120 },
+                { text: 'Teléfono', x: 390, w: 100 },
+                { text: 'ONN', x: 500, w: 50 },
+                { text: 'PlayTV+', x: 560, w: 50 },
+                { text: 'Cámara', x: 620, w: 50 },
+                { text: 'Extensor', x: 680, w: 50 }
+            ];
+
+            currentPage.drawRectangle({
+                x: 30,
+                y: currentY - 5,
+                width: 730,
+                height: 25,
+                color: rgb(0.95, 0.96, 0.98)
+            });
+
+            headers.forEach(h => {
+                currentPage.drawText(h.text, {
+                    x: h.x + 5,
+                    y: currentY + 5,
+                    size: 9,
+                    font: fontBold,
+                    color: rgb(0.2, 0.2, 0.2)
+                });
+            });
+
+            currentPage.drawLine({
+                start: { x: 30, y: currentY - 5 },
+                end: { x: 760, y: currentY - 5 },
+                thickness: 1,
+                color: rgb(0.8, 0.8, 0.8)
+            });
+
+            currentY -= 30;
+        };
+
+        createNewPage();
+
+        for (const c of list) {
+            const rowHeight = 25;
+
+            if (currentY - rowHeight < 40) {
+                createNewPage();
+            }
+
+            currentPage.drawRectangle({
+                x: 30,
+                y: currentY - rowHeight + 5,
+                width: 730,
+                height: rowHeight,
+                color: rgb(1, 1, 1)
+            });
+
+            currentPage.drawLine({
+                start: { x: 30, y: currentY - rowHeight + 5 },
+                end: { x: 760, y: currentY - rowHeight + 5 },
+                thickness: 0.5,
+                color: rgb(0.9, 0.9, 0.9)
+            });
+
+            const nameText = cleanText(c.name || '—');
+            const nameLines = wrapText(nameText, 210, 8);
+            nameLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 35, y: currentY - 5 - (idx * 9), size: 8, font: fontBold });
+            });
+
+            currentPage.drawText(cleanText(c.zone || '—'), { x: 265, y: currentY - 5, size: 8, font: font });
+            currentPage.drawText(cleanText(c.phone || '—'), { x: 395, y: currentY - 5, size: 8, font: font });
+
+            currentPage.drawText(c.onn ? 'SI' : 'NO', { x: 505, y: currentY - 5, size: 8, font: fontBold, color: c.onn ? rgb(0, 0.5, 0) : rgb(0.7, 0.7, 0.7) });
+            currentPage.drawText(c.playtv ? 'SI' : 'NO', { x: 565, y: currentY - 5, size: 8, font: fontBold, color: c.playtv ? rgb(0, 0.5, 0) : rgb(0.7, 0.7, 0.7) });
+            currentPage.drawText(c.camara ? 'SI' : 'NO', { x: 625, y: currentY - 5, size: 8, font: fontBold, color: c.camara ? rgb(0, 0.5, 0) : rgb(0.7, 0.7, 0.7) });
+            currentPage.drawText(c.extensor ? 'SI' : 'NO', { x: 685, y: currentY - 5, size: 8, font: fontBold, color: c.extensor ? rgb(0, 0.5, 0) : rgb(0.7, 0.7, 0.7) });
+
+            currentY -= rowHeight;
+        }
+
+        const pdfBytes = await pdfDoc.save();
+        const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.setAttribute('download', `reporte_equipamiento_${new Date().toLocaleDateString('en-CA')}.pdf`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+    } catch (error) {
+        console.error("Error generating Equipment PDF:", error);
+        alert("Ocurrió un error al generar el PDF.");
+    } finally {
+        if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+    }
 };
 
 // ── NAPs TRACKER ──────────────────────────────────────────────────────────
@@ -3586,7 +4500,7 @@ window.viewNapClients = async function(localId, napName) {
         const total = cList.length + iList.length;
         
         let html = `
-        <div id="nap-clients-modal" class="fixed inset-0 z-[201] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
+        <div id="nap-clients-modal" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[201] bg-black/60 backdrop-blur-md flex items-center justify-center p-4">
             <div class="bg-white w-full max-w-2xl rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
                 <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                     <div>
@@ -3959,6 +4873,20 @@ window.toggleTechDetail = function(id) {
     }
 };
 
+window.toggleZoneDetail = function(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isHidden = el.style.display === 'none';
+    el.style.display = isHidden ? 'block' : 'none';
+    const row = el.previousElementSibling;
+    if (row) {
+        const arrow = row.querySelector('.zone-arrow-icon');
+        if (arrow) {
+            arrow.style.transform = isHidden ? 'rotate(180deg)' : 'rotate(0deg)';
+        }
+    }
+};
+
 window.sortIssues = function(col) {
     if (state.issueFilter.sortBy === col) {
         state.issueFilter.sortDir = state.issueFilter.sortDir === 'asc' ? 'desc' : 'asc';
@@ -4048,7 +4976,7 @@ window.viewErrorLog = function() {
     `).join('') || '<p class="text-center py-10 opacity-50 text-xs">No hay errores registrados.</p>';
 
     const html = `
-    <div id="error-log-modal" class="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="error-log-modal" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[200] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
         <div class="bg-surface-container-lowest w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/20">
             <div class="p-6 border-b border-outline-variant/10 flex items-center justify-between">
                 <h3 class="font-black text-on-surface">Log de Errores (Red)</h3>
@@ -4641,15 +5569,16 @@ window.autoSyncTechs = async function() {
             // Verificar si ya existe por ID o por nombre
             const exists = db.technicians.find(t => t.wisproId === id || t.name.toLowerCase() === name.toLowerCase());
             if(!exists) {
-                // Crear correo mock basado en el nombre (ej. juan.perez@atg-rappido.com)
+                const wisproEmail = (state.techEmails && state.techEmails[id]) || '';
                 const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
+                const defaultEmail = `${sanitized}@atg-rappido.com`;
                 const ts = Date.now().toString().slice(-6);
                 const rnd = Math.random().toString(36).substr(2, 4);
                 
                 db.technicians.push({
                     id: `T-${ts}-${rnd}`,
                     name: name,
-                    email: `${sanitized}@atg-rappido.com`,
+                    email: wisproEmail || defaultEmail,
                     password: 'Velocity2024',
                     disabled: false,
                     wisproId: id
@@ -4890,9 +5819,74 @@ window.openFeedbackModal = async function(id) {
     
     document.getElementById(modalId)?.remove();
 
+    // Resolve technician name and info
+    let techName = 'Sin asignar';
+    if (order.techName) {
+        techName = order.techName;
+    } else if (order.assignable_id) {
+        techName = state.techs[order.assignable_id];
+        if (!techName) {
+            const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+            const found = (db.technicians || []).find(t => String(t.wisproId) === String(order.assignable_id) || String(t.id) === String(order.assignable_id));
+            techName = found?.name || 'Técnico';
+        }
+    }
+    const initials = techName === 'Sin asignar' ? 'SA' : techInitials(techName);
+    const avatarColor = techName === 'Sin asignar' ? '#9ca3af' : techColor(techName);
+
+    // Resolve state labels and colors
+    let stateText = 'Abierta';
+    let stateBg = '#0059bb'; // Default blue
+    if (order.state === 'closed' || order.state === 'finalized' || order.state === 'resolved') {
+        stateText = 'Cerrada';
+        stateBg = '#00a896'; // Cyan
+    } else if (order.state === 'in_progress' || order.state === 'in_course') {
+        stateText = 'En curso';
+        stateBg = '#f59e0b'; // Amber
+    } else if (order.state === 'pending' || order.state === 'open') {
+        stateText = 'Pendiente';
+        stateBg = '#0070ea'; // Blue
+    }
+
+    // Resolve result labels and colors
+    let resultText = 'Sin iniciar';
+    let resultBg = '#9ca3af'; // Gray
+    if (order.result === 'success') {
+        resultText = 'Exitosa';
+        resultBg = '#2bc016'; // Green
+    } else if (order.result === 'failed') {
+        resultText = 'No exitosa';
+        resultBg = '#dc2626'; // Red
+    } else if (order.result === 'not_set') {
+        resultText = 'Pendiente';
+        resultBg = '#f59e0b'; // Amber
+    }
+
+    // Resolve scheduled text
+    let scheduledText = 'No programado';
+    if (order.startTime && order.startTime !== '--:--') {
+        scheduledText = order.startTime;
+        if (order.endTime && order.endTime !== '--:--') {
+            scheduledText += ` - ${order.endTime}`;
+        }
+    } else if (order.expires_at) {
+        const d = new Date(order.expires_at);
+        scheduledText = d.toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    // Resolve created date
+    let createdText = '—';
+    if (order.created_at) {
+        const d = new Date(order.created_at);
+        createdText = d.toLocaleString('es-PA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } else if (order.start_at) {
+        const d = new Date(order.start_at);
+        createdText = d.toLocaleString('es-PA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    }
+
     const html = `
-    <div id="${modalId}" class="fixed inset-0 z-[101] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div class="bg-surface-container-lowest w-full max-w-xl max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
+    <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[101] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div class="bg-surface-container-lowest w-full max-w-3xl max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
             <!-- Header -->
             <div class="p-6 border-b border-outline-variant/5 flex items-center justify-between bg-surface-container-low/40">
                 <div class="flex items-center gap-4">
@@ -4901,7 +5895,7 @@ window.openFeedbackModal = async function(id) {
                     </div>
                     <div class="min-w-0">
                         <h3 id="feedback-modal-title" class="font-black text-on-surface text-base">Bitácora de Comentarios</h3>
-                        <p class="text-[10px] text-primary font-black uppercase tracking-[0.1em] mt-0.5 truncate max-w-[380px]" title="${clientName}">${clientName}</p>
+                        <p class="text-sm text-primary font-black uppercase tracking-[0.05em] mt-0.5 truncate max-w-[480px]" title="${clientName}">${clientName}</p>
                     </div>
                 </div>
                 <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full hover:bg-surface-container-high flex items-center justify-center transition-all hover:rotate-90">
@@ -4909,8 +5903,51 @@ window.openFeedbackModal = async function(id) {
                 </button>
             </div>
 
+            <!-- Intelligent Metadata Panel (Wispro style) -->
+            <div class="px-6 py-4 bg-surface-container-low/20 border-b border-outline-variant/10 grid grid-cols-2 md:grid-cols-3 gap-4 text-xs">
+                <div class="flex flex-col gap-1">
+                    <span class="font-bold text-on-surface-variant/60 uppercase text-[9px] tracking-wider">Estado:</span>
+                    <div>
+                        <span style="background:${stateBg}; color:white; font-size:11px; padding:3px 10px; border-radius:6px; font-weight:700; display:inline-block;">
+                            ${stateText}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="font-bold text-on-surface-variant/60 uppercase text-[9px] tracking-wider">Resultado:</span>
+                    <div>
+                        <span style="background:${resultBg}; color:white; font-size:11px; padding:3px 10px; border-radius:6px; font-weight:700; display:inline-block;">
+                            ${resultText}
+                        </span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1 col-span-2 md:col-span-1">
+                    <span class="font-bold text-on-surface-variant/60 uppercase text-[9px] tracking-wider">Asignado a:</span>
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 h-6 rounded-full flex items-center justify-center text-white font-extrabold text-[10px]" style="background:${avatarColor}">
+                            ${initials}
+                        </div>
+                        <span class="font-black text-on-surface text-sm">${techName}</span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="font-bold text-on-surface-variant/60 uppercase text-[9px] tracking-wider">Programado el:</span>
+                    <div class="flex items-center gap-1.5 text-on-surface font-semibold">
+                        <span class="material-symbols-outlined text-[16px] text-on-surface-variant/50">calendar_month</span>
+                        <span>${scheduledText}</span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="font-bold text-on-surface-variant/60 uppercase text-[9px] tracking-wider">Creado el:</span>
+                    <div class="flex items-center gap-1.5 text-on-surface font-semibold">
+                        <span class="material-symbols-outlined text-[16px] text-on-surface-variant/50">schedule</span>
+                        <span>${createdText}</span>
+                    </div>
+                </div>
+            </div>
+
             <!-- Body (Timeline) -->
-            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-6 space-y-5 bg-surface-container-lowest/30 custom-scrollbar scroll-smooth">
+            <div id="feedback-timeline" class="flex-1 overflow-y-auto p-6 space-y-4 bg-surface-container-lowest/30 custom-scrollbar scroll-smooth">
                 <div class="flex flex-col items-center justify-center py-20 text-on-surface-variant/30">
                     <span class="material-symbols-outlined text-4xl mb-3 animate-spin">history</span>
                     <p class="font-black text-xs tracking-widest uppercase italic mb-1">Cargando comentarios...</p>
@@ -5063,7 +6100,7 @@ window.loadFeedbacks = async function(target) {
         allFeedbacks.sort((a,b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
 
         timeline.innerHTML = allFeedbacks.map(f => {
-            const date = f.created_at ? new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '--:--';
+            const date = f.created_at ? new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '--:--';
             
             // Resolver el nombre del autor
             const senderName = (state.techs && state.techs[f.creatable_id]) || f.author_name || f.technician_name || f.creator_name || f.user_name || 'Sistema';
@@ -5074,44 +6111,36 @@ window.loadFeedbacks = async function(target) {
                            senderName.toLowerCase().includes('supervisor') ||
                            (activeUserName && senderName.toLowerCase().includes(activeUserName.split(' ')[0]));
             
-            // Generar HSL único para el autor
-            let hash = 0;
-            for (let i = 0; i < senderName.length; i++) {
-                hash = senderName.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            const hue = Math.abs(hash % 360);
-            const avatarColor = `hsl(${hue}, 60%, 40%)`;
-            const initials = senderName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-
-            const bubbleClass = isSelf 
-                ? 'bg-gradient-to-br from-primary to-primary/80 text-white rounded-2xl rounded-tr-none border border-primary/10 shadow-md shadow-primary/5'
-                : 'bg-surface-container-low text-on-surface rounded-2xl rounded-tl-none border border-outline-variant/10 shadow-sm';
+            const isSistema = senderName.toLowerCase() === 'sistema';
+            const roleLabel = isSistema ? 'Sistema' : isSelf ? 'Supervisor' : 'Técnico';
             
-            const alignClass = isSelf ? 'justify-end' : 'justify-start';
+            let roleBg = '#e8eeff';
+            let roleColor = '#0059bb';
+            if (isSistema) {
+                roleBg = '#f3f4f6';
+                roleColor = '#4b5563';
+            } else if (isSelf) {
+                roleBg = '#e8eeff';
+                roleColor = '#0059bb';
+            } else {
+                roleBg = '#e6fffa';
+                roleColor = '#0d9488';
+            }
 
             return `
-            <div class="flex gap-3.5 ${alignClass} animate-in fade-in slide-in-from-bottom-2 duration-300">
-                ${!isSelf ? `
-                <div class="w-8.5 h-8.5 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[11px] shadow-sm select-none" style="background:${avatarColor}">
-                    ${initials}
-                </div>
-                ` : ''}
-                
-                <div class="max-w-[75%] space-y-1">
-                    <div class="flex items-center gap-2 px-1 ${isSelf ? 'flex-row-reverse' : ''}">
-                        <span class="text-[9px] font-black text-on-surface-variant uppercase tracking-wider">${senderName}</span>
-                        <span class="text-[8px] text-on-surface-variant/30 font-bold">${date}</span>
+            <div class="bg-surface-container-lowest border border-outline-variant/15 rounded-2xl p-4 shadow-sm hover:shadow-md transition-all">
+                <!-- Header -->
+                <div class="flex items-center justify-between gap-2 border-b border-outline-variant/5 pb-2 mb-2">
+                    <div class="flex items-center flex-wrap">
+                        <span class="text-base font-black text-on-surface">${senderName}</span>
+                        <span class="text-xs text-on-surface-variant/50 ml-2 font-medium">${date}</span>
                     </div>
-                    <div class="p-3 px-4 ${bubbleClass} text-[13px] leading-relaxed select-text whitespace-pre-wrap break-words">
-                        ${f.body || f.comment || '—'}
-                    </div>
+                    <span style="background:${roleBg}; color:${roleColor}; font-size:10px; font-weight:800; padding:2.5px 8px; border-radius:999px; text-transform:uppercase; tracking-wider:0.05em; display:inline-block;">
+                        ${roleLabel}
+                    </span>
                 </div>
-
-                ${isSelf ? `
-                <div class="w-8.5 h-8.5 rounded-full flex-shrink-0 flex items-center justify-center text-white font-extrabold text-[11px] shadow-sm select-none" style="background:${avatarColor}">
-                    ${initials}
-                </div>
-                ` : ''}
+                <!-- Body -->
+                <div class="text-sm font-normal text-on-surface-variant leading-relaxed select-text whitespace-pre-wrap break-words">${f.body || f.comment || '—'}</div>
             </div>`;
         }).join('');
         
@@ -6207,6 +7236,11 @@ window.showActiveTechsModal = function() {
         modal = document.createElement('div');
         modal.id = 'active-techs-modal';
         modal.className = 'fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in';
+        modal.onclick = function(e) {
+            if (e.target === modal) {
+                window.closeActiveTechsModal();
+            }
+        };
         document.body.appendChild(modal);
     }
     

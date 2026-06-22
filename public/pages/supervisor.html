@@ -14,6 +14,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <link rel="manifest" href="../manifest.json">
+    <link rel="stylesheet" href="../src/css/hamster.css">
     <meta name="theme-color" content="#031632">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -269,18 +270,20 @@
     <!-- Elegant Loading Screen Overlay (covers main area, leaves sidebar visible) -->
     <div id="loading-overlay" class="hidden fixed top-0 md:top-0 right-0 bottom-20 md:bottom-0 left-0 md:left-20 bg-background/90 backdrop-blur-md z-[45] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none">
         <div class="flex flex-col items-center gap-4">
-            <!-- App Logo with pulse animation -->
-            <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
-                <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
-                <div class="shimmer-bar animate-shimmer"></div>
+                        <div id="loader-graphic" class="flex flex-col items-center justify-center">
+                <!-- Original brand logo with pulse animation -->
+                <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
+                    <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
+                    <div class="shimmer-bar animate-shimmer"></div>
+                </div>
+                <!-- Elegant Spinner Bounces -->
+                <div class="flex items-center gap-2 mt-4">
+                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
+                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
+                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
+                </div>
             </div>
-            <!-- Elegant Spinner Bounces -->
-            <div class="flex items-center gap-2 mt-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
-                <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
-            </div>
-            <p class="text-sm font-bold text-on-surface-variant tracking-wide mt-2" id="loading-overlay-text">Sincronizando con Wispro...</p>
+            <p class="text-sm font-extrabold text-secondary tracking-widest uppercase mt-4 animate-pulse" id="loading-overlay-text">Sincronizando con Wispro...</p>
         </div>
     </div>
 
@@ -634,13 +637,31 @@
         </div>
     </div>
 
+    <!-- Zone Detail Modal (Prueba Tab) -->
+    <div id="zone-modal" class="hidden fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)window.closeZoneModal()">
+        <div class="bg-surface-container-lowest w-full max-w-lg rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col scale-95 transition-transform duration-300 transform pointer-events-auto">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-surface-container-highest">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-secondary">location_on</span>
+                    <h3 class="font-bold text-on-surface text-lg" id="zone-modal-title">Detalle de Zona</h3>
+                </div>
+                <button onclick="window.closeZoneModal()" class="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-error-container/30 flex items-center justify-center active:scale-95">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            <div id="zone-modal-body" class="p-6 overflow-y-auto max-h-[60vh] space-y-3">
+                <!-- Content will be injected dynamically -->
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="../src/js/config.js"></script>
     <script src="../src/js/core/state.js"></script>
     <script src="../src/js/core/api.js"></script>
     <script src="../src/js/core/ui.js"></script>
-    <script src="../src/js/supervisor.js"></script>
+    <script src="../src/js/supervisor.js?v=2.0.1"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

@@ -246,7 +246,16 @@ function cacheClear() {
 function loadDynamicClients() {
     const cached = cacheGet('clients_dynamic');
     if (cached) {
-        Object.assign(state.clients, cached);
+        for (const [id, clientData] of Object.entries(cached)) {
+            if (state.clients[id]) {
+                state.clients[id] = {
+                    ...state.clients[id],
+                    ...clientData
+                };
+            } else {
+                state.clients[id] = clientData;
+            }
+        }
     }
 }
 
@@ -264,7 +273,9 @@ async function loadStaticData(force = false) {
     if (cached) {
         Object.assign(state.clients, cached.clients || {});
         Object.assign(state.techs, cached.techs || {});
+        Object.assign(state.techEmails || {}, cached.techEmails || {});
         Object.assign(state.categories, cached.categories || {});
+        loadDynamicClients();
         return;
     }
 
@@ -276,18 +287,22 @@ async function loadStaticData(force = false) {
         ]);
 
         rawClients.forEach(c => {
+            const existing = state.clients[c.id] || {};
             state.clients[c.id] = {
-                name:    c.name || '',
-                zone:    c.zone_name || '',
-                address: c.address || c.street || '',
-                phone:   c.phone_mobile || c.phone || '',
-                lat:     c.latitude || c.gps_point?.latitude || null,
-                lng:     c.longitude || c.gps_point?.longitude || null
+                ...existing,
+                name:    c.name || existing.name || '',
+                zone:    c.zone_name || existing.zone || '',
+                address: c.address || c.street || existing.address || '',
+                phone:   c.phone_mobile || c.phone || existing.phone || '',
+                lat:     c.latitude || c.gps_point?.latitude || existing.lat || null,
+                lng:     c.longitude || c.gps_point?.longitude || existing.lng || null
             };
         });
 
         (Array.isArray(rawTechs.data) ? rawTechs.data : []).forEach(t => {
             state.techs[t.id] = t.name;
+            if (!state.techEmails) state.techEmails = {};
+            state.techEmails[t.id] = t.email || '';
         });
 
         (Array.isArray(rawCats.data) ? rawCats.data : []).forEach(c => {
@@ -297,8 +312,10 @@ async function loadStaticData(force = false) {
         cacheSet('static', {
             clients:    state.clients,
             techs:      state.techs,
+            techEmails: state.techEmails,
             categories: state.categories
         }, CFG.cacheTTL.static);
+        loadDynamicClients();
     } catch (e) {
         console.warn('[Velocity] Error cargando datos estáticos, intentando fallback de caché:', e.message);
         try {
@@ -315,6 +332,7 @@ async function loadStaticData(force = false) {
                 }
             }
         } catch(err) { console.error('Fallo en fallback de cache static', err); }
+        loadDynamicClients();
     }
 }
 
@@ -339,10 +357,7 @@ async function loadTodayOrders(force = false) {
         const todayOrders = items.filter(o => {
             const st    = (o.state || '').toLowerCase();
             const isActive = ['pending', 'started', 'in_progress', 'to_reschedule', 'abierta', 'open'].includes(st);
-            if (!isActive) return false;
-            
-            const startAtLocalStr = o.start_at ? new Date(o.start_at).toLocaleDateString('en-CA') : '';
-            return startAtLocalStr === todayStr;
+            return isActive;
         });
 
         const finishedOrdersRaw = items.filter(o => {
@@ -357,13 +372,13 @@ async function loadTodayOrders(force = false) {
 
         const toResolve = {};
         [...todayOrders, ...finishedOrdersRaw].forEach(o => {
-            if (o.orderable_id && (!state.clients[o.orderable_id] || !state.clients[o.orderable_id].name)) {
+            if (o.orderable_id && (force || !state.clients[o.orderable_id] || !state.clients[o.orderable_id].name)) {
                 toResolve[o.orderable_id] = o.kind;
             }
         });
 
         // Ejecutar resolución unificada
-        await resolveUnified(toResolve);
+        await resolveUnified(toResolve, force);
 
         // Función mapeadora local
         const mapOrder = (o) => {
@@ -438,14 +453,45 @@ async function loadTodayOrders(force = false) {
 
 
 
-async function resolveUnified(idMap) {
-    const ids = Object.keys(idMap).filter(id => !state.clients[id] || !state.clients[id].name);
+async function resolveUnified(idMap, force = false) {
+    const ids = Object.keys(idMap).filter(id => force || !state.clients[id] || !state.clients[id].name);
     if (ids.length === 0) return;
 
-    console.log(`[Velocity] Resolviendo ${ids.length} entidades de Wispro...`);
+    // INTELIGENTE: Si tenemos que resolver más de 2 clientes, es mucho más rápido traerlos en lote (bulk)
+    if (ids.length > 2) {
+        try {
+            console.log(`[Velocity] Pre-cargando clientes en lote para acelerar la carga...`);
+            const bulkData = await apiFetch('/clients?per_page=1000', {}, true);
+            if (bulkData && bulkData.data) {
+                bulkData.data.forEach(c => {
+                    if (c && c.id) {
+                        state.clients[c.id] = {
+                            name:    c.name || 'Cliente sin nombre',
+                            zone:    c.zone_name || c.address_city || c.city || '',
+                            address: [c.address_street, c.address_number].filter(Boolean).join(' ') || c.address || c.street || '',
+                            phone:   c.phone_mobile || c.phone || '',
+                            nap:     c.nap_name || null,
+                            client_id: c.id,
+                            latitude:  c.latitude ? String(c.latitude).replace(/,/g, '.').trim() : '',
+                            longitude: c.longitude ? String(c.longitude).replace(/,/g, '.').trim() : ''
+                        };
+                    }
+                });
+                console.log(`[Velocity] Pre-carga completada. Clientes en caché: ${Object.keys(state.clients).length}`);
+            }
+        } catch(e) {
+            console.warn('[Velocity] Error en pre-carga de clientes:', e);
+        }
+    }
+
+    // Volver a filtrar después de la carga en lote
+    const remainingIds = Object.keys(idMap).filter(id => force || !state.clients[id] || !state.clients[id].name);
+    if (remainingIds.length === 0) return;
+
+    console.log(`[Velocity] Resolviendo de forma individual ${remainingIds.length} entidades de Wispro...`);
     const BATCH_SIZE = 3;
-    for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-        const batch = ids.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < remainingIds.length; i += BATCH_SIZE) {
+        const batch = remainingIds.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (cid) => {
             try {
                 const kind = idMap[cid];
@@ -486,16 +532,29 @@ async function resolveUnified(idMap) {
                         } catch (e) {}
                     }
 
-                    // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo
+                    // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo con caché persistente
                     let napName = data.nap_name || null;
                     if (!napName && data.nap_id) {
-                        try {
-                            const napRes = await apiFetch(`/naps/${data.nap_id}`, {}, true);
-                            if (napRes) {
-                                const napD = napRes.data || napRes;
-                                napName = napD.name || null;
-                            }
-                        } catch (e) {}
+                        if (!state.napCache) {
+                            try {
+                                state.napCache = JSON.parse(localStorage.getItem('Velocity_Nap_Cache') || '{}');
+                            } catch(e) { state.napCache = {}; }
+                        }
+                        if (state.napCache[data.nap_id]) {
+                            napName = state.napCache[data.nap_id];
+                        } else {
+                            try {
+                                const napRes = await apiFetch(`/naps/${data.nap_id}`, {}, true);
+                                if (napRes) {
+                                    const napD = napRes.data || napRes;
+                                    napName = napD.name || null;
+                                    if (napName) {
+                                        state.napCache[data.nap_id] = napName;
+                                        localStorage.setItem('Velocity_Nap_Cache', JSON.stringify(state.napCache));
+                                    }
+                                }
+                            } catch (e) {}
+                        }
                     }
 
                     state.clients[cid] = {
@@ -504,8 +563,13 @@ async function resolveUnified(idMap) {
                         address: [data.address_street, data.address_number].filter(Boolean).join(' ') || data.address || data.street || '',
                         phone:   data.phone_mobile || data.phone || '',
                         nap:     napName,
-                        client_id: realClientId
+                        client_id: realClientId,
+                        latitude:  data.latitude ? String(data.latitude).replace(/,/g, '.').trim() : '',
+                        longitude: data.longitude ? String(data.longitude).replace(/,/g, '.').trim() : ''
                     };
+                    if (realClientId) {
+                        state.clients[realClientId] = state.clients[cid];
+                    }
                 }
             } catch (e) {}
         }));
@@ -613,14 +677,18 @@ async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false)
         // Resolver nombres de clientes para los reportes pendientes y finalizados
         const missingClientIds = {};
         [...uniqueIssues, ...uniqueFinished].forEach(i => {
-            if (i.client_id && (!state.clients[i.client_id] || !state.clients[i.client_id].name)) {
+            if (i.contract_id) {
+                if (force || !state.clients[i.contract_id]) {
+                    missingClientIds[i.contract_id] = 'contract';
+                }
+            } else if (i.client_id && (force || !state.clients[i.client_id] || !state.clients[i.client_id].name)) {
                 missingClientIds[i.client_id] = 'client';
             }
         });
 
         if (Object.keys(missingClientIds).length > 0) {
             try {
-                await resolveUnified(missingClientIds);
+                await resolveUnified(missingClientIds, force);
             } catch (err) {
                 console.error("Error resolviendo clientes para reportes:", err);
             }

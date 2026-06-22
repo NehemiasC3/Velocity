@@ -43,6 +43,7 @@ const state = {
     feedbacksCache: {}, // Caché global de comentarios para evitar llamadas repetidas a Wispro
     clients:      {},   // id → {name, zone, address, phone}
     techs:        {},   // id → name
+    techEmails:   {},   // id → email (Wispro exact)
     categories:   {},   // id → name
     orders:       [],   // órdenes del día
     issues:       [],   // issues pendientes
@@ -53,7 +54,7 @@ const state = {
     napFilter:    { sortBy: 'date', sortDir: 'desc', zone: 'all', search: '' },
     orderFilter:  { type: 'all', tech: 'all', zone: 'all' },
     issueFilter:  { tech: 'all', zone: 'all', date: 'all', sortBy: 'id', sortDir: 'desc', search: '' },
-    pruebaFilter: { date: 'all', search: '' },
+    pruebaFilter: { date: 'all', search: '', type: 'all' },
     orderSearch:  '',
     orderSort:    { key: 'id', dev: 'desc' },
     isSyncing:    false,

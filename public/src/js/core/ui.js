@@ -156,11 +156,135 @@ function fmtDate(iso) {
     return `${d.getDate()} ${months[d.getMonth()]}.`;
 }
 
-window.showLoadingOverlay = function(message = 'Cargando...') {
+window.showLoadingOverlay = function(message = 'Cargando...', isUpdate = false) {
+    // Si estamos en el panel de Técnico y NO es una actualización, no mostramos el loader.
+    const isTechPage = window.location.pathname.includes('technician.html');
+    if (isTechPage && !isUpdate) {
+        return; 
+    }
+
     const overlay = document.getElementById('loading-overlay');
     const textEl = document.getElementById('loading-overlay-text');
+    const graphicEl = document.getElementById('loader-graphic');
     if (overlay) {
-        if (textEl) textEl.textContent = message;
+        if (textEl) {
+            textEl.textContent = message;
+            if (isUpdate) {
+                textEl.className = "text-sm font-black text-[#0059bb] tracking-widest uppercase mt-6 animate-pulse";
+            } else {
+                textEl.className = "text-sm font-extrabold text-secondary tracking-widest uppercase mt-4 animate-pulse";
+            }
+        }
+        
+        if (graphicEl) {
+            if (isUpdate) {
+                // PREMIUM VECTOR SVG RUNNING HAMSTER (Much more cute, smooth and professional than blocky HTML divs)
+                graphicEl.innerHTML = `
+                    <style>
+                        @keyframes spin-wheel-svg {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                        .spinning-wheel-svg {
+                            transform-origin: 75px 75px;
+                            animation: spin-wheel-svg 1.2s linear infinite;
+                        }
+                        @keyframes run-legs-svg {
+                            0%, 100% { transform: scaleY(1) translateY(0); }
+                            50% { transform: scaleY(0.5) translateY(4px); }
+                        }
+                        .front-foot-svg {
+                            transform-origin: 42px 40px;
+                            animation: run-legs-svg 0.15s linear infinite;
+                        }
+                        .back-foot-svg {
+                            transform-origin: 15px 40px;
+                            animation: run-legs-svg 0.15s linear infinite;
+                            animation-delay: 0.075s;
+                        }
+                        @keyframes hamster-run-svg {
+                            0%, 100% { transform: translate(45px, 52px) rotate(-1deg); }
+                            50% { transform: translate(45px, 55px) rotate(2deg); }
+                        }
+                        .running-hamster-svg {
+                            animation: hamster-run-svg 0.3s ease-in-out infinite;
+                        }
+                    </style>
+                    <svg viewBox="0 0 150 150" width="160" height="160">
+                        <defs>
+                            <linearGradient id="wheel-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#0059bb" />
+                                <stop offset="100%" stop-color="#38bdf8" />
+                            </linearGradient>
+                            <linearGradient id="hamster-body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#fbbf24" />
+                                <stop offset="100%" stop-color="#d97706" />
+                            </linearGradient>
+                            <linearGradient id="ear-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#fda4af" />
+                                <stop offset="100%" stop-color="#f43f5e" />
+                            </linearGradient>
+                        </defs>
+                        
+                        <!-- Outer Wheel (spinning) -->
+                        <g class="spinning-wheel-svg">
+                            <circle cx="75" cy="75" r="60" fill="none" stroke="url(#wheel-grad)" stroke-width="6" stroke-dasharray="320 60" />
+                            <!-- Wheel Spokes -->
+                            <line x1="75" y1="15" x2="75" y2="135" stroke="url(#wheel-grad)" stroke-width="1.5" opacity="0.25" />
+                            <line x1="15" y1="75" x2="135" y2="75" stroke="url(#wheel-grad)" stroke-width="1.5" opacity="0.25" />
+                        </g>
+                        
+                        <!-- Hamster (bouncing/running) -->
+                        <g class="running-hamster-svg">
+                            <!-- Back Foot -->
+                            <ellipse class="back-foot-svg" cx="15" cy="40" rx="5" ry="4" fill="#b45309" />
+                            <!-- Tail -->
+                            <circle cx="5" cy="25" r="4.5" fill="#fda4af" />
+                            <!-- Hamster Body -->
+                            <path d="M 12 15 C 8 20, 5 30, 10 38 C 15 42, 38 42, 45 35 C 50 30, 52 20, 48 15 C 44 10, 16 10, 12 15 Z" fill="url(#hamster-body-grad)" />
+                            <!-- Blushing Cheek -->
+                            <circle cx="41" cy="24" r="3.5" fill="#f87171" opacity="0.75" />
+                            <!-- Eye -->
+                            <circle cx="43" cy="18" r="3" fill="#1e293b" />
+                            <circle cx="44.2" cy="16.8" r="1" fill="#FFFFFF" />
+                            <!-- Ear -->
+                            <ellipse cx="32" cy="8" rx="5" ry="7" fill="url(#ear-grad)" transform="rotate(-15 32 8)" />
+                            <ellipse cx="32" cy="8" rx="2.5" ry="4" fill="#ffffff" opacity="0.4" transform="rotate(-15 32 8)" />
+                            <!-- Front Foot -->
+                            <ellipse class="front-foot-svg" cx="42" cy="40" rx="5" ry="4" fill="#d97706" />
+                            <!-- Nose -->
+                            <polygon points="49,19 52,21 49,23" fill="#f43f5e" />
+                        </g>
+                    </svg>
+`;
+            } else {
+                // Cargador clásico: Logo latiendo con tres puntos
+                graphicEl.innerHTML = `
+                    <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
+                        <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
+                        <div class="shimmer-bar animate-shimmer"></div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-4">
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
+                    </div>
+`;
+            }
+        }
+        
+        // Ajustamos las clases de fondo del overlay según sea actualización (blanco) o carga clásica
+        if (isUpdate) {
+            overlay.className = "hidden fixed inset-0 bg-[#f8fafd]/95 backdrop-blur-sm z-[500] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none";
+        } else {
+            const isSupervisor = window.location.pathname.includes('supervisor.html');
+            if (isSupervisor) {
+                overlay.className = "hidden fixed top-0 md:top-0 right-0 bottom-20 md:bottom-0 left-0 md:left-20 bg-background/90 backdrop-blur-md z-[45] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none";
+            } else {
+                overlay.className = "hidden fixed inset-0 bg-background/90 backdrop-blur-md z-[500] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none";
+            }
+        }
+        
         overlay.classList.remove('hidden');
         // Force reflow
         overlay.offsetWidth;
@@ -249,4 +373,34 @@ function renderTab(tab) {
     if (tab === 'reports' && typeof window.loadRecentCommentsAudit === 'function') {
         setTimeout(window.loadRecentCommentsAudit, 150);
     }
+}
+
+// ── PWA ACTUALIZACIÓN DETECTADA & HÁMSTER ANIMATION ─────────────────────────
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready.then(reg => {
+        reg.addEventListener('updatefound', () => {
+            const installingWorker = reg.installing;
+            if (installingWorker) {
+                installingWorker.addEventListener('statechange', () => {
+                    if (installingWorker.state === 'installing' || installingWorker.state === 'installed') {
+                        if (window.showLoadingOverlay) {
+                            window.showLoadingOverlay('Instalando Actualización (v3.1.2)...', true);
+                        }
+                    }
+                });
+            }
+        });
+    });
+
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (refreshing) return;
+        refreshing = true;
+        if (window.showLoadingOverlay) {
+            window.showLoadingOverlay('Aplicando cambios...', true);
+        }
+        setTimeout(() => {
+            window.location.reload();
+        }, 1200);
+    });
 }

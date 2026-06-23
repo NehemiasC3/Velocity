@@ -84,6 +84,7 @@
             --error: #ba1a1a;
             --error-container: #ffdad6;
             --gradient: linear-gradient(135deg, #0059bb 0%, #0070ea 100%);
+            --glass-bg: rgba(249, 249, 255, 0.85);
         }
 
         .nocturno {
@@ -110,6 +111,7 @@
             --error: #ffb4ab;
             --error-container: #93000a;
             --gradient: linear-gradient(135deg, #1a2b48 0%, #0d2146 100%);
+            --glass-bg: rgba(13, 33, 70, 0.85);
         }
 
         .operativo {
@@ -136,30 +138,93 @@
             --error: #cc0000;
             --error-container: #ffcccc;
             --gradient: linear-gradient(135deg, #000000 0%, #333333 100%);
+            --glass-bg: rgba(242, 242, 242, 0.85);
         }
 
         body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; min-height: 100dvh; transition: background-color 0.3s ease, color 0.3s ease; zoom: 0.93; }
         .material-symbols-outlined {
+            font-family: 'Material Symbols Outlined' !important;
+            font-weight: normal;
+            font-style: normal;
+            font-size: 24px;
+            line-height: 1;
+            letter-spacing: normal;
+            text-transform: none;
+            display: inline-block;
+            white-space: nowrap;
+            word-wrap: normal;
+            direction: ltr;
+            -webkit-font-feature-settings: 'liga';
+            -webkit-font-smoothing: antialiased;
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }
         .kinetic-gradient {
             background: var(--gradient);
         }
         .glass-panel {
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            background: var(--glass-bg);
+        }
+        .nav-btn {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+        .nav-btn:hover {
+            transform: translateY(-2px);
+            background-color: var(--surface-container-high);
+            color: var(--primary);
+        }
+        .nav-btn:active {
+            transform: scale(0.95);
+        }
+        .nav-btn.bg-primary-container:hover {
+            background-color: var(--primary-container);
+            opacity: 0.95;
+            color: white;
         }
         
         /* Custom scrollbar to keep it sleek */
         ::-webkit-scrollbar {
             width: 6px;
+            height: 6px;
         }
         ::-webkit-scrollbar-track {
             background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-            background: #c5c6ce;
+            background: var(--outline-variant);
             border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--on-surface-variant);
+        }
+
+        /* Premium tab transition animation */
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        #main-content > * {
+            animation: fadeSlideIn 0.28s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        }
+
+        /* Modal scale-up animation */
+        @keyframes scaleUp {
+            from { transform: scale(0.92); opacity: 0; }
+            to   { transform: scale(1); opacity: 1; }
+        }
+        .animate-scale-up {
+            animation: scaleUp 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        /* Fade-in utility */
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.3s ease forwards;
         }
 
         /* Elegant Loading Screen Animations */

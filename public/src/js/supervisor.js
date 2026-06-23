@@ -99,9 +99,13 @@ function saveTrackedNaps() {
     window.updateNapsBadge();
 }
 
+const _debouncedOrderRender = debounce(() => {
+    if (state.tab === 'orders') renderTab('orders');
+}, 200);
+
 window.setOrderSearch = function(val) {
     state.orderSearch = val;
-    if (state.tab === 'orders') renderTab('orders');
+    _debouncedOrderRender();
 };
 
 window.setOrderSort = function(key) {
@@ -206,20 +210,25 @@ window.runMonthlyAudit = function() {
 state.lastStateHash = '';
 
 function getStateHash() {
-    return JSON.stringify({
-        ordersCount: state.orders ? state.orders.length : 0,
-        finishedOrdersCount: state.finishedOrders ? state.finishedOrders.length : 0,
-        issuesCount: state.issues ? state.issues.length : 0,
-        finishedIssuesCount: state.finishedIssues ? state.finishedIssues.length : 0,
-        ordersStates: state.orders ? state.orders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
-        finishedOrdersStates: state.finishedOrders ? state.finishedOrders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
-        issuesStates: state.issues ? state.issues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
-        finishedIssuesStates: state.finishedIssues ? state.finishedIssues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
-        trackedNapsCount: state.trackedNaps ? state.trackedNaps.length : 0,
-        trackedNapsStates: state.trackedNaps ? state.trackedNaps.map(n => `${n.id}:${n.resolved}`) : [],
-        tracking: localStorage.getItem('Velocity_Order_Tracking') || '{}',
-        online: state.onlineStatus ? Object.keys(state.onlineStatus).sort().map(k => `${k}:${state.onlineStatus[k]}`) : []
-    });
+    try {
+        return JSON.stringify({
+            ordersCount: state.orders ? state.orders.length : 0,
+            finishedOrdersCount: state.finishedOrders ? state.finishedOrders.length : 0,
+            issuesCount: state.issues ? state.issues.length : 0,
+            finishedIssuesCount: state.finishedIssues ? state.finishedIssues.length : 0,
+            ordersStates: state.orders ? state.orders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
+            finishedOrdersStates: state.finishedOrders ? state.finishedOrders.map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`) : [],
+            issuesStates: state.issues ? state.issues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
+            finishedIssuesStates: state.finishedIssues ? state.finishedIssues.map(i => `${i.id}:${i.state}:${i.feedbacks?.length || 0}`) : [],
+            trackedNapsCount: state.trackedNaps ? state.trackedNaps.length : 0,
+            trackedNapsStates: state.trackedNaps ? state.trackedNaps.map(n => `${n.id}:${n.resolved}`) : [],
+            tracking: localStorage.getItem('Velocity_Order_Tracking') || '{}',
+            online: state.onlineStatus ? Object.keys(state.onlineStatus).sort().map(k => `${k}:${state.onlineStatus[k]}`) : []
+        });
+    } catch (e) {
+        console.warn('[Velocity] Error calculando hash de estado:', e.message);
+        return String(Date.now()); // Force a re-render on hash failure rather than crashing the poll loop
+    }
 }
 
 function startPolling() {
@@ -309,7 +318,7 @@ document.addEventListener('visibilitychange', () => {
 ;
 
 // ── VISTAS ────────────────────────────────────────────────────────────────
-const Views = {};
+// const Views = {};
 
 // ── DASHBOARD ─────────────────────────────────────────────────────────────
 Views.dashboard = () => {
@@ -503,13 +512,15 @@ Views.orders = () => {
     const zones = [...new Set(baseForFilters.map(o => o.zone).filter(Boolean))].sort();
 
     // 3. Aplicar Búsqueda Global
-    const search = state.orderSearch.toLowerCase().trim();
+    const search = (state.orderSearch || '').toLowerCase().trim();
     if (search) {
         const filterFn = o => 
-            o.client.toLowerCase().includes(search) || 
-            String(o.id).includes(search) || 
-            o.address.toLowerCase().includes(search) || 
-            o.techName.toLowerCase().includes(search);
+            (o.client || '').toLowerCase().includes(search) || 
+            String(o.id || '').includes(search) || 
+            (o.address || '').toLowerCase().includes(search) || 
+            (o.techName || '').toLowerCase().includes(search) ||
+            (o.zone || '').toLowerCase().includes(search) ||
+            (o.nap || '').toLowerCase().includes(search);
             
         filteredActive = filteredActive.filter(filterFn);
         filteredFinished = filteredFinished.filter(filterFn);
@@ -966,7 +977,7 @@ Views.technicians = () => {
 };
 
 // Map Initialization for Technicians
-let techsMapInstance = null;
+// let techsMapInstance = null;
 window.initTechsMap = function() {
     const mapEl = document.getElementById('techs-map');
     if (!mapEl) return;
@@ -2946,9 +2957,9 @@ Views.inventory = () => {
     const search = (state.orderSearch || '').toLowerCase().trim();
     if (search) {
         filtered = filtered.filter(c => 
-            c.name.toLowerCase().includes(search) ||
-            c.zone.toLowerCase().includes(search) ||
-            String(c.id).includes(search)
+            (c.name || '').toLowerCase().includes(search) ||
+            (c.zone || '').toLowerCase().includes(search) ||
+            String(c.id || '').includes(search)
         );
     }
 
@@ -3579,7 +3590,7 @@ Views.naps = () => {
 };
 
 // Map Initialization
-let napsMapInstance = null;
+// let napsMapInstance = null;
 window.initNapsMap = function() {
     const mapEl = document.getElementById('naps-map');
     if (!mapEl) return;
@@ -3641,7 +3652,7 @@ window.initNapsMap = function() {
     }
 };
 
-let napsFullscreenMapInstance = null;
+// let napsFullscreenMapInstance = null;
 window.openNapsMapModal = () => {
     const modal = document.getElementById('naps-map-modal');
     if (!modal) return;

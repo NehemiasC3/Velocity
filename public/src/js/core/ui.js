@@ -7,7 +7,9 @@ function updateSystemStatus(online) {
     if (!text || !icon || !container) return;
 
     if (online) {
-        text.textContent = 'Conectado';
+        const syncAgo = state.lastSync ? Math.round((Date.now() - state.lastSync) / 1000) : null;
+        const syncLabel = syncAgo === null ? '' : syncAgo < 60 ? ' · Recién' : ` · ${Math.floor(syncAgo / 60)}m`;
+        text.textContent = 'Conectado' + syncLabel;
         icon.textContent = 'verified_user';
         container.classList.remove('bg-error-container/30', 'text-error');
         container.classList.add('bg-tertiary-fixed-dim/30');

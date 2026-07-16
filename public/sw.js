@@ -1,8 +1,8 @@
-const CACHE_NAME = 'velocity-v3.1.2.2';
+const CACHE_NAME = 'velocity-v3.1.2.3';
 const ASSETS = [
   'index.html',
   'manifest.json',
-  'logo-velocity.svg',
+  'logo-velocity.svg?v=2',
   'icon-192.png',
   'icon-512.png',
   'pages/login.html',

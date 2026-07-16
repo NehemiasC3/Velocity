@@ -95,7 +95,7 @@ function getRelativeTime(timestamp) {
 
 function techColor(name) {
     if (!name) return '#6b7280';
-    const key = TECNICOS_ACTIVOS.find(n => name.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+    const key = TECNICOS_ACTIVOS.find(n => n && name.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
     if (key && TECH_PALETTE[key]) return TECH_PALETTE[key];
     
     // Hash para generar un color HSL único pero consistente y elegante
@@ -114,7 +114,7 @@ function techInitials(name) {
 function isActiveTech(name) {
     if (!name) return false;
     const firstWord = name.split(' ')[0].toLowerCase();
-    return TECNICOS_ACTIVOS.some(n => n.split(' ')[0].toLowerCase() === firstWord);
+    return TECNICOS_ACTIVOS.some(n => n && n.split(' ')[0].toLowerCase() === firstWord);
 }
 
 function sinceBadge(iso) {
@@ -141,7 +141,7 @@ window.deleteInactiveUsers = function() {
     
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     if(db.technicians) {
-        db.technicians = db.technicians.filter(t => TECNICOS_ACTIVOS.some(n => t.name.toLowerCase().includes(n.toLowerCase().split(' ')[0])));
+        db.technicians = db.technicians.filter(t => t.name && TECNICOS_ACTIVOS.some(n => n && t.name.toLowerCase().includes(n.toLowerCase().split(' ')[0])));
     }
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
     if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();

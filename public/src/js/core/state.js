@@ -22,7 +22,7 @@ const TECNICOS_ACTIVOS = [];
 window.updateActiveTechs = function() {
     try {
         const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        const dbTechs = (db.technicians || []).filter(t => !t.disabled).map(t => t.name);
+        const dbTechs = (db.technicians || []).filter(t => !t.disabled && t.name && typeof t.name === 'string').map(t => t.name.trim());
         if (dbTechs.length > 0) {
             TECNICOS_ACTIVOS.length = 0;
             TECNICOS_ACTIVOS.push(...dbTechs);

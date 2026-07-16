@@ -1090,64 +1090,78 @@ Views.reports = () => {
     }
 
     // 2. Calcular los contadores basándose en la lista filtrada por búsqueda
-    const counts = { all: 0, hoy: 0, manana: 0, semana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
+    const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     
     searchFilteredIssues.forEach(i => {
-        if (!i.assignable_id) { counts.sin_asignar++; counts.all++; return; }
-        
         let tName = state.techs[i.assignable_id];
-        if (!tName) {
+        if (!tName && i.assignable_id) {
             const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
             tName = f?.name;
         }
-        const esAct = tName && TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+        if (!tName) tName = 'Sin asignar';
+
+        if (tName === 'Sin asignar') {
+            counts.sin_asignar++;
+            counts.all++;
+            counts.hoy++; // Unassigned count towards today/all
+            return;
+        }
+
+        const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
         if (!esAct) return;
 
         counts.all++;
         const venc = i.expires_at ? new Date(i.expires_at) : null;
-        if (!venc) { counts.sin_fecha++; return; }
+        if (!venc) {
+            counts.sin_fecha++;
+            counts.hoy++; // No date is active today
+            return;
+        }
         
         venc.setHours(0,0,0,0);
         const tTime = today.getTime();
         const mTime = tomorrow.getTime();
         const vTime = venc.getTime();
         
-        if (vTime === tTime) counts.hoy++;
+        if (vTime === tTime || vTime < tTime) counts.hoy++;
         if (vTime === mTime) counts.manana++;
-        if (venc < today) counts.vencido++;
+        if (vTime < tTime) counts.vencido++;
     });
 
     // 3. Filtrar por fecha o estado de asignación sobre la lista filtrada por búsqueda
     let allIssues = searchFilteredIssues.filter(issue => {
-        if (date === 'sin_asignar') {
-            return !issue.assignable_id;
-        }
-
-        // Si es 'all', queremos incluir los sin asignar y los asignados a tecnicos activos
-        if (date === 'all') {
-            if (!issue.assignable_id) return true;
-            
-            const techName = state.techs[issue.assignable_id] || '';
+        let techName = state.techs[issue.assignable_id];
+        if (!techName && issue.assignable_id) {
             const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-            const foundInDB = (db.technicians || []).find(t => String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id));
-            const resolvedName = techName || foundInDB?.name || '';
-            const esActivo = resolvedName && TECNICOS_ACTIVOS.some(n =>
-                resolvedName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            const found = (db.technicians || []).find(t =>
+                String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id)
             );
-            return esActivo;
+            techName = found?.name;
+        }
+        if (!techName) techName = 'Sin asignar';
+
+        if (date === 'sin_asignar') {
+            return techName === 'Sin asignar';
         }
 
-        // Excluir los sin asignar si no estamos en ese filtro
-        if (!issue.assignable_id) return false;
+        const venc = issue.expires_at ? new Date(issue.expires_at) : null;
+        if (date === 'all' || date === 'hoy') {
+            if (techName === 'Sin asignar') return true;
+            const esActivo = TECNICOS_ACTIVOS.some(n =>
+                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+            );
+            if (!esActivo) return false;
+            // Incluir si no tiene fecha, si venció, o si vence hoy
+            if (!venc) return true;
+            venc.setHours(0,0,0,0);
+            return venc.getTime() <= today.getTime();
+        }
 
-        // Verificar que el técnico sea uno de los activos
-        const techName = state.techs[issue.assignable_id] || '';
-        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        const foundInDB = (db.technicians || []).find(t => String(t.wisproId) === String(issue.assignable_id) || String(t.id) === String(issue.assignable_id));
-        const resolvedName = techName || foundInDB?.name || '';
-        const esActivo = resolvedName && TECNICOS_ACTIVOS.some(n =>
-            resolvedName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
+        if (techName === 'Sin asignar') return false;
+
+        const esActivo = TECNICOS_ACTIVOS.some(n =>
+            techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
         );
         if (!esActivo) return false;
 

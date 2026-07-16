@@ -5,6 +5,8 @@ const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 
 dotenv.config();
 
@@ -15,7 +17,27 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 const API_SECRET = process.env.API_SECRET || 'velocidad-secreta-2024';
 
-// Middleware
+// Middleware de Seguridad y Limitador
+app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false
+}));
+
+const generalLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 400,
+    message: { error: 'Demasiadas peticiones desde esta IP. Por favor intenta más tarde.' }
+});
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 15,
+    message: { error: 'Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos.' }
+});
+
+app.use('/api/', generalLimiter);
+app.use('/api/login', loginLimiter);
+
 app.use(cors());
 app.use(express.json());
 // SEGURIDAD: Solo servir archivos desde la carpeta 'public'
@@ -113,13 +135,28 @@ async function syncFromGoogleDrive() {
     }
 }
 
-// ── SEGURIDAD (TOKEN) ─────────────────────────────────────────────────────
+// ── SEGURIDAD (TOKEN Y SESIONES EFÍMERAS) ──────────────────────────────────
+const activeSessions = new Map();
+
 function validateToken(req, res, next) {
     const authHeader = req.headers['authorization'] || req.headers['x-api-secret'];
+    if (!authHeader) {
+        return res.status(401).json({ error: 'No autorizado. Se requiere token.' });
+    }
+
+    // Bypass maestro para compatibilidad de herramientas administrativas/sistemas
     if (authHeader === API_SECRET) {
         return next();
     }
-    return res.status(401).json({ error: 'No autorizado. Token inválido o expirado.' });
+
+    const session = activeSessions.get(authHeader);
+    if (session && session.expiresAt > Date.now()) {
+        session.expiresAt = Date.now() + 24 * 60 * 60 * 1000; // Prolongar sesión 24h
+        req.user = session;
+        return next();
+    }
+
+    return res.status(401).json({ error: 'Sesión inválida o expirada.' });
 }
 
 // ── ENDPOINTS DE AUTENTICACIÓN ────────────────────────────────────────────
@@ -145,9 +182,19 @@ app.post('/api/login', (req, res) => {
         return res.status(403).json({ error: 'Cuenta desactivada' });
     }
     
+    // Generar token efímero de sesión de 64 caracteres hex
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    activeSessions.set(sessionToken, {
+        userId: user.id,
+        role: role,
+        name: user.name,
+        email: user.email,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000 // 24 horas de validez
+    });
+    
     res.json({
         success: true,
-        token: API_SECRET, // Por ahora usamos el API_SECRET como token
+        token: sessionToken,
         role: role,
         userId: user.id,
         name: user.name

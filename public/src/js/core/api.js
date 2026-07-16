@@ -658,16 +658,7 @@ async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false)
         // 3. Unificar todos los ítems y filtrar
         const allItems = [...(pendingData.data || []), ...closedItems, ...finalizedItems];
 
-        const finalIssues = allItems.filter(i => {
-            const isPending = ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase());
-            if (!isPending) return false;
-            
-            // Quitar las sin asignar que no tienen fecha de vencimiento
-            if (!i.assignable_id && !i.expires_at) {
-                return false;
-            }
-            return true;
-        });
+        const finalIssues = allItems.filter(i => ['pending', 'open', 'abierta'].includes((i.state || '').toLowerCase()));
         
         const finalFinished = allItems.filter(i => {
             const st = (i.state || '').toLowerCase();

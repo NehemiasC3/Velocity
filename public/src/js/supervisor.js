@@ -1165,15 +1165,12 @@ Views.reports = () => {
         );
         if (!esActivo) return false;
 
-        if (date !== 'all') {
-            const venc = issue.expires_at ? new Date(issue.expires_at) : null;
-            if (!venc) return date === 'sin_fecha';
-            if (date === 'sin_fecha') return false;
-            venc.setHours(0,0,0,0);
-            if (date === 'hoy'     && venc.getTime() !== today.getTime())    return false;
-            if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
-            if (date === 'vencido' && venc >= today)                         return false;
-        }
+        if (!venc) return date === 'sin_fecha';
+        if (date === 'sin_fecha') return false;
+        venc.setHours(0,0,0,0);
+        if (date === 'manana'  && venc.getTime() !== tomorrow.getTime()) return false;
+        if (date === 'vencido' && venc >= today)                         return false;
+
         return true;
     });
 

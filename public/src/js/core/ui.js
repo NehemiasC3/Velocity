@@ -7,9 +7,7 @@ function updateSystemStatus(online) {
     if (!text || !icon || !container) return;
 
     if (online) {
-        const syncAgo = state.lastSync ? Math.round((Date.now() - state.lastSync) / 1000) : null;
-        const syncLabel = syncAgo === null ? '' : syncAgo < 60 ? ' · Recién' : ` · ${Math.floor(syncAgo / 60)}m`;
-        text.textContent = 'Conectado' + syncLabel;
+        text.textContent = 'Conectado';
         icon.textContent = 'verified_user';
         container.classList.remove('bg-error-container/30', 'text-error');
         container.classList.add('bg-tertiary-fixed-dim/30');
@@ -179,18 +177,100 @@ window.showLoadingOverlay = function(message = 'Cargando...', isUpdate = false) 
         }
         
         if (graphicEl) {
-            // Cargador clásico: Logo latiendo con tres puntos
-            graphicEl.innerHTML = `
-                <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
-                    <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
-                    <div class="shimmer-bar animate-shimmer"></div>
-                </div>
-                <div class="flex items-center gap-2 mt-4">
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
-                </div>
-            `;
+            if (isUpdate) {
+                // PREMIUM VECTOR SVG RUNNING HAMSTER (Much more cute, smooth and professional than blocky HTML divs)
+                graphicEl.innerHTML = `
+                    <style>
+                        @keyframes spin-wheel-svg {
+                            0% { transform: rotate(0deg); }
+                            100% { transform: rotate(360deg); }
+                        }
+                        .spinning-wheel-svg {
+                            transform-origin: 75px 75px;
+                            animation: spin-wheel-svg 1.2s linear infinite;
+                        }
+                        @keyframes run-legs-svg {
+                            0%, 100% { transform: scaleY(1) translateY(0); }
+                            50% { transform: scaleY(0.5) translateY(4px); }
+                        }
+                        .front-foot-svg {
+                            transform-origin: 42px 40px;
+                            animation: run-legs-svg 0.15s linear infinite;
+                        }
+                        .back-foot-svg {
+                            transform-origin: 15px 40px;
+                            animation: run-legs-svg 0.15s linear infinite;
+                            animation-delay: 0.075s;
+                        }
+                        @keyframes hamster-run-svg {
+                            0%, 100% { transform: translate(45px, 52px) rotate(-1deg); }
+                            50% { transform: translate(45px, 55px) rotate(2deg); }
+                        }
+                        .running-hamster-svg {
+                            animation: hamster-run-svg 0.3s ease-in-out infinite;
+                        }
+                    </style>
+                    <svg viewBox="0 0 150 150" width="160" height="160">
+                        <defs>
+                            <linearGradient id="wheel-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#0059bb" />
+                                <stop offset="100%" stop-color="#38bdf8" />
+                            </linearGradient>
+                            <linearGradient id="hamster-body-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#fbbf24" />
+                                <stop offset="100%" stop-color="#d97706" />
+                            </linearGradient>
+                            <linearGradient id="ear-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#fda4af" />
+                                <stop offset="100%" stop-color="#f43f5e" />
+                            </linearGradient>
+                        </defs>
+                        
+                        <!-- Outer Wheel (spinning) -->
+                        <g class="spinning-wheel-svg">
+                            <circle cx="75" cy="75" r="60" fill="none" stroke="url(#wheel-grad)" stroke-width="6" stroke-dasharray="320 60" />
+                            <!-- Wheel Spokes -->
+                            <line x1="75" y1="15" x2="75" y2="135" stroke="url(#wheel-grad)" stroke-width="1.5" opacity="0.25" />
+                            <line x1="15" y1="75" x2="135" y2="75" stroke="url(#wheel-grad)" stroke-width="1.5" opacity="0.25" />
+                        </g>
+                        
+                        <!-- Hamster (bouncing/running) -->
+                        <g class="running-hamster-svg">
+                            <!-- Back Foot -->
+                            <ellipse class="back-foot-svg" cx="15" cy="40" rx="5" ry="4" fill="#b45309" />
+                            <!-- Tail -->
+                            <circle cx="5" cy="25" r="4.5" fill="#fda4af" />
+                            <!-- Hamster Body -->
+                            <path d="M 12 15 C 8 20, 5 30, 10 38 C 15 42, 38 42, 45 35 C 50 30, 52 20, 48 15 C 44 10, 16 10, 12 15 Z" fill="url(#hamster-body-grad)" />
+                            <!-- Blushing Cheek -->
+                            <circle cx="41" cy="24" r="3.5" fill="#f87171" opacity="0.75" />
+                            <!-- Eye -->
+                            <circle cx="43" cy="18" r="3" fill="#1e293b" />
+                            <circle cx="44.2" cy="16.8" r="1" fill="#FFFFFF" />
+                            <!-- Ear -->
+                            <ellipse cx="32" cy="8" rx="5" ry="7" fill="url(#ear-grad)" transform="rotate(-15 32 8)" />
+                            <ellipse cx="32" cy="8" rx="2.5" ry="4" fill="#ffffff" opacity="0.4" transform="rotate(-15 32 8)" />
+                            <!-- Front Foot -->
+                            <ellipse class="front-foot-svg" cx="42" cy="40" rx="5" ry="4" fill="#d97706" />
+                            <!-- Nose -->
+                            <polygon points="49,19 52,21 49,23" fill="#f43f5e" />
+                        </g>
+                    </svg>
+`;
+            } else {
+                // Cargador clásico: Logo latiendo con tres puntos
+                graphicEl.innerHTML = `
+                    <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
+                        <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
+                        <div class="shimmer-bar animate-shimmer"></div>
+                    </div>
+                    <div class="flex items-center gap-2 mt-4">
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
+                        <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
+                    </div>
+`;
+            }
         }
         
         // Ajustamos las clases de fondo del overlay según sea actualización (blanco) o carga clásica
@@ -242,7 +322,7 @@ window.switchTab = function(tab) {
     });
 
     // Título
-    const titles = { dashboard: 'Resumen', office: 'Oficina', orders: 'Órdenes', technicians: 'Técnicos', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes' };
+    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes', prueba: 'Prueba' };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
@@ -286,8 +366,12 @@ function renderTab(tab) {
         setTimeout(window.initTechsMap, 100);
     }
 
-    if (tab === 'orders' && typeof window.loadLastCommentsForPlaceholders === 'function') {
+    if ((tab === 'orders' || tab === 'reports' || tab === 'prueba') && typeof window.loadLastCommentsForPlaceholders === 'function') {
         setTimeout(window.loadLastCommentsForPlaceholders, 150);
+    }
+
+    if (tab === 'reports' && typeof window.loadRecentCommentsAudit === 'function') {
+        setTimeout(window.loadRecentCommentsAudit, 150);
     }
 }
 
@@ -300,7 +384,7 @@ if ('serviceWorker' in navigator) {
                 installingWorker.addEventListener('statechange', () => {
                     if (installingWorker.state === 'installing' || installingWorker.state === 'installed') {
                         if (window.showLoadingOverlay) {
-                            window.showLoadingOverlay('Instalando Actualización (v3.2.0)...', true);
+                            window.showLoadingOverlay('Instalando Actualización (v3.1.2)...', true);
                         }
                     }
                 });

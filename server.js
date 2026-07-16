@@ -230,13 +230,40 @@ app.post('/api/heartbeat', (req, res) => {
     res.json({ success: true, timestamp: onlineStatus[techId] });
 });
 
-// ── PROXY SEGURO PARA WISPRO (PROTEGIDO) ─────────────────────────────────
+// ── PROXY SEGURO PARA WISPRO (PROTEGIDO) CON CACHÉ ───────────────────────
+const wisproCache = {};
+const WISPRO_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+function cleanWisproCache() {
+    const now = Date.now();
+    Object.keys(wisproCache).forEach(key => {
+        if (now - wisproCache[key].timestamp > WISPRO_CACHE_TTL) {
+            delete wisproCache[key];
+        }
+    });
+}
+
 app.all('/api/wispro/*', validateToken, async (req, res) => {
     const apiPath = req.params[0] || '';
     const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
     const token = process.env.WISPRO_API_KEY;
     const baseUrl = process.env.WISPRO_BASE_URL || 'https://www.cloud.wispro.co/api/v1';
     
+    const isGet = req.method === 'GET';
+    const cacheKey = req.originalUrl;
+
+    if (isGet) {
+        cleanWisproCache();
+        if (wisproCache[cacheKey]) {
+            const entry = wisproCache[cacheKey];
+            if (Date.now() - entry.timestamp < WISPRO_CACHE_TTL) {
+                return res.status(entry.status).json(entry.data);
+            } else {
+                delete wisproCache[cacheKey];
+            }
+        }
+    }
+
     try {
         const fullApiPath = apiPath.startsWith('/') ? apiPath.slice(1) : apiPath;
         const url = `${baseUrl}/${fullApiPath}${query ? '?' + query : ''}`;
@@ -252,6 +279,28 @@ app.all('/api/wispro/*', validateToken, async (req, res) => {
         });
 
         const data = await response.json().catch(() => ({}));
+        
+        // Almacenar en caché si es una petición GET exitosa
+        if (isGet && response.status === 200) {
+            wisproCache[cacheKey] = {
+                timestamp: Date.now(),
+                status: response.status,
+                data: data
+            };
+        } else if (!isGet) {
+            // Invalidar caché relacionada si se hace un cambio
+            // Ej: si se edita una orden, invalidamos la caché de esa orden
+            const pathParts = apiPath.split('/');
+            const id = pathParts.find(p => p && !isNaN(p) || (p && p.length > 10)); // busca un posible ID
+            if (id) {
+                Object.keys(wisproCache).forEach(k => {
+                    if (k.includes(id)) {
+                        delete wisproCache[k];
+                    }
+                });
+            }
+        }
+
         res.status(response.status).json(data);
     } catch (error) {
         console.error('Error in Wispro Proxy:', error.message);
@@ -315,15 +364,6 @@ app.post('/api/test-report-email', validateToken, async (req, res) => {
 // ── REPORTES DIARIOS AUTOMÁTICOS POR CORREO ─────────────────────────────
 let lastReportDay = '';
 
-function extractNapNumber(val) {
-    if (val === null || val === undefined) return -Infinity;
-    if (typeof val === 'number') return val;
-    const cleanStr = String(val).trim();
-    if (!cleanStr) return -Infinity;
-    const match = cleanStr.match(/-?\d+(\.\d+)?/);
-    return match ? parseFloat(match[0]) : -Infinity;
-}
-
 async function sendDailyReportEmail() {
     const db = getDB();
     const url = db.settings?.googleSheetUrl;
@@ -340,26 +380,12 @@ async function sendDailyReportEmail() {
 
     console.log(`[Velocity Reports] Preparando reporte diario para enviar a: ${recipient}...`);
 
-    const criticalNaps = (db.trackedNaps || [])
-        .filter(n => {
-            const val = extractNapNumber(n.levels);
-            return val !== -Infinity && val <= -23;
-        })
-        .map(n => ({
-            name: n.name || '—',
-            zone: n.zone || '—',
-            techName: n.techName || '—',
-            levels: n.levels || '—',
-            resolved: n.resolved ? 'Resuelto' : 'Abierto'
-        }));
-
     const payload = {
         action: 'send_daily_report',
         recipientEmail: recipient,
         date: new Date().toLocaleDateString('es-ES'),
         totalTrackedNaps: db.trackedNaps?.length || 0,
-        pendingNapsCount: db.trackedNaps?.filter(n => !n.resolved)?.length || 0,
-        criticalNaps: criticalNaps
+        pendingNapsCount: db.trackedNaps?.filter(n => !n.resolved)?.length || 0
     };
 
     try {

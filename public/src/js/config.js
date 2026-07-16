@@ -25,5 +25,5 @@ const VELOCITY_CONFIG = {
     get heartbeatPath() { return "/api/heartbeat"; },
     
     // Versión del Ecosistema
-    version: "3.2.0-PRO"
+    version: "2.0.0-PRO-FIXED"
 };

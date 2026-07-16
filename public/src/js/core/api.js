@@ -224,12 +224,7 @@ function cacheGet(key) {
         const { ts, data, ttl } = JSON.parse(raw);
         if (Date.now() - ts > ttl) return null;
         return data;
-    } catch (e) {
-        // Corrupted cache entry — remove it to prevent persistent parse errors
-        console.warn(`[Velocity] Caché corrupta detectada para '${key}'. Limpiando...`, e.message);
-        try { localStorage.removeItem('V_' + key); } catch (_) {}
-        return null;
-    }
+    } catch { return null; }
 }
 
 
@@ -237,18 +232,7 @@ function cacheGet(key) {
 function cacheSet(key, data, ttl) {
     try {
         localStorage.setItem('V_' + key, JSON.stringify({ ts: Date.now(), data, ttl }));
-    } catch (e) {
-        if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-            console.warn(`[Velocity] localStorage lleno al escribir '${key}'. Intentando liberar espacio...`);
-            // Try removing stale caches to free space
-            try {
-                localStorage.removeItem('V_clients_dynamic');
-                localStorage.setItem('V_' + key, JSON.stringify({ ts: Date.now(), data, ttl }));
-            } catch (_) {
-                console.error('[Velocity] No se pudo escribir en localStorage incluso tras limpiar espacio.');
-            }
-        }
-    }
+    } catch {}
 }
 
 
@@ -261,13 +245,16 @@ function cacheClear() {
 
 function loadDynamicClients() {
     const cached = cacheGet('clients_dynamic');
-    state.dynamicClients = cached || {};
     if (cached) {
         for (const [id, clientData] of Object.entries(cached)) {
-            state.clients[id] = {
-                ...(state.clients[id] || {}),
-                ...clientData
-            };
+            if (state.clients[id]) {
+                state.clients[id] = {
+                    ...state.clients[id],
+                    ...clientData
+                };
+            } else {
+                state.clients[id] = clientData;
+            }
         }
     }
 }
@@ -275,29 +262,8 @@ function loadDynamicClients() {
 
 
 function saveDynamicClients() {
-    // Solo guardamos los que se resolvieron dinámicamente y no están duplicados en V_static
-    if (state.dynamicClients) {
-        try {
-            cacheSet('clients_dynamic', state.dynamicClients, 1000 * 60 * 60 * 24); // 24 horas
-        } catch (e) {
-            // localStorage QuotaExceededError protection
-            if (e.name === 'QuotaExceededError' || e.code === 22 || e.code === 1014) {
-                console.warn('[Velocity] localStorage lleno. Limpiando caché dinámica antigua...');
-                try {
-                    // Prune: keep only the latest 200 dynamic clients
-                    const entries = Object.entries(state.dynamicClients);
-                    if (entries.length > 200) {
-                        state.dynamicClients = Object.fromEntries(entries.slice(-200));
-                    }
-                    cacheSet('clients_dynamic', state.dynamicClients, 1000 * 60 * 60 * 24);
-                } catch (innerErr) {
-                    console.error('[Velocity] No se pudo guardar caché dinámica tras limpieza:', innerErr);
-                }
-            } else {
-                console.error('[Velocity] Error inesperado al guardar caché dinámica:', e);
-            }
-        }
-    }
+    // Solo guardamos los que NO están en el caché estático para no duplicar
+    cacheSet('clients_dynamic', state.clients, 1000 * 60 * 60 * 24); // 24 horas
 }
 
 
@@ -522,139 +488,99 @@ async function resolveUnified(idMap, force = false) {
     const remainingIds = Object.keys(idMap).filter(id => force || !state.clients[id] || !state.clients[id].name);
     if (remainingIds.length === 0) return;
 
-    if (!state.resolvingPromises) state.resolvingPromises = {};
+    console.log(`[Velocity] Resolviendo de forma individual ${remainingIds.length} entidades de Wispro...`);
+    const BATCH_SIZE = 3;
+    for (let i = 0; i < remainingIds.length; i += BATCH_SIZE) {
+        const batch = remainingIds.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (cid) => {
+            try {
+                const kind = idMap[cid];
+                let endpointsToTry = [`/contracts/${cid}`, `/clients/${cid}`];
+                if (kind === 'client') {
+                    endpointsToTry = [`/clients/${cid}`];
+                } else if (kind === 'installation') {
+                    endpointsToTry = [`/installation_orders/${cid}`, `/sale_desk/prospects/${cid}`, `/prospects/${cid}`, `/clients/${cid}`, `/contracts/${cid}`];
+                }
 
-    // Filtrar ids que ya se están resolviendo en paralelo actualmente
-    const uniqueRemainingIds = remainingIds.filter(id => !state.resolvingPromises[id]);
-    const alreadyResolvingPromises = remainingIds
-        .filter(id => state.resolvingPromises[id])
-        .map(id => state.resolvingPromises[id]);
-
-    if (uniqueRemainingIds.length > 0) {
-        console.log(`[Velocity] Resolviendo de forma individual ${uniqueRemainingIds.length} entidades de Wispro...`);
-        const BATCH_SIZE = 3;
-        for (let i = 0; i < uniqueRemainingIds.length; i += BATCH_SIZE) {
-            const batch = uniqueRemainingIds.slice(i, i + BATCH_SIZE);
-            const batchPromises = batch.map((cid) => {
-                const promise = (async () => {
+                let data = null;
+                for (const ep of endpointsToTry) {
                     try {
-                        const kind = idMap[cid];
-                        let endpointsToTry = [`/contracts/${cid}`, `/clients/${cid}`];
-                        if (kind === 'client') {
-                            endpointsToTry = [`/clients/${cid}`];
-                        } else if (kind === 'installation') {
-                            endpointsToTry = [`/installation_orders/${cid}`, `/sale_desk/prospects/${cid}`, `/prospects/${cid}`, `/clients/${cid}`, `/contracts/${cid}`];
+                        const r = await apiFetch(ep, {}, true);
+                        if (r && r.status !== 404) {
+                            const raw = r.data || r;
+                            if (raw && (raw.id || raw.client_id || raw.name)) {
+                                data = raw;
+                                // Si ya tenemos el nombre, no seguimos buscando
+                                if (data.name) break;
+                            }
                         }
+                    } catch (e) {}
+                }
 
-                        let data = null;
-                        for (const ep of endpointsToTry) {
+                if (data) {
+                    let name = data.name || '';
+                    let realClientId = data.client_id || data.id;
+
+                    // Si no tenemos nombre pero sí client_id, intentamos traer el cliente
+                    if (!name && data.client_id) {
+                        try {
+                            const cl = await apiFetch(`/clients/${data.client_id}`, {}, true);
+                            if (cl) {
+                                const cld = cl.data || cl;
+                                name = cld.name || '';
+                            }
+                        } catch (e) {}
+                    }
+
+                    // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo con caché persistente
+                    let napName = data.nap_name || null;
+                    if (!napName && data.nap_id) {
+                        if (!state.napCache) {
                             try {
-                                const r = await apiFetch(ep, {}, true);
-                                if (r && r.status !== 404) {
-                                    const raw = r.data || r;
-                                    if (raw && (raw.id || raw.client_id || raw.name)) {
-                                        data = raw;
-                                        // Si ya tenemos el nombre, no seguimos buscando
-                                        if (data.name) break;
+                                state.napCache = JSON.parse(localStorage.getItem('Velocity_Nap_Cache') || '{}');
+                            } catch(e) { state.napCache = {}; }
+                        }
+                        if (state.napCache[data.nap_id]) {
+                            napName = state.napCache[data.nap_id];
+                        } else {
+                            try {
+                                const napRes = await apiFetch(`/naps/${data.nap_id}`, {}, true);
+                                if (napRes) {
+                                    const napD = napRes.data || napRes;
+                                    napName = napD.name || null;
+                                    if (napName) {
+                                        state.napCache[data.nap_id] = napName;
+                                        localStorage.setItem('Velocity_Nap_Cache', JSON.stringify(state.napCache));
                                     }
                                 }
                             } catch (e) {}
                         }
-
-                        if (data) {
-                            let name = data.name || '';
-                            let realClientId = data.client_id || data.id;
-
-                            // Si no tenemos nombre pero sí client_id, intentamos traer el cliente
-                            if (!name && data.client_id) {
-                                try {
-                                    const cl = await apiFetch(`/clients/${data.client_id}`, {}, true);
-                                    if (cl) {
-                                        const cld = cl.data || cl;
-                                        name = cld.name || '';
-                                    }
-                                } catch (e) {}
-                            }
-
-                            // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo con caché persistente
-                            let napName = data.nap_name || null;
-                            if (!napName && data.nap_id) {
-                                if (!state.napCache) {
-                                    try {
-                                        state.napCache = JSON.parse(localStorage.getItem('Velocity_Nap_Cache') || '{}');
-                                    } catch(e) { state.napCache = {}; }
-                                }
-                                if (state.napCache[data.nap_id]) {
-                                    napName = state.napCache[data.nap_id];
-                                } else {
-                                    try {
-                                        const napRes = await apiFetch(`/naps/${data.nap_id}`, {}, true);
-                                        if (napRes) {
-                                            const napD = napRes.data || napRes;
-                                            napName = napD.name || null;
-                                            if (napName) {
-                                                state.napCache[data.nap_id] = napName;
-                                                localStorage.setItem('Velocity_Nap_Cache', JSON.stringify(state.napCache));
-                                            }
-                                        }
-                                    } catch (e) {}
-                                }
-                            }
-
-                            const clientRecord = {
-                                name:    name,
-                                zone:    data.zone_name || data.address_city || data.city || '',
-                                address: [data.address_street, data.address_number].filter(Boolean).join(' ') || data.address || data.street || '',
-                                phone:   data.phone_mobile || data.phone || '',
-                                nap:     napName,
-                                client_id: realClientId,
-                                latitude:  data.latitude ? String(data.latitude).replace(/,/g, '.').trim() : '',
-                                longitude: data.longitude ? String(data.longitude).replace(/,/g, '.').trim() : ''
-                            };
-
-                            state.clients[cid] = clientRecord;
-                            if (!state.dynamicClients) state.dynamicClients = {};
-                            state.dynamicClients[cid] = clientRecord;
-
-                            if (realClientId) {
-                                state.clients[realClientId] = clientRecord;
-                                state.dynamicClients[realClientId] = clientRecord;
-                            }
-                        }
-                    } catch (e) {
-                        console.error(`[Velocity] Error resolviendo individualmente ID ${cid}:`, e);
-                    } finally {
-                        delete state.resolvingPromises[cid];
                     }
-                })();
 
-                state.resolvingPromises[cid] = promise;
-                return promise;
-            });
-
-            await Promise.all(batchPromises);
-            if (i + BATCH_SIZE < uniqueRemainingIds.length) await new Promise(r => setTimeout(r, 1000));
-        }
+                    state.clients[cid] = {
+                        name:    name,
+                        zone:    data.zone_name || data.address_city || data.city || '',
+                        address: [data.address_street, data.address_number].filter(Boolean).join(' ') || data.address || data.street || '',
+                        phone:   data.phone_mobile || data.phone || '',
+                        nap:     napName,
+                        client_id: realClientId,
+                        latitude:  data.latitude ? String(data.latitude).replace(/,/g, '.').trim() : '',
+                        longitude: data.longitude ? String(data.longitude).replace(/,/g, '.').trim() : ''
+                    };
+                    if (realClientId) {
+                        state.clients[realClientId] = state.clients[cid];
+                    }
+                }
+            } catch (e) {}
+        }));
+        if (i + BATCH_SIZE < ids.length) await new Promise(r => setTimeout(r, 1000));
     }
-
-    // Esperar a que terminen las peticiones en curso (tanto las nuevas como las anteriores concurrentes)
-    if (alreadyResolvingPromises.length > 0) {
-        await Promise.all(alreadyResolvingPromises);
-    }
-
     saveDynamicClients();
 }
 
 
 
-let _loadIssuesRunning = false;
 async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false) {
-    // Concurrency guard: prevent overlapping full loads
-    if (_loadIssuesRunning && !fastPendingOnly) {
-        console.log('[Velocity] loadIssues ya en ejecución, omitiendo llamada duplicada.');
-        return;
-    }
-    if (!fastPendingOnly) _loadIssuesRunning = true;
     try {
         const cached = !force && cacheGet('issues');
         if (cached && cached.pending && !fastPendingOnly) { 
@@ -801,8 +727,6 @@ async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false)
                 }
             }
         } catch(err) { console.error('Fallo en fallback de cache issues', err); }
-    } finally {
-        if (!fastPendingOnly) _loadIssuesRunning = false;
     }
 }
 

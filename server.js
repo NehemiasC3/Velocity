@@ -26,7 +26,7 @@ app.use(helmet({
 
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 400,
+    max: 10000, // Aumentado a 10000 para evitar bloqueos por carga en paralelo y fast-polling de comentarios
     message: { error: 'Demasiadas peticiones desde esta IP. Por favor intenta más tarde.' }
 });
 

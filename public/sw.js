@@ -1,37 +1,27 @@
-const CACHE_NAME = 'velocity-v3.2.0';
+const CACHE_NAME = 'velocity-v3.4.0';
 const ASSETS = [
   '/',
-  '/index.html',
   '/manifest.json',
   '/logo-velocity.svg',
   '/icon-192.png',
   '/icon-512.png'
 ];
 
-// ── INSTALACIÓN Y PRECACHÉ ──────────────────────────────────────────────────
+// ── INSTALACIÓN Y ACTIVACIÓN INMEDIATA ─────────────────────────────────────────
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Velocity SW] Precaché iniciado');
-      return Promise.allSettled(
-        ASSETS.map((url) =>
-          cache.add(url).catch((err) => {
-            console.warn(`[Velocity SW] Fallo al precachar: ${url}`, err);
-          })
-        )
-      );
-    }).then(() => self.skipWaiting())
-  );
+  console.log('[Velocity SW 🚀] Instalando versión:', CACHE_NAME);
+  self.skipWaiting();
 });
 
-// ── ACTIVACIÓN Y LIMPIEZA DE CACHÉ ──────────────────────────────────────────
+// ── ACTIVACIÓN Y PURGA DE TODAS LAS CACHÉS ANTIGUAS ───────────────────────────
 self.addEventListener('activate', (event) => {
+  console.log('[Velocity SW 🚀] Activando versión:', CACHE_NAME);
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
-            console.log('[Velocity SW] Eliminando caché obsoleto:', key);
+            console.log('[Velocity SW] Purgando caché obsoleta:', key);
             return caches.delete(key);
           }
         })
@@ -40,42 +30,34 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// ── MANEJADOR DE FETCH (STALE-WHILE-REVALIDATE) ─────────────────────────────
+// ── MANEJADOR DE FETCH (NETWORK-FIRST PARA HTML Y VISTAS) ─────────────────────
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
+  
   // No interceptar llamadas API ni peticiones no-GET
   if (event.request.method !== 'GET' || url.includes('/api/')) {
     return;
   }
 
+  // Network-First para páginas HTML y scripts dinámicos (evita atrapar al usuario en caché vieja)
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        fetch(event.request)
-          .then((networkResponse) => {
-            if (networkResponse && networkResponse.status === 200) {
-              caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
-            }
-          })
-          .catch(() => {});
-        return cachedResponse;
-      }
-
-      return fetch(event.request).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200) {
-          return networkResponse;
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache));
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, responseToCache);
-        });
         return networkResponse;
-      }).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-      });
-    })
+      })
+      .catch(() => {
+        // Fallback offline a la caché
+        return caches.match(event.request).then((cached) => {
+          if (cached) return cached;
+          if (event.request.mode === 'navigate') {
+            return caches.match('/pages/supervisor.html') || caches.match('/index.html');
+          }
+        });
+      })
   );
 });
 

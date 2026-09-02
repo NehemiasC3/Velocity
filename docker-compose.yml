@@ -1,13 +1,15 @@
-version: '3.8'
-
 services:
-  velocity-server:
-    build: .
-    container_name: velocity-server
+  # ==========================================
+  # 🚀 VELOCITY BACKEND (TypeScript & Express)
+  # ==========================================
+  velocity-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: velocity-backend
     restart: unless-stopped
     ports:
-      # Mapea el puerto definido en tu .env (o 3000 por defecto) al puerto 3000 del contenedor
-      - "${PORT:-3000}:3000"
+      - "${BACKEND_PORT:-3000}:3000"
     env_file:
       - .env
     environment:
@@ -15,5 +17,114 @@ services:
       - DATA_DIR=/usr/src/app/data
       - PORT=3000
     volumes:
-      # Persistencia de base de datos
       - ./data:/usr/src/app/data
+    networks:
+      - velocity-net
+
+  # ==========================================
+  # 🎨 VELOCITY FRONTEND (React & Nginx)
+  # ==========================================
+  velocity-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: velocity-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - velocity-backend
+    networks:
+      - velocity-net
+
+  # ==========================================
+  # 🗄️ GENIEACS DEPENDENCIAS (Mongo & Redis)
+  # ==========================================
+  genieacs-mongo:
+    image: mongo:6.0
+    container_name: genieacs-mongo
+    restart: unless-stopped
+    volumes:
+      - ./data/genieacs-mongo:/data/db
+    networks:
+      - velocity-net
+
+  genieacs-redis:
+    image: redis:7-alpine
+    container_name: genieacs-redis
+    restart: unless-stopped
+    networks:
+      - velocity-net
+
+  # ==========================================
+  # 📡 GENIEACS SERVICIOS (CWMP, NBI, FS, UI)
+  # ==========================================
+  genieacs-cwmp:
+    image: genieacs/genieacs:1.2.9
+    container_name: genieacs-cwmp
+    command: genieacs-cwmp
+    restart: unless-stopped
+    environment:
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
+      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
+      - GENIEACS_CWMP_ACCESS_LOG_FILE=/var/log/genieacs/genieacs-cwmp-access.log
+      - GENIEACS_DEBUG_FILE=/var/log/genieacs/genieacs-debug.yaml
+    ports:
+      - "7547:7547"
+    depends_on:
+      - genieacs-mongo
+      - genieacs-redis
+    networks:
+      - velocity-net
+
+  genieacs-nbi:
+    image: genieacs/genieacs:1.2.9
+    container_name: genieacs-nbi
+    command: genieacs-nbi
+    restart: unless-stopped
+    environment:
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
+      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
+    ports:
+      - "7557:7557"
+    depends_on:
+      - genieacs-mongo
+      - genieacs-redis
+    networks:
+      - velocity-net
+
+  genieacs-fs:
+    image: genieacs/genieacs:1.2.9
+    container_name: genieacs-fs
+    command: genieacs-fs
+    restart: unless-stopped
+    environment:
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
+      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
+    ports:
+      - "7567:7567"
+    depends_on:
+      - genieacs-mongo
+      - genieacs-redis
+    networks:
+      - velocity-net
+
+  genieacs-ui:
+    image: genieacs/genieacs:1.2.9
+    container_name: genieacs-ui
+    command: genieacs-ui
+    restart: unless-stopped
+    environment:
+      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
+      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
+    ports:
+      - "3001:3000"
+    depends_on:
+      - genieacs-mongo
+      - genieacs-redis
+    networks:
+      - velocity-net
+
+networks:
+  velocity-net:
+    driver: bridge

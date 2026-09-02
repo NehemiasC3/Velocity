@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const syncController_1 = require("../controllers/syncController");
+const authMiddleware_1 = require("../middlewares/authMiddleware");
+const router = (0, express_1.Router)();
+router.get('/sync', authMiddleware_1.validateToken, syncController_1.SyncController.getSyncState);
+router.post('/sync', authMiddleware_1.validateToken, syncController_1.SyncController.updateSyncState);
+router.post('/heartbeat', syncController_1.SyncController.heartbeat);
+exports.default = router;

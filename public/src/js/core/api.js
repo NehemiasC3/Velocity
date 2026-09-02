@@ -415,7 +415,23 @@ async function loadTodayOrders(force = false) {
             };
         };
 
-        state.orders = todayOrders.map(mapOrder).sort((a, b) => (a.start_at || '').localeCompare(b.start_at || ''));
+        // Filtrar instalaciones vencidas
+        const todayStart = new Date();
+        todayStart.setHours(0,0,0,0);
+
+        state.orders = todayOrders
+            .map(mapOrder)
+            .filter(o => {
+                if (o.kind === 'installation' && o.start_at) {
+                    const sched = new Date(o.start_at);
+                    sched.setHours(0,0,0,0);
+                    if (sched.getTime() < todayStart.getTime()) {
+                        return false; // Excluir instalación vencida
+                    }
+                }
+                return true;
+            })
+            .sort((a, b) => (a.start_at || '').localeCompare(b.start_at || ''));
         state.finishedOrders = finishedOrdersRaw.map(mapOrder);
 
         // Notificaciones
@@ -457,39 +473,43 @@ async function resolveUnified(idMap, force = false) {
     const ids = Object.keys(idMap).filter(id => force || !state.clients[id] || !state.clients[id].name);
     if (ids.length === 0) return;
 
-    // INTELIGENTE: Si tenemos que resolver más de 2 clientes, es mucho más rápido traerlos en lote (bulk)
-    if (ids.length > 2) {
+    // INTELIGENTE: Si tenemos que resolver clientes, usamos el endpoint optimizado de inventario en 1 sola llamada
+    if (ids.length > 0) {
         try {
-            console.log(`[Velocity] Pre-cargando clientes en lote para acelerar la carga...`);
-            const bulkData = await apiFetch('/clients?per_page=1000', {}, true);
-            if (bulkData && bulkData.data) {
-                bulkData.data.forEach(c => {
-                    if (c && c.id) {
-                        state.clients[c.id] = {
-                            name:    c.name || 'Cliente sin nombre',
-                            zone:    c.zone_name || c.address_city || c.city || '',
-                            address: [c.address_street, c.address_number].filter(Boolean).join(' ') || c.address || c.street || '',
-                            phone:   c.phone_mobile || c.phone || '',
-                            nap:     c.nap_name || null,
-                            client_id: c.id,
-                            latitude:  c.latitude ? String(c.latitude).replace(/,/g, '.').trim() : '',
-                            longitude: c.longitude ? String(c.longitude).replace(/,/g, '.').trim() : ''
+            console.log(`[Velocity] Pre-cargando catálogo unificado para acelerar la carga...`);
+            const invRes = await apiFetch('/api/v1/inventory', {}, true);
+            if (invRes && Array.isArray(invRes.data)) {
+                invRes.data.forEach(item => {
+                    if (item && item.id) {
+                        state.clients[item.id] = {
+                            name: item.client_name || 'Cliente sin nombre',
+                            zone: '',
+                            address: item.address || '',
+                            phone: '',
+                            ip: item.ip,
+                            mac: item.mac,
+                            model: item.model,
+                            status: item.status,
+                            client_id: item.id
                         };
                     }
                 });
-                console.log(`[Velocity] Pre-carga completada. Clientes en caché: ${Object.keys(state.clients).length}`);
+                console.log(`[Velocity] Catálogo unificado cargado en RAM. Entidades listas: ${Object.keys(state.clients).length}`);
             }
         } catch(e) {
-            console.warn('[Velocity] Error en pre-carga de clientes:', e);
+            console.warn('[Velocity] Fallback a pre-carga estándar:', e.message);
         }
     }
 
-    // Volver a filtrar después de la carga en lote
+    // Volver a filtrar después de la carga optimizada
     const remainingIds = Object.keys(idMap).filter(id => force || !state.clients[id] || !state.clients[id].name);
-    if (remainingIds.length === 0) return;
+    if (remainingIds.length === 0) {
+        saveDynamicClients();
+        return;
+    }
 
     console.log(`[Velocity] Resolviendo de forma individual ${remainingIds.length} entidades de Wispro...`);
-    const BATCH_SIZE = 3;
+    const BATCH_SIZE = 5;
     for (let i = 0; i < remainingIds.length; i += BATCH_SIZE) {
         const batch = remainingIds.slice(i, i + BATCH_SIZE);
         await Promise.all(batch.map(async (cid) => {
@@ -510,7 +530,6 @@ async function resolveUnified(idMap, force = false) {
                             const raw = r.data || r;
                             if (raw && (raw.id || raw.client_id || raw.name)) {
                                 data = raw;
-                                // Si ya tenemos el nombre, no seguimos buscando
                                 if (data.name) break;
                             }
                         }
@@ -521,7 +540,6 @@ async function resolveUnified(idMap, force = false) {
                     let name = data.name || '';
                     let realClientId = data.client_id || data.id;
 
-                    // Si no tenemos nombre pero sí client_id, intentamos traer el cliente
                     if (!name && data.client_id) {
                         try {
                             const cl = await apiFetch(`/clients/${data.client_id}`, {}, true);
@@ -532,7 +550,6 @@ async function resolveUnified(idMap, force = false) {
                         } catch (e) {}
                     }
 
-                    // Si tenemos nap_id pero no el nombre de la nap, intentamos traerlo con caché persistente
                     let napName = data.nap_name || null;
                     if (!napName && data.nap_id) {
                         if (!state.napCache) {
@@ -573,7 +590,6 @@ async function resolveUnified(idMap, force = false) {
                 }
             } catch (e) {}
         }));
-        if (i + BATCH_SIZE < ids.length) await new Promise(r => setTimeout(r, 1000));
     }
     saveDynamicClients();
 }

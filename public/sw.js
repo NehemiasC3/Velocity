@@ -1,4 +1,4 @@
-const CACHE_NAME = 'velocity-v3.1.2.3';
+const CACHE_NAME = 'velocity-v3.1.2.6';
 const ASSETS = [
   'index.html',
   'manifest.json',

@@ -1,65 +1,128 @@
-# Velocity 🚀
-**Un Dashboard moderno e inteligente para Operaciones ISP, diseñado como un ecosistema envolvente para Wispro.**
+# ⚡ VELOCITY | ISP Operations Suite (v2.1)
 
-Velocity es una suite de herramientas web de operaciones diseñada para interactuar con la API de **Wispro Cloud**. Construido para reducir fricciones y mejorar los tiempos de respuesta tanto del equipo en campo (técnicos) y el personal directivo (supervisores). No requiere complejas instalaciones de servidores, ya que utiliza arquitectura orientada al frontend combinada con un poderoso motor de sincronización basado en local-storage y la nube.
-
----
-
-## 🔥 Funcionalidades Principales
-
-### 1. Panel Global de Supervisor (`supervisor.html`)
-Diseñado para monitoreo a alto nivel, resolución de incidentes en tiempo real y asignación de activos.
-*   **KPIs en Tiempo Real:** Total de órdenes, completadas, pendientes, técnicas online e ingresos no ubicados (sin NAP asignada).
-*   **Gestión de Órdenes:** Visualización de todas las tareas del día mediante etiquetas automáticas filtrables (Ej. Instalación, Visita Técnica, Baja de Servicio) generadas desde Wispro.
-*   **Monitor de Status "En Curso":** Permite al supervisor ver el tiempo exacto que lleva un técnico activo (ej. "En curso: 15 min") representado a través de etiquetas vibrantes animadas (pulso).
-*   **Tracker de NAPs Manual:** Base de datos independiente para registrar cajas NAP en campo (Ubicación, Coordenadas, Puertos Disponibles) hasta que Wispro madure esta funcionalidad.
-*   **Autenticación y Cuentas:** Capacidad de autogenerar cuentas provisorias estandarizadas de todos los técnicos jalados directamente desde la API oficial.
-
-### 2. Panel PWA para Técnicos (`technician.html`)
-Diseñado estratégicamente para usarse desde el móvil o tablet bajo el sol.
-*   **Flujo Cinético Minimalista:** Cero distracciones. Presenta tarjetas fáciles de leer de órdenes activas y su estatus.
-*   **Registro de Tiempos:** El técnico inicia los trabajos permitiéndole a la compañía registrar métricas de resolución.
-*   **Latido Online (Heartbeat):** Mientras el técnico tanga el panel de Velocity abierto, su estado es transmitido y visualizado como "En línea" para la agencia.
-*   **Validaciones Previas:** Muestra advertencias crudas de validaciones (ej. Si la orden técnica no tiene NAP asignada).
+Sistema integral de gestión técnica, supervisión de órdenes, diagnóstico TR-069 y búsqueda instantánea de inventario para Proveedores de Servicios de Internet (ISP) integrado con **Wispro Cloud API** y **GenieACS**.
 
 ---
 
-## 🏗️ Arquitectura Técnica
+## 🏛️ Arquitectura Desacoplada y Moderna
 
-### Stack
-- **Estructura y Lógica:** 100% Vanilla JavaScript (ES6+), HTML5.
-- **Estilos:** Tailwind CSS (via Tailwind Play CDN para portabilidad extrema).
-- **Iconografía:** Google Material Symbols (Rounded & Outlined).
-- **Base de Datos / Persistencia:** Caché Local (`localStorage` / `sessionStorage`) de HTML5 como fuente primigenia, sincronizada esporádicamente contra la **API REST V1 de Wispro**.
+El proyecto ha sido refactorizado desde una estructura monolítica a una arquitectura desacoplada, modular y estrictamente tipada en **TypeScript**:
 
-### Gestión de Estados (State-Machine)
-Para no saturar a la API corporativa de Wispro de decenas de requests por minuto y para proveer fluidez absoluta a la aplicación central, Velocity emplea de manera robusta estructuras en cache:
-*   `Velocity_Sync_State`: Usuarios registrados y perfiles locales de inicio de sesión.
-*   `Velocity_Online_Status`: Pulsos cardíacos de los técnicos trabajando.
-*   `Velocity_Order_Tracking`: Tiempos cronometrados de cada ticket en curso en campo.
-*   `Velocity_NAPs`: JSON completo conteniendo el levantamiento alterno de cajas.
+```
+velocity/
+├── backend/                  # API REST en Node.js + Express + TypeScript
+│   ├── src/
+│   │   ├── controllers/      # authController, syncController, wisproProxyController, inventoryController
+│   │   ├── services/         # DbService, AuthService, SyncService, WisproService, ReportService
+│   │   ├── middlewares/      # authMiddleware (JWT), rateLimitMiddleware, errorMiddleware
+│   │   ├── routes/           # authRoutes, syncRoutes, wisproRoutes, inventoryRoutes, index.ts
+│   │   ├── types/            # Tipos de DB, Sesión, Sincronización e Inventario
+│   │   ├── app.ts            # Configuración de Express, CORS y Helmet
+│   │   └── server.ts         # Entrypoint del servidor y tareas programadas
+│   ├── Dockerfile            # Imagen de producción multi-stage
+│   ├── package.json
+│   └── tsconfig.json         # TypeScript estricto (noImplicitAny: true)
+│
+├── frontend/                 # Cliente React 18 + Vite + Tailwind CSS + TypeScript
+│   ├── src/
+│   │   ├── components/       # InventorySearch (0ms Fuse.js), Navigation, SystemOverview, AuthModal
+│   │   ├── hooks/            # useInventorySearch, useAuth
+│   │   ├── types/            # Tipos de cliente, inventario y autenticación
+│   │   ├── App.tsx           # Layout principal y navegación por pestañas
+│   │   ├── main.tsx          # Entrypoint React
+│   │   └── index.css         # Directivas Tailwind y estilos de diseño
+│   ├── Dockerfile            # Imagen multi-stage con Nginx reverse proxy
+│   ├── nginx.conf            # Configuración de servidor web y proxy para /api/
+│   ├── package.json
+│   ├── tailwind.config.js    # Paleta de colores Dark Mode profesional
+│   ├── tsconfig.json
+│   └── vite.config.ts        # Configuración de Vite con proxy para desarrollo
+│
+├── data/                     # Persistencia de base de datos local (db.json)
+├── docker-compose.yml        # Orquestación de producción (Backend + Frontend + GenieACS)
+└── .github/workflows/        # CI/CD automatizado con GitHub Actions y SSH Deploy
+```
 
 ---
 
-## 🛠️ Despliegue (Cómo Instalar)
+## 🚀 Puesta en Marcha Local
 
-Ya que Velocity es estrictamente de arquitectura Fron-end (aplicación del lado del cliente) su despliegue es inmediato. Sencillamente sirve el directorio de archivos en cualquier Servidor Web moderno o pasarela FaaS, tales como:
-- **GitHub Pages** (Recomendado)
-- **Vercel** o **Netlify**
-- Cualquier Bucket S3 o Servidor Apache/Nginx base.
+### 1. Requisitos Previos
+- Node.js >= 18.0.0
+- Docker y Docker Compose (opcional para ejecución en contenedores)
 
-**Requisitos Previos:**
-Para que pueda funcionar conectándose a Wispro sin que tu navegador lance un error (CORS Error), todas las peticiones cruzan por un proxy público, sin embargo en entornos de alto tráfico empresarial, recomendamos cambiar la variable `proxy` en el código fuente `supervisor.js/technician.js` y desplegar un servicio alterno (Como Cloudflare CORS worker).
+### 2. Configuración de Variables de Entorno
+Copia o edita el archivo `.env` en la raíz del proyecto:
+
+```env
+PORT=3000
+WISPRO_API_URL=https://www.cloud.wispro.co/api/v1
+WISPRO_API_TOKEN=tu-token-de-wispro-aqui
+JWT_SECRET=tu-clave-secreta-jwt-2026
+API_SECRET=velocidad-secreta-2024
+```
+
+### 3. Desarrollo Local (Hot Reloading)
+
+#### Opción A: Levantar Backend y Frontend por separado
+
+**Backend (API en `http://localhost:3000`):**
+```bash
+cd backend
+npm install
+npm run dev
+```
+
+**Frontend (React en `http://localhost:5173`):**
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+#### Opción B: Comandos desde la raíz
+```bash
+# Instalar dependencias
+npm --prefix backend install
+npm --prefix frontend install
+
+# Iniciar servicios
+npm run dev:backend
+npm run dev:frontend
+```
 
 ---
 
-## 🔒 Autenticación Local por Defecto
-Velocity trae consigo un archivo pre-construido lógico. Si la base de datos es reseteada:
-- **Usuario:** `nehemias@atg-rappido.com`
-- **Contraseña:** `Administrador2024`
-- **Rol:** Supervisor Administrador
+## 🐳 Despliegue con Docker Compose
 
-*Nota: Una vez dentro, se insta urgentemente al supervisor a crear las cuentas individuales de los empleados, o bien, importarlas directamente usando la herramienta "Auto Sync".*
+Para levantar todo el ecosistema en tu servidor VPS de producción con un solo comando:
+
+```bash
+docker compose up -d --build
+```
+
+Esto desplegará de forma orquestada:
+- **`velocity-frontend`**: Servidor Nginx en el puerto `80` sirviendo la SPA de React y redirigiendo `/api/` internamente.
+- **`velocity-backend`**: API REST en Node.js + Express en el puerto `3000` con persistencia en el volumen `./data`.
+- **`genieacs-cwmp`**: Servidor TR-069 CWMP en el puerto `7547`.
+- **`genieacs-nbi`**: API Northbound Interface en el puerto `7557`.
+- **`genieacs-ui`**: Panel de control GenieACS en el puerto `3001`.
+- **`genieacs-mongo`** & **`genieacs-redis`**: Bases de datos dedicadas para ACS.
 
 ---
-> Diseñado en **2024** | Construido para ISPs de élite.
+
+## 🔍 Características Principales
+
+1. **Búsqueda Instantánea de Inventario (0ms)**:
+   - Motor de búsqueda difusa (*fuzzy search*) en cliente con `Fuse.js` (`threshold: 0.3`).
+   - Carga inicial en segundo plano desde el backend con paginación asíncrona inteligente sobre miles de registros.
+   - Caché en memoria RAM con TTL de 5 minutos en el backend.
+2. **Autenticación Segura & JWT**:
+   - Contraseñas protegidas mediante hash `bcryptjs`.
+   - Generación y verificación de tokens `jsonwebtoken` para supervisores y técnicos.
+3. **Persistencia Atómica & Nube**:
+   - Escrituras atómicas con `write-file-atomic` para evitar corrupción de archivos en apagados intempestivos.
+   - Sincronización bidireccional automática con Google Drive / Google Sheets.
+4. **CI/CD Totalmente Automatizado**:
+   - Verificación de tipos TypeScript estricta y build de Docker en cada push a `main`.
+   - Despliegue continuo por SSH a tu servidor VPS mediante GitHub Actions.

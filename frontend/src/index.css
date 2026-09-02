@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #0B0F19;
+    color: #F1F5F9;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+}
+
+/* Custom modern scrollbar for table and containers */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1322;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27354f;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3b82f6;
+}
+
+/* Glow effects and animation utilities */
+.glow-effect {
+  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15);
+}
+
+.glow-border {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 0 15px -3px rgba(99, 102, 241, 0.2);
+}

@@ -1104,7 +1104,13 @@ Views.reports = () => {
         if (tName === 'Sin asignar') {
             counts.sin_asignar++;
             counts.all++;
-            counts.hoy++; // Unassigned count towards today/all
+            const venc = i.expires_at ? new Date(i.expires_at) : null;
+            if (venc) {
+                venc.setHours(0,0,0,0);
+                if (venc.getTime() <= today.getTime()) {
+                    counts.hoy++;
+                }
+            }
             return;
         }
 
@@ -1147,7 +1153,10 @@ Views.reports = () => {
 
         const venc = issue.expires_at ? new Date(issue.expires_at) : null;
         if (date === 'all' || date === 'hoy') {
-            if (techName === 'Sin asignar') return true;
+            if (techName === 'Sin asignar') {
+                if (date === 'hoy' && !venc) return false;
+                return true;
+            }
             const esActivo = TECNICOS_ACTIVOS.some(n =>
                 techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
             );
@@ -1730,7 +1739,10 @@ Views.prueba = () => {
         // Si es "Todos" (all) o "Hoy" (hoy), mostramos los reportes pendientes/vencidos o sin fecha
         const venc = issue.expires_at ? new Date(issue.expires_at) : null;
         if (date === 'all' || date === 'hoy') {
-            if (techName === 'Sin asignar') return true;
+            if (techName === 'Sin asignar') {
+                if (date === 'hoy' && !venc) return false;
+                return true;
+            }
             const esActivo = TECNICOS_ACTIVOS.some(n =>
                 techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
             );
@@ -1761,37 +1773,33 @@ Views.prueba = () => {
         // EN PRUEBA SOLO CONSIDERAR INSTALACIONES
         if (o.kind !== 'installation') return false;
 
-        const sched = o.start_at ? new Date(o.start_at) : null;
         const techName = o.techName || 'Sin asignar';
+        if (techName === 'Sin asignar') return false; // Quitar instalaciones sin asignar
+
+        const sched = o.start_at ? new Date(o.start_at) : null;
 
         if (date === 'sin_asignar') {
-            return techName === 'Sin asignar';
+            return false;
         }
-
-        // Para "Todos" (all) o "Hoy" (hoy), solo mostrar instalaciones de hoy
-        if (date === 'all' || date === 'hoy') {
-            if (techName === 'Sin asignar') return true;
-            const esActivo = TECNICOS_ACTIVOS.some(n =>
-                techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-            );
-            if (!esActivo) return false;
-            if (!sched) return false;
-            sched.setHours(0,0,0,0);
-            return sched.getTime() === today.getTime();
-        }
-
-        if (techName === 'Sin asignar') return false;
 
         const esActivo = TECNICOS_ACTIVOS.some(n =>
             techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
         );
         if (!esActivo) return false;
 
+        if (date === 'all') return true;
+
+        if (date === 'hoy') {
+            if (!sched) return false;
+            sched.setHours(0,0,0,0);
+            return sched.getTime() === today.getTime();
+        }
+
         if (!sched) return date === 'sin_fecha';
         if (date === 'sin_fecha') return false;
         sched.setHours(0,0,0,0);
         if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
-        if (date === 'vencido') return false;
+        if (date === 'vencido' && sched.getTime() >= today.getTime()) return false;
 
         return true;
     });
@@ -1964,7 +1972,13 @@ Views.prueba = () => {
             if (tName === 'Sin asignar') {
                 counts.sin_asignar++;
                 counts.all++;
-                counts.hoy++; // Unassigned count towards today/all
+                const venc = i.expires_at ? new Date(i.expires_at) : null;
+                if (venc) {
+                    venc.setHours(0,0,0,0);
+                    if (venc.getTime() <= today.getTime()) {
+                        counts.hoy++;
+                    }
+                }
                 return;
             }
 
@@ -1995,36 +2009,33 @@ Views.prueba = () => {
         state.orders.forEach(o => {
             if (o.kind !== 'installation') return;
 
+            const tName = o.techName || 'Sin asignar';
+            if (tName === 'Sin asignar') return; // Excluir instalaciones sin asignar del conteo
+
+            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+            if (!esAct) return;
+
+            counts.all++;
+
             const sched = o.start_at ? new Date(o.start_at) : null;
-            if (!sched) return;
+            if (!sched) {
+                counts.sin_fecha++;
+                return;
+            }
             sched.setHours(0,0,0,0);
 
             const tTime = today.getTime();
             const mTime = tomorrow.getTime();
             const sTime = sched.getTime();
 
-            // Only count if scheduled for today or tomorrow (ignore future/past for basic daily counts)
-            if (sTime !== tTime && sTime !== mTime) return;
-
-            const tName = o.techName || 'Sin asignar';
-            if (tName === 'Sin asignar') {
-                counts.sin_asignar++;
-                if (sTime === tTime) {
-                    counts.all++;
-                    counts.hoy++;
-                }
-                return;
-            }
-
-            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-            if (!esAct) return;
-
             if (sTime === tTime) {
-                counts.all++;
                 counts.hoy++;
             }
             if (sTime === mTime) {
                 counts.manana++;
+            }
+            if (sTime < tTime) {
+                counts.vencido++;
             }
         });
     }
@@ -2714,7 +2725,10 @@ window.openPruebaMapModal = function() {
 
             const venc = issue.expires_at ? new Date(issue.expires_at) : null;
             if (date === 'all' || date === 'hoy') {
-                if (techName === 'Sin asignar') return true;
+                if (techName === 'Sin asignar') {
+                    if (date === 'hoy' && !venc) return false;
+                    return true;
+                }
                 const esActivo = TECNICOS_ACTIVOS.some(n =>
                     techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
                 );
@@ -2743,36 +2757,33 @@ window.openPruebaMapModal = function() {
         let activeOrders = state.orders.filter(o => {
             if (o.kind !== 'installation') return false;
 
-            const sched = o.start_at ? new Date(o.start_at) : null;
             const techName = o.techName || 'Sin asignar';
+            if (techName === 'Sin asignar') return false; // Quitar instalaciones sin asignar del mapa
+
+            const sched = o.start_at ? new Date(o.start_at) : null;
 
             if (date === 'sin_asignar') {
-                return techName === 'Sin asignar';
+                return false;
             }
-
-            if (date === 'all' || date === 'hoy') {
-                if (techName === 'Sin asignar') return true;
-                const esActivo = TECNICOS_ACTIVOS.some(n =>
-                    techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
-                );
-                if (!esActivo) return false;
-                if (!sched) return false;
-                sched.setHours(0,0,0,0);
-                return sched.getTime() === today.getTime();
-            }
-
-            if (techName === 'Sin asignar') return false;
 
             const esActivo = TECNICOS_ACTIVOS.some(n =>
                 techName.toLowerCase().includes(n.split(' ')[0].toLowerCase())
             );
             if (!esActivo) return false;
 
+            if (date === 'all') return true;
+
+            if (date === 'hoy') {
+                if (!sched) return false;
+                sched.setHours(0,0,0,0);
+                return sched.getTime() === today.getTime();
+            }
+
             if (!sched) return date === 'sin_fecha';
             if (date === 'sin_fecha') return false;
             sched.setHours(0,0,0,0);
             if (date === 'manana'  && sched.getTime() !== tomorrow.getTime()) return false;
-            if (date === 'vencido') return false;
+            if (date === 'vencido' && sched.getTime() >= today.getTime()) return false;
 
             return true;
         });
@@ -4101,15 +4112,15 @@ window.exportNapsToPDF = async function() {
 
         const drawHeaderRow = () => {
             const headers = [
-                { text: 'Fecha', x: 30, w: 70 },
-                { text: 'Nombre NAP', x: 100, w: 85 },
-                { text: 'Zona', x: 185, w: 85 },
-                { text: 'Técnico', x: 270, w: 95 },
-                { text: 'Coordenadas', x: 365, w: 100 },
-                { text: 'Puertos', x: 465, w: 50 },
-                { text: 'Niveles', x: 515, w: 50 },
-                { text: 'Acción / Comentario', x: 565, w: 145 },
-                { text: 'Revisada', x: 710, w: 50 }
+                { text: 'Fecha', x: 30, w: 60 },
+                { text: 'Nombre NAP', x: 90, w: 75 },
+                { text: 'Zona', x: 165, w: 75 },
+                { text: 'Técnico', x: 240, w: 85 },
+                { text: 'Coordenadas', x: 325, w: 100 },
+                { text: 'Puertos', x: 425, w: 100 },
+                { text: 'Niveles', x: 525, w: 45 },
+                { text: 'Acción / Comentario', x: 570, w: 145 },
+                { text: 'Revisada', x: 715, w: 45 }
             ];
 
             currentPage.drawRectangle({
@@ -4147,15 +4158,18 @@ window.exportNapsToPDF = async function() {
             const actionLines = wrapText(actionText, 135, 8);
             
             const techName = cleanText(n.techName || '—');
-            const techLines = wrapText(techName, 85, 8);
+            const techLines = wrapText(techName, 80, 8);
 
             const name = cleanText(n.name || '—');
-            const nameLines = wrapText(name, 75, 8);
+            const nameLines = wrapText(name, 70, 8);
 
             const zone = cleanText(n.zone || '—');
-            const zoneLines = wrapText(zone, 75, 8);
+            const zoneLines = wrapText(zone, 70, 8);
 
-            const maxLines = Math.max(actionLines.length, techLines.length, nameLines.length, zoneLines.length, 1);
+            const portsText = cleanText(n.ports || '—');
+            const portsLines = wrapText(portsText, 90, 7.5);
+
+            const maxLines = Math.max(actionLines.length, techLines.length, nameLines.length, zoneLines.length, portsLines.length, 1);
             const rowHeight = Math.max(25, maxLines * 12 + 10);
 
             if (currentY - rowHeight < 40) {
@@ -4180,27 +4194,27 @@ window.exportNapsToPDF = async function() {
             currentPage.drawText(cleanText(n.date || '—'), { x: 35, y: currentY - 5, size: 8, font: font });
 
             nameLines.forEach((line, idx) => {
-                currentPage.drawText(line, { x: 105, y: currentY - 5 - (idx * 10), size: 8, font: fontBold });
+                currentPage.drawText(line, { x: 95, y: currentY - 5 - (idx * 10), size: 8, font: fontBold });
             });
 
             zoneLines.forEach((line, idx) => {
-                currentPage.drawText(line, { x: 190, y: currentY - 5 - (idx * 10), size: 8, font: font });
+                currentPage.drawText(line, { x: 170, y: currentY - 5 - (idx * 10), size: 8, font: font });
             });
 
             techLines.forEach((line, idx) => {
-                currentPage.drawText(line, { x: 275, y: currentY - 5 - (idx * 10), size: 8, font: font });
+                currentPage.drawText(line, { x: 245, y: currentY - 5 - (idx * 10), size: 8, font: font });
             });
 
             const coordsStr = cleanText(n.coords || '—');
-            currentPage.drawText(coordsStr, { x: 370, y: currentY - 5, size: 8, font: font, color: rgb(0, 0.35, 0.73) });
+            currentPage.drawText(coordsStr, { x: 330, y: currentY - 5, size: 8, font: font, color: rgb(0, 0.35, 0.73) });
             
             if (n.coords && n.coords.match(/^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/)) {
                 const query = encodeURIComponent(n.coords.replace(/\s/g, ''));
                 const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${query}`;
                 
-                const x1 = 370;
+                const x1 = 330;
                 const y1 = currentY - rowHeight + 10;
-                const x2 = 370 + 80;
+                const x2 = 330 + 80;
                 const y2 = currentY + 5;
                 
                 const linkAnnotation = pdfDoc.context.obj({
@@ -4219,12 +4233,14 @@ window.exportNapsToPDF = async function() {
                 currentPage.node.set(PDFLib.PDFName.of('Annots'), annots);
             }
 
-            currentPage.drawText(cleanText(n.ports || '—'), { x: 470, y: currentY - 5, size: 8, font: font });
+            portsLines.forEach((line, idx) => {
+                currentPage.drawText(line, { x: 430, y: currentY - 5 - (idx * 10), size: 7.5, font: font });
+            });
 
-            currentPage.drawText(cleanText(n.levels || '—'), { x: 520, y: currentY - 5, size: 8, font: fontBold, color: rgb(0.85, 0.1, 0.1) });
+            currentPage.drawText(cleanText(n.levels || '—'), { x: 530, y: currentY - 5, size: 8, font: fontBold, color: rgb(0.85, 0.1, 0.1) });
 
             actionLines.forEach((line, idx) => {
-                currentPage.drawText(line, { x: 570, y: currentY - 5 - (idx * 10), size: 7.5, font: font });
+                currentPage.drawText(line, { x: 575, y: currentY - 5 - (idx * 10), size: 7.5, font: font });
             });
 
             const checkBox = form.createCheckBox(`nap_resolved_${n.id}`);
@@ -4233,7 +4249,7 @@ window.exportNapsToPDF = async function() {
             }
             
             checkBox.addToPage(currentPage, {
-                x: 725,
+                x: 730,
                 y: currentY - 12,
                 width: 14,
                 height: 14
@@ -7314,5 +7330,6 @@ window.closeActiveTechsModal = function() {
         modal.classList.add('hidden');
     }
 };
+
 
 

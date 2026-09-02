@@ -62,6 +62,9 @@ const state = {
     pollTimer:    null,
     knownOrderIds: new Set(), // IDs de órdenes finalizadas ya notificadas
     knownIssueIds: new Set(), // IDs de issues ya notificados
+    // Estado para Módulo de Inventario & Hardware ISP
+    inventory:        [], // Lista de ONUs, Routers, Bobinas, Materiales
+    inventoryFilter:  { search: '', category: 'all', status: 'all', tech: 'all', warehouse: 'all' },
     // Estado para Reportes Mensuales
     monthlyReport: {
         isFetching: false,

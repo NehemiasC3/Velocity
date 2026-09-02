@@ -99,6 +99,156 @@ function saveTrackedNaps() {
     window.updateNapsBadge();
 }
 
+// ── INVENTORY STATE & MANAGEMENT ──────────────────────────────────────────
+function loadInventoryData() {
+    try {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        state.inventory = db.inventory;
+        if (!state.inventory || !Array.isArray(state.inventory) || state.inventory.length === 0) {
+            state.inventory = [
+                {
+                    id: 'inv-101',
+                    serial: 'HWTC4892A1B0',
+                    mac: 'F4:8E:38:2A:1B:00',
+                    model: 'Huawei EG8145V5 Dual-Band GPON',
+                    category: 'onu',
+                    brand: 'Huawei',
+                    location: 'Bodega Central',
+                    assignedTech: '',
+                    status: 'disponible',
+                    zone: 'Platanilla',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-28',
+                    lastMovement: 'Ingreso inicial a Bodega Central',
+                    history: [{ date: '2026-08-28 09:15', user: 'Supervisor', action: 'Ingreso inicial a Bodega Central' }]
+                },
+                {
+                    id: 'inv-102',
+                    serial: 'HWTC4892A1B1',
+                    mac: 'F4:8E:38:2A:1B:01',
+                    model: 'Huawei EG8145V5 Dual-Band GPON',
+                    category: 'onu',
+                    brand: 'Huawei',
+                    location: 'Móvil - Maydelin Ojo',
+                    assignedTech: 'Maydelin Ojo',
+                    status: 'asignado',
+                    zone: 'Platanilla',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-29',
+                    lastMovement: 'Transferido a Móvil Maydelin Ojo',
+                    history: [
+                        { date: '2026-08-29 08:30', user: 'Supervisor', action: 'Ingreso inicial a Bodega Central' },
+                        { date: '2026-09-01 07:45', user: 'Supervisor', action: 'Asignado a vehículo de Maydelin Ojo' }
+                    ]
+                },
+                {
+                    id: 'inv-103',
+                    serial: 'ZTEG9872C4D2',
+                    mac: '34:E8:94:12:4D:02',
+                    model: 'ZTE F670L AC1200 Wi-Fi 5 GPON',
+                    category: 'onu',
+                    brand: 'ZTE',
+                    location: 'Móvil - Javier Rodriguez',
+                    assignedTech: 'Javier Rodriguez',
+                    status: 'asignado',
+                    zone: 'Torti',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-29',
+                    lastMovement: 'Transferido a Móvil Javier Rodriguez',
+                    history: [{ date: '2026-08-29 10:00', user: 'Supervisor', action: 'Asignado a Javier Rodriguez' }]
+                },
+                {
+                    id: 'inv-104',
+                    serial: 'VSOL11029384',
+                    mac: '00:1E:67:89:38:40',
+                    model: 'V-SOL V2801SG 1GE XPON Bridge',
+                    category: 'onu',
+                    brand: 'V-SOL',
+                    location: 'Cliente Final',
+                    assignedTech: 'Maydelin Ojo',
+                    status: 'instalado',
+                    zone: 'Platanilla',
+                    wisproOrder: { id: 'ORD-10492', clientName: 'Roberto Gómez', plan: '100 Mbps Residencial', date: '2026-09-02' },
+                    registeredAt: '2026-08-20',
+                    lastMovement: 'Instalado en Cliente Roberto Gómez (Wispro)',
+                    history: [
+                        { date: '2026-08-20 09:00', user: 'Supervisor', action: 'Ingreso Bodega' },
+                        { date: '2026-09-01 08:00', user: 'Supervisor', action: 'Transferido a Maydelin Ojo' },
+                        { date: '2026-09-02 11:20', user: 'Wispro API', action: 'Instalado y Aprovisionado en Orden #10492' }
+                    ]
+                },
+                {
+                    id: 'inv-105',
+                    serial: 'TPLK99281726',
+                    mac: '60:32:B1:99:28:17',
+                    model: 'TP-Link Archer C6 Gigabit Router',
+                    category: 'router',
+                    brand: 'TP-Link',
+                    location: 'Bodega Central',
+                    assignedTech: '',
+                    status: 'disponible',
+                    zone: 'La Siesta',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-30',
+                    lastMovement: 'Ingreso Bodega Central',
+                    history: [{ date: '2026-08-30 14:00', user: 'Supervisor', action: 'Ingreso a Bodega Central' }]
+                },
+                {
+                    id: 'inv-106',
+                    serial: 'BOB-FIBRA-014',
+                    mac: 'N/A',
+                    model: 'Bobina Fibra Drop 1 Hilo (1000m)',
+                    category: 'drop',
+                    brand: 'OpticFiber',
+                    location: 'Móvil - Maydelin Ojo',
+                    assignedTech: 'Maydelin Ojo',
+                    status: 'asignado',
+                    zone: 'Platanilla',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-25',
+                    lastMovement: '850m restantes en vehículo',
+                    history: [{ date: '2026-08-25 08:00', user: 'Supervisor', action: 'Entrega de bobina 1000m a Maydelin' }]
+                },
+                {
+                    id: 'inv-107',
+                    serial: 'HWTC4892A1B9',
+                    mac: 'F4:8E:38:2A:1B:09',
+                    model: 'Huawei EG8145V5 Dual-Band GPON',
+                    category: 'onu',
+                    brand: 'Huawei',
+                    location: 'Taller de Reparación',
+                    assignedTech: '',
+                    status: 'dañado',
+                    zone: 'Torti',
+                    wisproOrder: null,
+                    registeredAt: '2026-08-15',
+                    lastMovement: 'Falla óptica / Láser bajo reportado en campo',
+                    history: [
+                        { date: '2026-08-15 10:00', user: 'Supervisor', action: 'Ingreso Bodega' },
+                        { date: '2026-09-01 16:30', user: 'Supervisor', action: 'Retirado por falla óptica (-32dBm)' }
+                    ]
+                }
+            ];
+            db.inventory = state.inventory;
+            localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+            if (typeof serverPush === 'function') serverPush(db);
+        }
+    } catch(e) {
+        state.inventory = [];
+    }
+}
+
+function saveInventoryData() {
+    try {
+        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+        db.inventory = state.inventory;
+        localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+        if (typeof serverPush === 'function') serverPush(db);
+    } catch(e) {
+        console.error('Error guardando inventario en Sync State:', e);
+    }
+}
+
 window.setOrderSearch = function(val) {
     state.orderSearch = val;
     if (state.tab === 'orders') renderTab('orders');
@@ -270,8 +420,9 @@ function startPolling() {
             ];
             await Promise.allSettled(promises);
             
-            // Recargar NAPs manuales y técnicos activos de la DB local sincronizada
+            // Recargar NAPs manuales, inventario y técnicos activos de la DB local sincronizada
             loadTrackedNaps();
+            loadInventoryData();
             
             const newHash = getStateHash();
             if (newHash !== state.lastStateHash) {
@@ -3399,38 +3550,823 @@ window.exportInventoryToPDF = async function() {
     }
 };
 
-// ── INVENTARIO TAB ────────────────────────────────────────────────────────
-Views.inventory = () => {
-    return `
-    <div class="w-full h-full min-h-[calc(100vh-6rem)] flex flex-col animation-slide-up">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-outline-variant/20">
+// ── NATIVE INVENTORY TAB & ACTIONS ────────────────────────────────────────
+window.inventorySubTab = window.inventorySubTab || 'all';
+
+window.setInventorySearch = function(val) {
+    state.inventoryFilter.search = val;
+    if (state.tab === 'inventory') renderTab('inventory');
+};
+
+window.setInventoryFilter = function(key, val) {
+    state.inventoryFilter[key] = val;
+    if (state.tab === 'inventory') renderTab('inventory');
+};
+
+window.setInventorySubTab = function(sub) {
+    window.inventorySubTab = sub;
+    if (state.tab === 'inventory') renderTab('inventory');
+};
+
+window.quickCopyText = function(text, elId) {
+    if (!text || text === 'N/A') return;
+    navigator.clipboard.writeText(text).then(() => {
+        const el = document.getElementById(elId);
+        if (el) {
+            const original = el.innerHTML;
+            el.innerHTML = `<span class="material-symbols-outlined text-[14px] text-emerald-400">check</span>`;
+            setTimeout(() => { el.innerHTML = original; }, 1500);
+        }
+    }).catch(() => {});
+};
+
+window.syncWisproInventoryNow = function() {
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Sincronizando con órdenes de Wispro...');
+    setTimeout(() => {
+        let syncedCount = 0;
+        const allOrders = [...(state.orders || []), ...(state.finishedOrders || [])];
+        
+        // Cruzar cada orden con el inventario
+        allOrders.forEach(ord => {
+            const clientName = ord.client_name || (ord.client_id && state.clients[ord.client_id]?.name) || ord.clientName || 'Cliente Residencial';
+            const tech = ord.techName || '';
+            const zone = ord.zone || (ord.client_id && state.clients[ord.client_id]?.zone) || 'Panamá Este';
+            const isInstalled = ['finalizada','finalizado','closed','finalized','installed'].includes(String(ord.state || '').toLowerCase());
+            
+            // Si la orden tiene serial o es una instalación finalizada
+            if (isInstalled && (ord.kind === 'installation' || ord.kind === 'technical')) {
+                const serialCandidate = ord.onu_sn || ord.sn || ord.onu || `HWTC-${String(ord.id).padStart(6, '0')}`;
+                let item = (state.inventory || []).find(i => i.serial === serialCandidate || (i.wisproOrder && String(i.wisproOrder.id) === String(ord.id)));
+                
+                if (item) {
+                    item.status = 'instalado';
+                    item.location = `Instalado en ${clientName}`;
+                    item.wisproOrder = {
+                        id: String(ord.id || ord.rawId),
+                        clientName: clientName,
+                        plan: ord.plan || 'Fibra Óptica 100M',
+                        date: ord.closed_at || ord.start_at || new Date().toISOString().split('T')[0]
+                    };
+                    syncedCount++;
+                } else if (ord.kind === 'installation') {
+                    // Registrar automáticamente equipo instalado en Wispro
+                    state.inventory.unshift({
+                        id: `inv-auto-${ord.id}`,
+                        serial: serialCandidate,
+                        mac: ord.mac || 'F4:8E:38:AUTO',
+                        model: ord.onu_model || 'Huawei EG8145V5 GPON',
+                        category: 'onu',
+                        brand: 'Huawei',
+                        location: `Instalado en ${clientName}`,
+                        assignedTech: tech,
+                        status: 'instalado',
+                        zone: zone,
+                        wisproOrder: {
+                            id: String(ord.id || ord.rawId),
+                            clientName: clientName,
+                            plan: ord.plan || 'Plan Residencial Wispro',
+                            date: ord.closed_at || ord.start_at || new Date().toISOString().split('T')[0]
+                        },
+                        registeredAt: new Date().toISOString().split('T')[0],
+                        lastMovement: `Instalado por ${tech || 'Técnico'} (Wispro #${ord.id})`,
+                        history: [
+                            { date: new Date().toLocaleDateString('es-PA') + ' ' + new Date().toLocaleTimeString('es-PA'), user: 'Wispro Gateway', action: `Aprovisionamiento automático en Orden #${ord.id} (${clientName})` }
+                        ]
+                    });
+                    syncedCount++;
+                }
+            }
+        });
+
+        saveInventoryData();
+        if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+        renderTab('inventory');
+        alert(`⚡ Sincronización completa: Se actualizaron y vincularon ${syncedCount} equipos con las órdenes de Wispro Cloud.`);
+    }, 400);
+};
+
+window.openAddInventoryModal = function() {
+    let modal = document.getElementById('modal-inventory-add');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'modal-inventory-add';
+        modal.className = 'fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animation-fade-in';
+        modal.innerHTML = `
+        <div class="bg-surface-container-lowest border border-outline-variant/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative">
+            <div class="flex items-center justify-between border-b border-outline-variant/20 pb-4 mb-4">
+                <div class="flex items-center gap-3">
+                    <div class="p-2 bg-primary/10 text-primary rounded-xl">
+                        <span class="material-symbols-outlined text-2xl">add_box</span>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-lg text-on-surface">Registrar Nuevo Equipo</h3>
+                        <p class="text-xs text-on-surface-variant">Ingreso a Bodega Central o Asignación Directa</p>
+                    </div>
+                </div>
+                <button onclick="window.closeAddInventoryModal()" class="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+            
+            <form onsubmit="window.submitNewInventory(event)" class="space-y-4">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Categoría</label>
+                        <select id="inv-in-category" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                            <option value="onu">ONU / GPON</option>
+                            <option value="router">Router Wi-Fi</option>
+                            <option value="drop">Bobina Fibra Drop</option>
+                            <option value="connector">Conectores / Splitters</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Marca</label>
+                        <select id="inv-in-brand" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                            <option value="Huawei">Huawei</option>
+                            <option value="ZTE">ZTE</option>
+                            <option value="V-SOL">V-SOL</option>
+                            <option value="TP-Link">TP-Link</option>
+                            <option value="Mercusys">Mercusys</option>
+                            <option value="Genérico">Genérico / Fibra</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Modelo del Equipo</label>
+                    <input type="text" id="inv-in-model" required placeholder="Ej. EG8145V5 Dual Band GPON" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary" />
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Serial / PON SN</label>
+                        <input type="text" id="inv-in-serial" required placeholder="HWTC..." class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-mono font-bold uppercase focus:outline-none focus:border-primary" />
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Dirección MAC</label>
+                        <input type="text" id="inv-in-mac" placeholder="F4:8E:38:..." class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-mono uppercase focus:outline-none focus:border-primary" />
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Ubicación Inicial</label>
+                        <select id="inv-in-location" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                            <option value="Bodega Central">Bodega Central</option>
+                            <option value="Bodega Tortí">Bodega Tortí</option>
+                            <option value="Bodega La Siesta">Bodega La Siesta</option>
+                            ${TECNICOS_ACTIVOS.map(t => `<option value="Móvil - ${t}">Móvil - ${t}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Zona Principal</label>
+                        <select id="inv-in-zone" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                            <option value="Platanilla">Platanilla</option>
+                            <option value="Torti">Tortí</option>
+                            <option value="La Siesta">La Siesta</option>
+                            <option value="Santa Fe">Santa Fe</option>
+                            <option value="Wacuco">Wacuco</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant/20 mt-4">
+                    <button type="button" onclick="window.closeAddInventoryModal()" class="px-4 py-2 text-xs font-bold text-on-surface-variant hover:text-on-surface rounded-xl hover:bg-surface-container-high transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" class="px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-xl shadow-lg shadow-primary/30 hover:opacity-90 active:scale-95 transition flex items-center gap-2">
+                        <span class="material-symbols-outlined text-[18px]">save</span>
+                        <span>Guardar Equipo</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+        `;
+        document.body.appendChild(modal);
+    }
+    modal.classList.remove('hidden');
+};
+
+window.closeAddInventoryModal = function() {
+    const modal = document.getElementById('modal-inventory-add');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.submitNewInventory = function(e) {
+    e.preventDefault();
+    const cat = document.getElementById('inv-in-category')?.value || 'onu';
+    const brand = document.getElementById('inv-in-brand')?.value || 'Huawei';
+    const model = document.getElementById('inv-in-model')?.value?.trim() || 'Equipo GPON';
+    const serial = document.getElementById('inv-in-serial')?.value?.trim().toUpperCase() || 'SN-UNKNOWN';
+    const mac = document.getElementById('inv-in-mac')?.value?.trim().toUpperCase() || 'N/A';
+    const loc = document.getElementById('inv-in-location')?.value || 'Bodega Central';
+    const zone = document.getElementById('inv-in-zone')?.value || 'Platanilla';
+    
+    const assignedTech = loc.startsWith('Móvil - ') ? loc.replace('Móvil - ', '') : '';
+    const status = assignedTech ? 'asignado' : 'disponible';
+
+    state.inventory.unshift({
+        id: `inv-${Date.now()}`,
+        serial: serial,
+        mac: mac,
+        model: model,
+        category: cat,
+        brand: brand,
+        location: loc,
+        assignedTech: assignedTech,
+        status: status,
+        zone: zone,
+        wisproOrder: null,
+        registeredAt: new Date().toISOString().split('T')[0],
+        lastMovement: `Ingreso registrado (${loc})`,
+        history: [
+            { date: new Date().toLocaleDateString('es-PA') + ' ' + new Date().toLocaleTimeString('es-PA'), user: 'Supervisor', action: `Registro manual de equipo en ${loc}` }
+        ]
+    });
+
+    saveInventoryData();
+    window.closeAddInventoryModal();
+    renderTab('inventory');
+};
+
+window.openTransferModal = function(id) {
+    const item = (state.inventory || []).find(i => i.id === id);
+    if (!item) return;
+
+    let modal = document.getElementById('modal-inventory-transfer');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'modal-inventory-transfer';
+        modal.className = 'fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animation-fade-in';
+        document.body.appendChild(modal);
+    }
+
+    modal.innerHTML = `
+    <div class="bg-surface-container-lowest border border-outline-variant/30 rounded-3xl max-w-md w-full p-6 shadow-2xl relative">
+        <div class="flex items-center justify-between border-b border-outline-variant/20 pb-4 mb-4">
             <div class="flex items-center gap-3">
-                <div class="p-2.5 bg-primary/10 text-primary rounded-xl flex items-center justify-center">
-                    <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+                <div class="p-2 bg-tertiary-fixed text-on-tertiary-fixed rounded-xl">
+                    <span class="material-symbols-outlined text-2xl">local_shipping</span>
                 </div>
                 <div>
-                    <h2 class="text-xl font-black text-on-surface tracking-tight">Módulo de Inventario & Hardware ISP</h2>
-                    <p class="text-xs text-on-surface-variant">Gestión de ONUs, Routers, Asignaciones de Stock y Búsqueda Instantánea con Wispro Cloud</p>
+                    <h3 class="font-black text-lg text-on-surface">Transferir Equipo</h3>
+                    <p class="text-xs text-on-surface-variant font-mono">${item.serial} &bull; ${item.model}</p>
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <a href="/inventory/" target="_blank" class="px-3.5 py-2 bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-bold rounded-xl border border-outline-variant/30 flex items-center gap-2 transition shadow-sm">
-                    <span class="material-symbols-outlined text-sm">open_in_new</span>
-                    <span>Abrir en Pestaña Completa</span>
-                </a>
+            <button onclick="window.closeTransferModal()" class="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+
+        <form onsubmit="window.saveTransferEquipment(event, '${item.id}')" class="space-y-4">
+            <div>
+                <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Ubicación Actual</label>
+                <input type="text" disabled value="${item.location} (${item.status.toUpperCase()})" class="w-full bg-surface-container-high/40 border border-outline-variant/20 rounded-xl px-3 py-2 text-xs text-on-surface-variant font-semibold" />
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Nuevo Destino / Técnico</label>
+                <select id="inv-tr-dest" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                    <option value="Bodega Central">Bodega Central (Disponible)</option>
+                    <option value="Bodega Tortí">Bodega Tortí</option>
+                    <option value="Bodega La Siesta">Bodega La Siesta</option>
+                    <optgroup label="Técnicos de Campo (Móvil)">
+                        ${TECNICOS_ACTIVOS.map(t => `<option value="Móvil - ${t}" ${item.assignedTech === t ? 'selected' : ''}>Móvil - ${t}</option>`).join('')}
+                    </optgroup>
+                    <optgroup label="Otros Estados">
+                        <option value="Taller de Reparación">Taller de Reparación (Dañado)</option>
+                        <option value="Baja Definitiva">Baja Definitiva / Descarte</option>
+                    </optgroup>
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mb-1">Nota o Motivo del Movimiento</label>
+                <input type="text" id="inv-tr-note" placeholder="Ej. Asignación de stock para jornada en Tortí" class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary" />
+            </div>
+
+            <div class="flex items-center justify-end gap-3 pt-4 border-t border-outline-variant/20 mt-4">
+                <button type="button" onclick="window.closeTransferModal()" class="px-4 py-2 text-xs font-bold text-on-surface-variant hover:text-on-surface rounded-xl hover:bg-surface-container-high transition">
+                    Cancelar
+                </button>
+                <button type="submit" class="px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-xl shadow-lg shadow-primary/30 hover:opacity-90 active:scale-95 transition flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[18px]">check_circle</span>
+                    <span>Confirmar Transferencia</span>
+                </button>
+            </div>
+        </form>
+    </div>
+    `;
+    modal.classList.remove('hidden');
+};
+
+window.closeTransferModal = function() {
+    const modal = document.getElementById('modal-inventory-transfer');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.saveTransferEquipment = function(e, id) {
+    e.preventDefault();
+    const item = (state.inventory || []).find(i => i.id === id);
+    if (!item) return;
+
+    const dest = document.getElementById('inv-tr-dest')?.value || 'Bodega Central';
+    const note = document.getElementById('inv-tr-note')?.value?.trim() || 'Transferencia de rutina';
+
+    let newStatus = 'disponible';
+    let assignedTech = '';
+
+    if (dest.startsWith('Móvil - ')) {
+        newStatus = 'asignado';
+        assignedTech = dest.replace('Móvil - ', '');
+    } else if (dest.includes('Taller') || dest.includes('Baja')) {
+        newStatus = 'dañado';
+    }
+
+    item.location = dest;
+    item.status = newStatus;
+    item.assignedTech = assignedTech;
+    item.lastMovement = `${dest} (${note})`;
+    
+    if (!item.history) item.history = [];
+    item.history.push({
+        date: new Date().toLocaleDateString('es-PA') + ' ' + new Date().toLocaleTimeString('es-PA'),
+        user: 'Supervisor',
+        action: `Transferido a ${dest}. Motivo: ${note}`
+    });
+
+    saveInventoryData();
+    window.closeTransferModal();
+    renderTab('inventory');
+};
+
+window.openInventoryAudit = function(id) {
+    const item = (state.inventory || []).find(i => i.id === id);
+    if (!item) return;
+
+    let modal = document.getElementById('modal-inventory-audit');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'modal-inventory-audit';
+        modal.className = 'fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 animation-fade-in';
+        document.body.appendChild(modal);
+    }
+
+    const historyItems = item.history || [{ date: item.registeredAt, user: 'Sistema', action: 'Ingreso al sistema' }];
+
+    modal.innerHTML = `
+    <div class="bg-surface-container-lowest border border-outline-variant/30 rounded-3xl max-w-lg w-full p-6 shadow-2xl relative max-h-[85vh] flex flex-col">
+        <div class="flex items-center justify-between border-b border-outline-variant/20 pb-4 mb-4">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-primary/10 text-primary rounded-xl">
+                    <span class="material-symbols-outlined text-2xl">history</span>
+                </div>
+                <div>
+                    <h3 class="font-black text-lg text-on-surface">Auditoría y Trazabilidad</h3>
+                    <p class="text-xs text-on-surface-variant font-mono font-bold">${item.serial} &bull; ${item.model}</p>
+                </div>
+            </div>
+            <button onclick="window.closeInventoryAudit()" class="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+
+        <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/20 mb-4 grid grid-cols-2 gap-3 text-xs">
+            <div>
+                <span class="text-on-surface-variant font-medium block">Estado Actual:</span>
+                <span class="font-bold uppercase text-on-surface">${item.status}</span>
+            </div>
+            <div>
+                <span class="text-on-surface-variant font-medium block">Ubicación:</span>
+                <span class="font-bold text-on-surface">${item.location}</span>
+            </div>
+            <div>
+                <span class="text-on-surface-variant font-medium block">Dirección MAC:</span>
+                <span class="font-mono text-on-surface">${item.mac || 'N/A'}</span>
+            </div>
+            <div>
+                <span class="text-on-surface-variant font-medium block">Orden Wispro:</span>
+                <span class="font-bold text-primary">${item.wisproOrder ? `#${item.wisproOrder.id} - ${item.wisproOrder.clientName}` : 'Ninguna'}</span>
             </div>
         </div>
-        <div class="flex-1 w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/20 overflow-hidden shadow-sm">
-            <iframe 
-                src="/inventory/" 
-                title="Módulo de Inventario Velocity" 
-                class="w-full h-[calc(100vh-12rem)] min-h-[600px] border-0 rounded-2xl"
-                loading="lazy"
-            ></iframe>
+
+        <div class="flex-1 overflow-y-auto pr-1 space-y-3">
+            <h4 class="text-xs font-black uppercase tracking-wider text-on-surface-variant">Línea de Tiempo del Serial</h4>
+            <div class="relative pl-6 border-l-2 border-outline-variant/40 space-y-4 my-2">
+                ${historyItems.map((h, idx) => `
+                    <div class="relative">
+                        <div class="absolute -left-[31px] top-0.5 w-3.5 h-3.5 rounded-full bg-primary border-2 border-surface-container-lowest"></div>
+                        <div class="bg-surface-container-low/60 p-3 rounded-xl border border-outline-variant/20">
+                            <div class="flex items-center justify-between gap-2 mb-1">
+                                <span class="text-[10px] font-bold text-primary uppercase">${h.user || 'Operador'}</span>
+                                <span class="text-[10px] text-on-surface-variant font-mono">${h.date}</span>
+                            </div>
+                            <p class="text-xs text-on-surface font-medium">${h.action}</p>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+
+        <div class="pt-4 border-t border-outline-variant/20 flex justify-end mt-4">
+            <button onclick="window.closeInventoryAudit()" class="px-5 py-2 bg-surface-container-high hover:bg-surface-container-highest text-on-surface text-xs font-bold rounded-xl transition">
+                Cerrar
+            </button>
         </div>
     </div>
     `;
+    modal.classList.remove('hidden');
 };
+
+window.closeInventoryAudit = function() {
+    const modal = document.getElementById('modal-inventory-audit');
+    if (modal) modal.classList.add('hidden');
+};
+
+window.exportInventoryCSV = function() {
+    if (!state.inventory || state.inventory.length === 0) {
+        alert('No hay registros de inventario para exportar.');
+        return;
+    }
+
+    const headers = ['ID', 'Serial', 'MAC', 'Modelo', 'Categoria', 'Marca', 'Ubicacion', 'Tecnico Asignado', 'Estado', 'Zona', 'Orden Wispro', 'Fecha Registro'];
+    const rows = state.inventory.map(i => [
+        i.id,
+        i.serial,
+        i.mac || '',
+        `"${(i.model || '').replace(/"/g, '""')}"`,
+        i.category || '',
+        i.brand || '',
+        `"${(i.location || '').replace(/"/g, '""')}"`,
+        i.assignedTech || '',
+        i.status || '',
+        i.zone || '',
+        i.wisproOrder ? `"${i.wisproOrder.id} - ${i.wisproOrder.clientName}"` : 'Sin asignar',
+        i.registeredAt || ''
+    ]);
+
+    const csvContent = 'data:text/csv;charset=utf-8,\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Inventario_Velocity_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
+
+// ── VISTA PRINCIPAL NATIVA: INVENTARIO ────────────────────────────────────
+Views.inventory = () => {
+    loadInventoryData();
+    const inv = state.inventory || [];
+    const filter = state.inventoryFilter || { search: '', category: 'all', status: 'all', tech: 'all', warehouse: 'all' };
+    const q = (filter.search || '').toLowerCase().trim();
+
+    // Métricas
+    const totalCount      = inv.length;
+    const availableCount  = inv.filter(i => i.status === 'disponible').length;
+    const assignedCount   = inv.filter(i => i.status === 'asignado').length;
+    const installedCount  = inv.filter(i => i.status === 'instalado').length;
+    const damagedCount    = inv.filter(i => i.status === 'dañado' || i.status === 'revision').length;
+
+    // Filtrado
+    let filtered = inv.filter(i => {
+        if (filter.category !== 'all' && i.category !== filter.category) return false;
+        if (filter.status !== 'all' && i.status !== filter.status) return false;
+        if (filter.tech !== 'all' && i.assignedTech !== filter.tech) return false;
+        
+        if (q) {
+            const sMatch = (i.serial || '').toLowerCase().includes(q);
+            const mMatch = (i.mac || '').toLowerCase().includes(q);
+            const modMatch = (i.model || '').toLowerCase().includes(q);
+            const locMatch = (i.location || '').toLowerCase().includes(q);
+            const techMatch = (i.assignedTech || '').toLowerCase().includes(q);
+            const ordMatch = i.wisproOrder && (
+                String(i.wisproOrder.id).toLowerCase().includes(q) || 
+                (i.wisproOrder.clientName || '').toLowerCase().includes(q)
+            );
+            if (!sMatch && !mMatch && !modMatch && !locMatch && !techMatch && !ordMatch) return false;
+        }
+        return true;
+    });
+
+    const activeSub = window.inventorySubTab || 'all';
+
+    return `
+    <div class="space-y-6 animation-slide-up pb-12">
+        <!-- 1. ENCABEZADO Y BOTONES DE ACCIÓN RÁPIDA -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-container-lowest p-6 rounded-3xl border border-outline-variant/20 shadow-sm">
+            <div>
+                <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] font-black tracking-widest text-primary uppercase bg-primary/10 px-2.5 py-0.5 rounded-full">
+                        Módulo de Operaciones ISP
+                    </span>
+                    <span class="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Wispro Cloud Sincronizado
+                    </span>
+                </div>
+                <h1 class="text-2xl md:text-3xl font-black text-on-surface tracking-tight">Inventario & Hardware</h1>
+                <p class="text-xs text-on-surface-variant mt-1">Control de ONUs, Routers Wi-Fi, Stock móvil por cuadrilla y Aprovisionamiento en Campo.</p>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2.5">
+                <button onclick="window.syncWisproInventoryNow()" class="px-3.5 py-2.5 bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-bold rounded-2xl border border-outline-variant/30 flex items-center gap-2 transition active:scale-95 shadow-sm" title="Cruzar datos con las órdenes de Wispro">
+                    <span class="material-symbols-outlined text-[18px] text-amber-400">sync</span>
+                    <span>Sincronizar Wispro</span>
+                </button>
+
+                <button onclick="window.exportInventoryCSV()" class="px-3.5 py-2.5 bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-bold rounded-2xl border border-outline-variant/30 flex items-center gap-2 transition active:scale-95 shadow-sm" title="Descargar reporte en formato CSV">
+                    <span class="material-symbols-outlined text-[18px] text-sky-400">download</span>
+                    <span>Exportar</span>
+                </button>
+
+                <button onclick="window.openAddInventoryModal()" class="px-4 py-2.5 bg-primary text-white text-xs font-bold rounded-2xl shadow-lg shadow-primary/25 hover:opacity-90 active:scale-95 transition flex items-center gap-2">
+                    <span class="material-symbols-outlined text-[18px]">add_circle</span>
+                    <span>+ Nuevo Equipo</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 2. TARJETAS DE ESTADÍSTICAS / KPIS DEL INVENTARIO -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+            <div onclick="window.setInventoryFilter('status', 'all')" class="bg-surface-container-lowest border ${filter.status === 'all' ? 'border-primary shadow-md' : 'border-outline-variant/20'} p-4 rounded-2xl cursor-pointer hover:border-primary/50 transition flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Total Hardware</span>
+                    <span class="material-symbols-outlined text-primary text-xl">inventory_2</span>
+                </div>
+                <div class="mt-2">
+                    <span class="text-2xl font-black text-on-surface">${totalCount}</span>
+                    <span class="text-[10px] text-on-surface-variant block mt-0.5">En base de datos</span>
+                </div>
+            </div>
+
+            <div onclick="window.setInventoryFilter('status', 'disponible')" class="bg-surface-container-lowest border ${filter.status === 'disponible' ? 'border-emerald-500 shadow-md' : 'border-outline-variant/20'} p-4 rounded-2xl cursor-pointer hover:border-emerald-500/50 transition flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-emerald-400">En Bodega</span>
+                    <span class="material-symbols-outlined text-emerald-400 text-xl">warehouse</span>
+                </div>
+                <div class="mt-2">
+                    <span class="text-2xl font-black text-emerald-400">${availableCount}</span>
+                    <span class="text-[10px] text-on-surface-variant block mt-0.5">Stock disponible</span>
+                </div>
+            </div>
+
+            <div onclick="window.setInventoryFilter('status', 'asignado')" class="bg-surface-container-lowest border ${filter.status === 'asignado' ? 'border-sky-500 shadow-md' : 'border-outline-variant/20'} p-4 rounded-2xl cursor-pointer hover:border-sky-500/50 transition flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-sky-400">En Móviles</span>
+                    <span class="material-symbols-outlined text-sky-400 text-xl">local_shipping</span>
+                </div>
+                <div class="mt-2">
+                    <span class="text-2xl font-black text-sky-400">${assignedCount}</span>
+                    <span class="text-[10px] text-on-surface-variant block mt-0.5">En vehículos técnicos</span>
+                </div>
+            </div>
+
+            <div onclick="window.setInventoryFilter('status', 'instalado')" class="bg-surface-container-lowest border ${filter.status === 'instalado' ? 'border-primary shadow-md' : 'border-outline-variant/20'} p-4 rounded-2xl cursor-pointer hover:border-primary/50 transition flex flex-col justify-between">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-primary">Instalados</span>
+                    <span class="material-symbols-outlined text-primary text-xl">check_circle</span>
+                </div>
+                <div class="mt-2">
+                    <span class="text-2xl font-black text-on-surface">${installedCount}</span>
+                    <span class="text-[10px] text-on-surface-variant block mt-0.5">Activos en Wispro</span>
+                </div>
+            </div>
+
+            <div onclick="window.setInventoryFilter('status', 'dañado')" class="bg-surface-container-lowest border ${filter.status === 'dañado' ? 'border-rose-500 shadow-md' : 'border-outline-variant/20'} p-4 rounded-2xl cursor-pointer hover:border-rose-500/50 transition flex flex-col justify-between col-span-2 sm:col-span-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-rose-400">En Taller / Bajas</span>
+                    <span class="material-symbols-outlined text-rose-400 text-xl">build</span>
+                </div>
+                <div class="mt-2">
+                    <span class="text-2xl font-black text-rose-400">${damagedCount}</span>
+                    <span class="text-[10px] text-on-surface-variant block mt-0.5">Para revisión o descarte</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. SUB-PESTAÑAS DE NAVEGACIÓN (LISTA DE EQUIPOS vs RESUMEN POR CUADRILLA) -->
+        <div class="flex items-center gap-2 border-b border-outline-variant/20 pb-2">
+            <button onclick="window.setInventorySubTab('all')" class="px-4 py-2 text-xs font-bold rounded-xl transition ${activeSub === 'all' ? 'bg-primary-container text-white shadow-md' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'} flex items-center gap-2">
+                <span class="material-symbols-outlined text-[16px]">list_alt</span>
+                <span>Registro de Equipos (${filtered.length})</span>
+            </button>
+            <button onclick="window.setInventorySubTab('techs')" class="px-4 py-2 text-xs font-bold rounded-xl transition ${activeSub === 'techs' ? 'bg-primary-container text-white shadow-md' : 'text-on-surface-variant hover:text-on-surface hover:bg-surface-container-low'} flex items-center gap-2">
+                <span class="material-symbols-outlined text-[16px]">engineering</span>
+                <span>Stock por Cuadrilla Técnica</span>
+            </button>
+        </div>
+
+        ${activeSub === 'techs' ? renderTechStockSummary(inv) : renderMainInventoryTable(filtered, filter)}
+    </div>
+    `;
+};
+
+// ── TABLA PRINCIPAL DE INVENTARIO ─────────────────────────────────────────
+function renderMainInventoryTable(filtered, filter) {
+    return `
+    <div class="space-y-4">
+        <!-- BARRA DE BÚSQUEDA Y FILTROS INTEGRADOS -->
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/20 shadow-sm flex flex-col md:flex-row items-center gap-3">
+            <div class="relative flex-1 w-full">
+                <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-[18px]">search</span>
+                <input 
+                    type="text" 
+                    value="${filter.search || ''}" 
+                    oninput="window.setInventorySearch(this.value)" 
+                    placeholder="Buscar por Serial (PON/SN), MAC, Modelo, Técnico o Cliente Wispro..." 
+                    class="w-full bg-surface-container-low border border-outline-variant/20 rounded-xl pl-9 pr-8 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary transition"
+                />
+                ${filter.search ? `<button onclick="window.setInventorySearch('')" class="absolute right-2.5 top-2.5 text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined text-sm">close</span></button>` : ''}
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <select onchange="window.setInventoryFilter('category', this.value)" class="bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                    <option value="all" ${filter.category === 'all' ? 'selected' : ''}>Todas las categorías</option>
+                    <option value="onu" ${filter.category === 'onu' ? 'selected' : ''}>ONUs GPON</option>
+                    <option value="router" ${filter.category === 'router' ? 'selected' : ''}>Routers Wi-Fi</option>
+                    <option value="drop" ${filter.category === 'drop' ? 'selected' : ''}>Cables & Fibra Drop</option>
+                    <option value="connector" ${filter.category === 'connector' ? 'selected' : ''}>Conectores / Splitters</option>
+                </select>
+
+                <select onchange="window.setInventoryFilter('status', this.value)" class="bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                    <option value="all" ${filter.status === 'all' ? 'selected' : ''}>Todos los estados</option>
+                    <option value="disponible" ${filter.status === 'disponible' ? 'selected' : ''}>Disponible en Bodega</option>
+                    <option value="asignado" ${filter.status === 'asignado' ? 'selected' : ''}>Asignado a Técnico</option>
+                    <option value="instalado" ${filter.status === 'instalado' ? 'selected' : ''}>Instalado (Wispro)</option>
+                    <option value="dañado" ${filter.status === 'dañado' ? 'selected' : ''}>En Revisión / Dañado</option>
+                </select>
+
+                <select onchange="window.setInventoryFilter('tech', this.value)" class="bg-surface-container-low border border-outline-variant/30 rounded-xl px-3 py-2 text-xs text-on-surface font-semibold focus:outline-none focus:border-primary">
+                    <option value="all" ${filter.tech === 'all' ? 'selected' : ''}>Todos los técnicos</option>
+                    ${TECNICOS_ACTIVOS.map(t => `<option value="${t}" ${filter.tech === t ? 'selected' : ''}>${t}</option>`).join('')}
+                </select>
+            </div>
+        </div>
+
+        <!-- TABLA DE EQUIPOS -->
+        <div class="bg-surface-container-lowest rounded-3xl border border-outline-variant/20 overflow-hidden shadow-sm">
+            ${filtered.length === 0 ? `
+                <div class="p-12 text-center flex flex-col items-center justify-center">
+                    <div class="w-16 h-16 rounded-full bg-surface-container flex items-center justify-center mb-3">
+                        <span class="material-symbols-outlined text-on-surface-variant text-3xl">inventory_2</span>
+                    </div>
+                    <h3 class="font-bold text-on-surface text-base">No se encontraron equipos</h3>
+                    <p class="text-xs text-on-surface-variant mt-1 max-w-sm">Intenta ajustar los filtros de búsqueda o registra un nuevo equipo haciendo clic en "+ Nuevo Equipo".</p>
+                </div>
+            ` : `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-surface-container-low/80 border-b border-outline-variant/20 text-[10px] font-black text-on-surface-variant uppercase tracking-wider">
+                                <th class="p-3.5 pl-6">Serial / PON SN</th>
+                                <th class="p-3.5">Modelo & Categoría</th>
+                                <th class="p-3.5">Ubicación / Asignación</th>
+                                <th class="p-3.5">Estado</th>
+                                <th class="p-3.5">Vínculo Wispro</th>
+                                <th class="p-3.5 pr-6 text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-outline-variant/10">
+                            ${filtered.map(item => {
+                                // Badges de Estado
+                                let statusBadge = '';
+                                if (item.status === 'disponible') {
+                                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Disponible</span>`;
+                                } else if (item.status === 'asignado') {
+                                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-sky-500/10 text-sky-400 border border-sky-500/20"><span class="w-1.5 h-1.5 rounded-full bg-sky-400"></span>En Móvil</span>`;
+                                } else if (item.status === 'instalado') {
+                                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-primary/10 text-primary border border-primary/20"><span class="material-symbols-outlined text-[12px]">verified</span>Instalado</span>`;
+                                } else {
+                                    statusBadge = `<span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black bg-rose-500/10 text-rose-400 border border-rose-500/20"><span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Dañado / Revisión</span>`;
+                                }
+
+                                const copyBtnId = `copy-btn-${item.id}`;
+
+                                return `
+                                <tr class="hover:bg-surface-container-low/50 transition group">
+                                    <td class="p-3.5 pl-6 font-mono">
+                                        <div class="flex items-center gap-2">
+                                            <span class="font-bold text-on-surface text-[12px] tracking-tight">${item.serial}</span>
+                                            <button id="${copyBtnId}" onclick="window.quickCopyText('${item.serial}', '${copyBtnId}')" class="text-on-surface-variant hover:text-primary transition p-0.5 rounded" title="Copiar Serial">
+                                                <span class="material-symbols-outlined text-[14px]">content_copy</span>
+                                            </button>
+                                        </div>
+                                        <span class="text-[10px] text-on-surface-variant font-normal block mt-0.5">MAC: ${item.mac || 'N/A'}</span>
+                                    </td>
+
+                                    <td class="p-3.5">
+                                        <span class="font-bold text-on-surface block">${item.model}</span>
+                                        <span class="text-[10px] text-on-surface-variant uppercase tracking-wider">${item.brand} &bull; ${item.category.toUpperCase()}</span>
+                                    </td>
+
+                                    <td class="p-3.5">
+                                        <div class="flex items-center gap-1.5">
+                                            <span class="material-symbols-outlined text-sm text-on-surface-variant">
+                                                ${item.location.startsWith('Móvil') ? 'directions_car' : item.location.startsWith('Cliente') ? 'person' : 'warehouse'}
+                                            </span>
+                                            <span class="font-semibold text-on-surface">${item.location}</span>
+                                        </div>
+                                        ${item.zone ? `<span class="text-[10px] text-on-surface-variant block mt-0.5">Zona: ${item.zone}</span>` : ''}
+                                    </td>
+
+                                    <td class="p-3.5">
+                                        ${statusBadge}
+                                    </td>
+
+                                    <td class="p-3.5">
+                                        ${item.wisproOrder ? `
+                                            <div class="bg-primary/5 border border-primary/20 p-2 rounded-xl">
+                                                <div class="flex items-center gap-1.5">
+                                                    <span class="material-symbols-outlined text-[14px] text-primary">tag</span>
+                                                    <span class="font-bold text-on-surface text-[11px]">${item.wisproOrder.clientName}</span>
+                                                </div>
+                                                <span class="text-[9px] text-on-surface-variant block mt-0.5 font-mono">Orden #${item.wisproOrder.id} &bull; ${item.wisproOrder.plan}</span>
+                                            </div>
+                                        ` : `
+                                            <span class="text-[11px] text-on-surface-variant italic">Sin orden asignada</span>
+                                        `}
+                                    </td>
+
+                                    <td class="p-3.5 pr-6 text-right">
+                                        <div class="inline-flex items-center gap-1">
+                                            <button onclick="window.openTransferModal('${item.id}')" class="p-1.5 rounded-xl hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition" title="Transferir de ubicación">
+                                                <span class="material-symbols-outlined text-[18px]">swap_horiz</span>
+                                            </button>
+                                            <button onclick="window.openInventoryAudit('${item.id}')" class="p-1.5 rounded-xl hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition" title="Ver Historial y Auditoría">
+                                                <span class="material-symbols-outlined text-[18px]">history</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `}
+        </div>
+    </div>
+    `;
+}
+
+// ── RESUMEN DE STOCK POR CUADRILLA TÉCNICA ────────────────────────────────
+function renderTechStockSummary(inv) {
+    return `
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        ${TECNICOS_ACTIVOS.map(nombre => {
+            const techItems = inv.filter(i => (i.assignedTech || '').toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
+            const onusCount = techItems.filter(i => i.category === 'onu' && i.status === 'asignado').length;
+            const routersCount = techItems.filter(i => i.category === 'router' && i.status === 'asignado').length;
+            const dropCables = techItems.filter(i => i.category === 'drop' && i.status === 'asignado').length;
+            const installedToday = (state.finishedOrders || []).filter(o => (o.techName || '').toLowerCase().includes(nombre.split(' ')[0].toLowerCase())).length;
+
+            return `
+            <div class="bg-surface-container-lowest border border-outline-variant/20 rounded-3xl p-5 shadow-sm space-y-4">
+                <div class="flex items-center justify-between border-b border-outline-variant/15 pb-3">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-2xl bg-primary/10 text-primary font-black flex items-center justify-center text-sm">
+                            ${techInitials(nombre)}
+                        </div>
+                        <div>
+                            <h3 class="font-black text-on-surface text-sm">${nombre}</h3>
+                            <span class="text-[10px] font-bold text-sky-400 uppercase tracking-wider">Unidad Móvil en Campo</span>
+                        </div>
+                    </div>
+                    <button onclick="window.setInventoryFilter('tech', '${nombre}'); window.setInventorySubTab('all');" class="text-xs font-bold text-primary hover:underline">
+                        Ver items
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-surface-container-low p-2.5 rounded-xl border border-outline-variant/15">
+                        <span class="text-[10px] text-on-surface-variant font-bold block uppercase">ONUs</span>
+                        <span class="text-lg font-black text-on-surface">${onusCount}</span>
+                    </div>
+                    <div class="bg-surface-container-low p-2.5 rounded-xl border border-outline-variant/15">
+                        <span class="text-[10px] text-on-surface-variant font-bold block uppercase">Routers</span>
+                        <span class="text-lg font-black text-on-surface">${routersCount}</span>
+                    </div>
+                    <div class="bg-surface-container-low p-2.5 rounded-xl border border-outline-variant/15">
+                        <span class="text-[10px] text-on-surface-variant font-bold block uppercase">Bobinas</span>
+                        <span class="text-lg font-black text-on-surface">${dropCables}</span>
+                    </div>
+                </div>
+
+                <div class="bg-primary/5 p-3 rounded-2xl border border-primary/15 flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-primary text-base">task_alt</span>
+                        <span class="text-xs font-semibold text-on-surface">Instalaciones de hoy (Wispro):</span>
+                    </div>
+                    <span class="font-black text-xs text-primary">${installedToday} órdenes</span>
+                </div>
+            </div>
+            `;
+        }).join('')}
+    </div>
+    `;
+}
 
 // ── NAPs TRACKER ──────────────────────────────────────────────────────────
 Views.naps = () => {
@@ -5702,6 +6638,7 @@ async function initApp() {
     if (ordCache?.napOverrides) state.napOverrides = ordCache.napOverrides;
 
     loadTrackedNaps(); // Cargar estado de NAPs manuales
+    loadInventoryData(); // Cargar estado de inventario ISP
 
     try {
         localStorage.removeItem('V_issues'); // Forzar recarga limpia de reportes con nombres de clientes

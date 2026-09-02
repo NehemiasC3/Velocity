@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
-const fetch = require('node-fetch');
+const fetch = globalThis.fetch || ((...args) => import('node-fetch').then(({default: f}) => f(...args)));
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');

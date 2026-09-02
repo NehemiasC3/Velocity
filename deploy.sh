@@ -90,12 +90,15 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-log_step "4/5: Reconstruyendo y levantando contenedores Docker"
+log_step "4/5: Reconstruyendo y levantando contenedores Docker (--force-recreate)"
 # ------------------------------------------------------------------------------
-echo "Ejecutando: $DOCKER_COMPOSE up -d --build"
-$DOCKER_COMPOSE up -d --build
+echo "Deteniendo contenedores previos..."
+$DOCKER_COMPOSE down --remove-orphans || true
 
-log_success "Contenedores Docker levantados y activos en segundo plano"
+echo "Reconstruyendo y levantando: $DOCKER_COMPOSE up -d --build --force-recreate"
+$DOCKER_COMPOSE up -d --build --force-recreate
+
+log_success "Contenedores Docker levantados limpiamente y activos en segundo plano"
 
 # ------------------------------------------------------------------------------
 log_step "5/5: Mantenimiento y limpieza de Docker"

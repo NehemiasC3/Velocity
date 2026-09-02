@@ -18,6 +18,8 @@ services:
       - PORT=3000
     volumes:
       - ./data:/usr/src/app/data
+      - ./public:/usr/src/app/public
+      - ./public:/public
     networks:
       - velocity-net
 

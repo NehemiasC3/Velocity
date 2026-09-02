@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { dbService } from '../services/DbService';
 
 interface ProxyCacheEntry {
   timestamp: number;
@@ -23,8 +24,18 @@ export class WisproProxyController {
   public static async handleProxy(req: Request, res: Response): Promise<void> {
     const apiPath = (req.params as any)[0] || '';
     const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
-    const token = process.env.WISPRO_API_KEY || process.env.WISPRO_API_TOKEN || '';
+    const db = dbService.getDB();
+    const token = (
+      process.env.WISPRO_API_TOKEN ||
+      process.env.WISPRO_API_KEY ||
+      db.settings?.wisproToken ||
+      ''
+    ).trim();
     const baseUrl = (process.env.WISPRO_BASE_URL || process.env.WISPRO_API_URL || 'https://www.cloud.wispro.co/api/v1').replace(/\/+$/, '');
+
+    if (!token) {
+      console.warn('[WisproProxyController ⚠️] Token de Wispro vacío. Revisa WISPRO_API_TOKEN / WISPRO_API_KEY en .env');
+    }
 
     const isGet = req.method === 'GET';
     const cacheKey = req.originalUrl;

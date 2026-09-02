@@ -1,6 +1,6 @@
 import React from 'react';
 import { UserSession } from '../types/auth';
-import { Server, Search, LogOut, ShieldCheck, Activity } from 'lucide-react';
+import { Server, Search, LogOut, ShieldCheck, Activity, Bell } from 'lucide-react';
 
 interface NavigationProps {
   activeTab: 'inventory' | 'overview' | 'settings';
@@ -58,6 +58,18 @@ export const Navigation: React.FC<NavigationProps> = ({
             >
               <Activity className="w-3.5 h-3.5" />
               <span>Estado del Sistema</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('settings')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                activeTab === 'settings'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Bell className="w-3.5 h-3.5" />
+              <span>Preferencias de Alertas</span>
             </button>
           </nav>
         </div>

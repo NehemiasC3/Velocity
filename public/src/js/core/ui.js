@@ -322,7 +322,7 @@ window.switchTab = function(tab) {
     });
 
     // Título
-    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes', prueba: 'Prueba' };
+    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes', prueba: 'Prueba', inventory: 'Inventario' };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 

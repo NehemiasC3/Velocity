@@ -2,6 +2,8 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import fs from 'fs';
+import path from 'path';
 import apiRouter from './routes';
 import { generalLimiter } from './middlewares/rateLimitMiddleware';
 
@@ -60,6 +62,23 @@ export function createApp(): Application {
 
   // Master API Router
   app.use('/api', apiRouter);
+
+  // Servir archivos estáticos del Core y Módulo de Inventario
+  const publicDir = path.join(__dirname, '../../public');
+  const inventoryDir = path.join(__dirname, '../../public/inventory');
+  const inventoryAltDir = path.join(__dirname, '../../Inventario App/frontend/dist');
+
+  if (fs.existsSync(inventoryDir)) {
+    app.use('/inventory', express.static(inventoryDir));
+    app.use('/inventario', express.static(inventoryDir));
+  } else if (fs.existsSync(inventoryAltDir)) {
+    app.use('/inventory', express.static(inventoryAltDir));
+    app.use('/inventario', express.static(inventoryAltDir));
+  }
+
+  if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+  }
 
   // Manejador de 404
   app.use((_req: Request, res: Response) => {

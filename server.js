@@ -45,8 +45,19 @@ app.use('/api/login', loginLimiter);
 
 app.use(cors());
 app.use(express.json());
-// SEGURIDAD: Solo servir archivos desde la carpeta 'public'
+
+// Servir archivos estáticos del Core y Módulo de Inventario
 app.use(express.static(path.join(__dirname, 'public')));
+
+const inventoryDist = path.join(__dirname, 'public/inventory');
+const inventoryAltDist = path.join(__dirname, 'Inventario App/frontend/dist');
+if (fs.existsSync(inventoryDist)) {
+    app.use('/inventory', express.static(inventoryDist));
+    app.use('/inventario', express.static(inventoryDist));
+} else if (fs.existsSync(inventoryAltDist)) {
+    app.use('/inventory', express.static(inventoryAltDist));
+    app.use('/inventario', express.static(inventoryAltDist));
+}
 
 // Asegurar que existe la carpeta de datos
 if (!fs.existsSync(DATA_DIR)) {
@@ -195,7 +206,8 @@ function validateToken(req, res, next) {
     }
 
     try {
-        const decoded = jwt.verify(authHeader, JWT_SECRET);
+        const cleanToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : authHeader.trim();
+        const decoded = jwt.verify(cleanToken, JWT_SECRET);
         req.user = decoded;
         return next();
     } catch (e) {
@@ -349,8 +361,13 @@ function cleanWisproCache() {
 app.all('/api/wispro/*', validateToken, async (req, res) => {
     const apiPath = req.params[0] || '';
     const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
-    const token = process.env.WISPRO_API_KEY;
-    const baseUrl = process.env.WISPRO_BASE_URL || 'https://www.cloud.wispro.co/api/v1';
+    const db = getDB();
+    const token = (process.env.WISPRO_API_TOKEN || process.env.WISPRO_API_KEY || (db?.settings?.wisproToken) || '').trim();
+    const baseUrl = (process.env.WISPRO_BASE_URL || process.env.WISPRO_API_URL || 'https://www.cloud.wispro.co/api/v1').replace(/\/+$/, '');
+
+    if (!token) {
+        console.warn('[Wispro Proxy ⚠️] Token de Wispro vacío. Configura WISPRO_API_TOKEN o WISPRO_API_KEY en .env');
+    }
     
     const isGet = req.method === 'GET';
     const cacheKey = req.originalUrl;

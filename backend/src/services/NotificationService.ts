@@ -5,7 +5,8 @@ import writeFileAtomic from 'write-file-atomic';
 import {
   PushSubscriptionPayload,
   StoredSubscription,
-  NotificationPayload
+  NotificationPayload,
+  NotificationPreferences
 } from '../types/notification';
 
 export class NotificationService {
@@ -28,14 +29,25 @@ export class NotificationService {
 
     this.subject = (process.env.VAPID_SUBJECT || 'mailto:soporte@atg-rappido.com').trim();
 
+    if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) {
+      console.warn(
+        '[NotificationService ⚠️] Variables VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY no definidas en .env. Usando claves por defecto para desarrollo. Configúralas en producción.'
+      );
+    }
+
     const dataDir = process.env.DATA_DIR || path.join(__dirname, '../../../data');
+    if (!fs.existsSync(dataDir)) {
+      try {
+        fs.mkdirSync(dataDir, { recursive: true });
+      } catch {}
+    }
     this.subsFilePath = path.join(dataDir, 'push_subscriptions.json');
 
     try {
       webpush.setVapidDetails(this.subject, this.publicKey, this.privateKey);
       console.log('[NotificationService 🔔] Web Push VAPID inicializado correctamente.');
     } catch (e: any) {
-      console.error('[NotificationService] Error configurando VAPID:', e.message);
+      console.error('[NotificationService ❌] Error configurando VAPID:', e.message);
     }
 
     this.loadSubscriptions();
@@ -75,17 +87,25 @@ export class NotificationService {
     subscription: PushSubscriptionPayload,
     userId?: string,
     role?: 'supervisor' | 'technician' | 'all',
-    userAgent?: string
+    userAgent?: string,
+    preferences?: NotificationPreferences
   ): StoredSubscription {
     const endpoint = subscription.endpoint;
     const now = new Date().toISOString();
 
     const existing = this.subscriptions.get(endpoint);
+    const defaultPreferences: NotificationPreferences = {
+      zones: ['Todas'],
+      priorities: ['Alta', 'Normal'],
+      events: ['orders', 'issues', 'audits']
+    };
+
     const stored: StoredSubscription = {
       id: existing?.id || Math.random().toString(36).slice(2, 10),
       userId: userId || existing?.userId,
       role: role || existing?.role || 'all',
       subscription,
+      preferences: preferences || existing?.preferences || defaultPreferences,
       userAgent: userAgent || existing?.userAgent,
       createdAt: existing?.createdAt || now,
       updatedAt: now
@@ -93,8 +113,25 @@ export class NotificationService {
 
     this.subscriptions.set(endpoint, stored);
     this.persistSubscriptions();
-    console.log(`[NotificationService 🔔] Nueva suscripción Push guardada (${this.subscriptions.size} activas).`);
+    console.log(`[NotificationService 🔔] Suscripción Push guardada (${this.subscriptions.size} activas).`);
     return stored;
+  }
+
+  public updatePreferences(endpoint: string, preferences: NotificationPreferences): StoredSubscription | null {
+    const sub = this.subscriptions.get(endpoint);
+    if (!sub) return null;
+
+    sub.preferences = preferences;
+    sub.updatedAt = new Date().toISOString();
+    this.subscriptions.set(endpoint, sub);
+    this.persistSubscriptions();
+    console.log(`[NotificationService ⚙️] Preferencias actualizadas para: ${endpoint.slice(0, 30)}...`);
+    return sub;
+  }
+
+  public getPreferences(endpoint: string): NotificationPreferences | null {
+    const sub = this.subscriptions.get(endpoint);
+    return sub?.preferences || null;
   }
 
   public removeSubscription(endpoint: string): boolean {
@@ -111,14 +148,58 @@ export class NotificationService {
   }
 
   /**
-   * Envía una notificación Push a todos los suscriptores o a un rol específico.
+   * Determina si una suscripción coincide con los filtros de una alerta
+   */
+  private matchesPreferences(sub: StoredSubscription, payload: NotificationPayload): boolean {
+    const prefs = sub.preferences;
+    if (!prefs) return true; // Si no tiene preferencias personalizadas, recibe todo
+
+    // 1. Filtrado por Zona
+    if (payload.zone && prefs.zones && prefs.zones.length > 0) {
+      const hasAllZones = prefs.zones.some((z) => z.toLowerCase() === 'todas');
+      if (!hasAllZones) {
+        const matchesZone = prefs.zones.some(
+          (z) => z.toLowerCase().trim() === payload.zone!.toLowerCase().trim()
+        );
+        if (!matchesZone) {
+          return false;
+        }
+      }
+    }
+
+    // 2. Filtrado por Nivel de Prioridad
+    if (payload.priority && prefs.priorities && prefs.priorities.length > 0) {
+      const matchesPriority = prefs.priorities.some(
+        (p) => p.toLowerCase().trim() === payload.priority!.toLowerCase().trim()
+      );
+      if (!matchesPriority) {
+        return false;
+      }
+    }
+
+    // 3. Filtrado por Tipo de Evento
+    if (payload.event && prefs.events && prefs.events.length > 0) {
+      const matchesEvent = prefs.events.some(
+        (e) => e.toLowerCase().trim() === payload.event!.toLowerCase().trim()
+      );
+      if (!matchesEvent) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Envía una notificación Push filtrada inteligentemente según zonas, prioridades y eventos
    */
   public async broadcastNotification(
     payload: NotificationPayload,
     targetRole?: 'supervisor' | 'technician' | 'all'
-  ): Promise<{ sent: number; failed: number }> {
+  ): Promise<{ sent: number; failed: number; skipped: number }> {
     let sent = 0;
     let failed = 0;
+    let skipped = 0;
     const invalidEndpoints: string[] = [];
 
     const stringifiedPayload = JSON.stringify({
@@ -129,17 +210,28 @@ export class NotificationService {
       tag: payload.tag || `velocity-${Date.now()}`,
       data: {
         url: payload.data?.url || '/',
+        zone: payload.zone,
+        priority: payload.priority,
+        event: payload.event,
         timestamp: Date.now(),
         ...(payload.data || {})
       },
-      vibrate: payload.vibrate || [200, 100, 200],
+      vibrate: payload.vibrate || [200, 100, 200, 100, 200],
       requireInteraction: payload.requireInteraction !== false
     });
 
     const promises: Promise<void>[] = [];
 
     for (const [endpoint, stored] of this.subscriptions.entries()) {
+      // Filtrar por rol
       if (targetRole && targetRole !== 'all' && stored.role !== 'all' && stored.role !== targetRole) {
+        skipped++;
+        continue;
+      }
+
+      // Filtrar según preferencias personalizadas de zona, prioridad y evento
+      if (!this.matchesPreferences(stored, payload)) {
+        skipped++;
         continue;
       }
 
@@ -151,7 +243,6 @@ export class NotificationService {
         .catch((err: any) => {
           failed++;
           console.warn(`[NotificationService] Error enviando Push a ${endpoint.slice(0, 30)}...:`, err.statusCode || err.message);
-          // Si el endpoint ya no es válido (404 o 410 Gone), marcarlo para eliminar
           if (err.statusCode === 404 || err.statusCode === 410) {
             invalidEndpoints.push(endpoint);
           }
@@ -168,8 +259,8 @@ export class NotificationService {
       this.persistSubscriptions();
     }
 
-    console.log(`[NotificationService] Broadcast Push completado: ${sent} enviados, ${failed} fallidos.`);
-    return { sent, failed };
+    console.log(`[NotificationService] Broadcast Push: ${sent} enviados, ${skipped} filtrados/omitidos, ${failed} fallidos.`);
+    return { sent, failed, skipped };
   }
 }
 

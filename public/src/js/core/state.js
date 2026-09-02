@@ -73,7 +73,23 @@ window.appState = state; // Expuesto temporalmente para debug
 
 
 // ── SESIÓN ────────────────────────────────────────────────────────────────
-const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token');
+window.getSessionToken = function() {
+    return sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token') || '';
+};
+
+// Validar sesión inicial (si no estamos en login.html y no hay token, redirigir)
+(function checkInitialAuth() {
+    const isLoginPage = window.location.pathname.endsWith('login.html');
+    const token = window.getSessionToken();
+    if (!token && !isLoginPage) {
+        console.warn('[Velocity Auth] No se encontró sesión activa. Redirigiendo a login...');
+        const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
+        window.location.href = loginUrl;
+    }
+})();
+
+// Mantener compatibilidad con variable legacy
+const SESSION_TOKEN = window.getSessionToken();
 
 // Cola de peticiones para evitar bloqueo de Wispro
 let apiPromise = Promise.resolve();

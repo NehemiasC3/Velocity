@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WisproProxyController = void 0;
 const axios_1 = __importDefault(require("axios"));
+const DbService_1 = require("../services/DbService");
 class WisproProxyController {
     static cache = {};
     static TTL_MS = 5 * 60 * 1000; // 5 minutos
@@ -19,8 +20,15 @@ class WisproProxyController {
     static async handleProxy(req, res) {
         const apiPath = req.params[0] || '';
         const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
-        const token = process.env.WISPRO_API_KEY || process.env.WISPRO_API_TOKEN || '';
+        const db = DbService_1.dbService.getDB();
+        const token = (process.env.WISPRO_API_TOKEN ||
+            process.env.WISPRO_API_KEY ||
+            db.settings?.wisproToken ||
+            '').trim();
         const baseUrl = (process.env.WISPRO_BASE_URL || process.env.WISPRO_API_URL || 'https://www.cloud.wispro.co/api/v1').replace(/\/+$/, '');
+        if (!token) {
+            console.warn('[WisproProxyController ⚠️] Token de Wispro vacío. Revisa WISPRO_API_TOKEN / WISPRO_API_KEY en .env');
+        }
         const isGet = req.method === 'GET';
         const cacheKey = req.originalUrl;
         if (isGet) {

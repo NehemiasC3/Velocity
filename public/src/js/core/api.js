@@ -1,7 +1,14 @@
 // Velocity API Module
-
 async function apiFetch(path, opts = {}, silent = false) {
-    if (!SESSION_TOKEN) return null;
+    const token = typeof window.getSessionToken === 'function' ? window.getSessionToken() : (sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token') || '');
+    if (!token && !path.includes('/api/login')) {
+        const isLoginPage = window.location.pathname.endsWith('login.html');
+        if (!isLoginPage) {
+            const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
+            window.location.href = loginUrl;
+        }
+        return null;
+    }
 
     const isLocalApi = !path.includes(CFG.proxy) && (path.startsWith('/api/') || path.startsWith('api/'));
     
@@ -17,7 +24,7 @@ async function apiFetch(path, opts = {}, silent = false) {
             const res = await fetch(url, {
                 ...opts,
                 headers: {
-                    'Authorization': SESSION_TOKEN,
+                    'Authorization': token,
                     'Accept': 'application/json',
                     'Content-Type': 'application/json',
                     ...(opts.headers || {})
@@ -31,6 +38,24 @@ async function apiFetch(path, opts = {}, silent = false) {
                 }
                 throw err;
             });
+
+            // 1. Manejo inmediato de 401 (No reintentar)
+            if (res.status === 401) {
+                console.warn('[Velocity Auth] Sesión inválida o expirada (HTTP 401). Limpiando sesión...');
+                sessionStorage.removeItem('Velocity_Token');
+                sessionStorage.removeItem('Velocity_Role');
+                sessionStorage.removeItem('Velocity_Active_User');
+                sessionStorage.removeItem('Velocity_User_Name');
+                localStorage.removeItem('Velocity_Token');
+                localStorage.removeItem('Velocity_Role');
+
+                const isLoginPage = window.location.pathname.endsWith('login.html');
+                if (!isLoginPage) {
+                    const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
+                    window.location.href = loginUrl;
+                }
+                throw new Error('Sesión inválida o expirada.');
+            }
 
             if (res.ok) return await res.json();
             if (silent && res.status === 404) return null;
@@ -46,7 +71,10 @@ async function apiFetch(path, opts = {}, silent = false) {
             const errorData = await res.json().catch(() => ({}));
             throw new Error(errorData.error || `HTTP ${res.status}`);
         } catch (e) {
-            // Network error retries
+            // Network error retries (except auth errors)
+            if (e.message && e.message.includes('Sesión inválida')) {
+                throw e;
+            }
             if (retries > 0 && (e.name === 'TypeError' || e.message.includes('fetch') || e.message.includes('NetworkError'))) {
                 console.warn(`[Velocity] Error de red al llamar a ${path}. Reintentando en 1000ms... (Intentos restantes: ${retries})`);
                 await new Promise(r => setTimeout(r, 1000));

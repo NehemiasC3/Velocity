@@ -8,6 +8,8 @@ const express_1 = __importDefault(require("express"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const rateLimitMiddleware_1 = require("./middlewares/rateLimitMiddleware");
 function createApp() {
@@ -51,6 +53,21 @@ function createApp() {
     });
     // Master API Router
     app.use('/api', routes_1.default);
+    // Servir archivos estáticos del Core y Módulo de Inventario
+    const publicDir = path_1.default.join(__dirname, '../../public');
+    const inventoryDir = path_1.default.join(__dirname, '../../public/inventory');
+    const inventoryAltDir = path_1.default.join(__dirname, '../../Inventario App/frontend/dist');
+    if (fs_1.default.existsSync(inventoryDir)) {
+        app.use('/inventory', express_1.default.static(inventoryDir));
+        app.use('/inventario', express_1.default.static(inventoryDir));
+    }
+    else if (fs_1.default.existsSync(inventoryAltDir)) {
+        app.use('/inventory', express_1.default.static(inventoryAltDir));
+        app.use('/inventario', express_1.default.static(inventoryAltDir));
+    }
+    if (fs_1.default.existsSync(publicDir)) {
+        app.use(express_1.default.static(publicDir));
+    }
     // Manejador de 404
     app.use((_req, res) => {
         res.status(404).json({

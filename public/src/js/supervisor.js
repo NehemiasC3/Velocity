@@ -3399,6 +3399,39 @@ window.exportInventoryToPDF = async function() {
     }
 };
 
+// ── INVENTARIO TAB ────────────────────────────────────────────────────────
+Views.inventory = () => {
+    return `
+    <div class="w-full h-full min-h-[calc(100vh-6rem)] flex flex-col animation-slide-up">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 mb-4 border-b border-outline-variant/20">
+            <div class="flex items-center gap-3">
+                <div class="p-2.5 bg-primary/10 text-primary rounded-xl flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">inventory_2</span>
+                </div>
+                <div>
+                    <h2 class="text-xl font-black text-on-surface tracking-tight">Módulo de Inventario & Hardware ISP</h2>
+                    <p class="text-xs text-on-surface-variant">Gestión de ONUs, Routers, Asignaciones de Stock y Búsqueda Instantánea con Wispro Cloud</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="/inventory/" target="_blank" class="px-3.5 py-2 bg-surface-container hover:bg-surface-container-high text-on-surface text-xs font-bold rounded-xl border border-outline-variant/30 flex items-center gap-2 transition shadow-sm">
+                    <span class="material-symbols-outlined text-sm">open_in_new</span>
+                    <span>Abrir en Pestaña Completa</span>
+                </a>
+            </div>
+        </div>
+        <div class="flex-1 w-full bg-surface-container-lowest rounded-2xl border border-outline-variant/20 overflow-hidden shadow-sm">
+            <iframe 
+                src="/inventory/" 
+                title="Módulo de Inventario Velocity" 
+                class="w-full h-[calc(100vh-12rem)] min-h-[600px] border-0 rounded-2xl"
+                loading="lazy"
+            ></iframe>
+        </div>
+    </div>
+    `;
+};
+
 // ── NAPs TRACKER ──────────────────────────────────────────────────────────
 Views.naps = () => {
     let list = [...state.trackedNaps];

@@ -193,7 +193,7 @@ const AppContent: React.FC = () => {
       )}
 
       {/* Main Content Area - Keep-Alive DOM Caching (0ms Tab Switching) */}
-      <main className="flex-1 w-full max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6">
         <div key={refreshKey} className="w-full">
           <div className={`w-full ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
             <DashboardHome onNavigateTab={handleNavigateTab} />

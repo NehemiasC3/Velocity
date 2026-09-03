@@ -57,15 +57,20 @@ export class WisproProxyController {
         url,
         method: req.method as any,
         headers: {
-          Authorization: token,
+          Authorization: token.startsWith('Bearer ') ? token : (token ? `${token}` : ''),
           Accept: 'application/json',
           'Content-Type': 'application/json'
         },
         data: ['POST', 'PUT', 'PATCH'].includes(req.method) ? req.body : undefined,
-        validateStatus: () => true
+        validateStatus: () => true,
+        timeout: 15000
       });
 
       const responseData = axiosResponse.data;
+
+      if (axiosResponse.status >= 400) {
+        console.error(`[WisproProxyController ❌] Error en consulta a Wispro (${req.method} ${url}): Status ${axiosResponse.status} - Respuesta:`, JSON.stringify(responseData));
+      }
 
       if (isGet && axiosResponse.status === 200) {
         WisproProxyController.cache[cacheKey] = {
@@ -88,7 +93,12 @@ export class WisproProxyController {
 
       res.status(axiosResponse.status).json(responseData);
     } catch (error: any) {
-      console.error('[WisproProxyController] Error en Gateway:', error.message);
+      console.error('[WisproProxyController 🚨 Excepción de Conexión]:', {
+        message: error.message,
+        code: error.code,
+        url: `${baseUrl}/${apiPath}`,
+        stack: error.stack
+      });
       res.status(500).json({
         error: 'Wispro Gateway Error',
         message: error.message

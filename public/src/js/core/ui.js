@@ -455,9 +455,11 @@ function renderTab(tab, subTab) {
             'auditorias': 'audit',
             'audit': 'audit'
         };
-        const canonicalTab = tabMap[sub] || sub;
         const timestamp = Date.now();
-        const iframeSrc = `http://localhost:5173/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&t=${timestamp}`;
+        // En producción o modo servido usamos la ruta relativa '/' servida por Nginx/Node; en dev local opcionalmente puerto 5173
+        const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
+        const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '';
+        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&t=${timestamp}`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');
         if (!iframeContainer) {

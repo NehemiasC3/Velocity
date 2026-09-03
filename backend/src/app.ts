@@ -85,7 +85,19 @@ export function createApp(): Application {
   }
 
   if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+    // Soporte para Pretty URLs en archivos estáticos (/pages/supervisor -> supervisor.html)
+    app.use(express.static(publicDir, { extensions: ['html', 'htm'] }));
+
+    // Accesos directos raíz limpios (Pretty URLs)
+    app.get('/supervisor', (_req: Request, res: Response) => {
+      res.sendFile(path.join(publicDir, 'pages/supervisor.html'));
+    });
+    app.get('/login', (_req: Request, res: Response) => {
+      res.sendFile(path.join(publicDir, 'pages/login.html'));
+    });
+    app.get('/technician', (_req: Request, res: Response) => {
+      res.sendFile(path.join(publicDir, 'pages/technician.html'));
+    });
   }
 
   // Manejador de 404

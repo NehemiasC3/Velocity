@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { 
-  Building2, Truck, Plus, Filter, Search, ShieldAlert, 
-  Package, CheckCircle, Clock, Check, AlertCircle, RefreshCw,
-  Layers, ArrowRightLeft, Radio, DollarSign
+  Building2, Store, Truck, Plus, Search, ShieldAlert, 
+  Package, AlertCircle, RefreshCw, Layers, ArrowRight,
+  MapPin, Check, GitFork, X, ChevronRight, Info
 } from 'lucide-react';
 import { api } from '../services/api';
-import { Warehouse, SerializedItem, BulkItem, BulkStock } from '../types';
+import { Warehouse, SerializedItem, BulkItem, BulkStock, WarehouseType } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 export const WarehousesModule: React.FC = () => {
@@ -19,8 +19,10 @@ export const WarehousesModule: React.FC = () => {
   const [bulkStocks, setBulkStocks] = useState<BulkStock[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSubmittingWh, setIsSubmittingWh] = useState(false);
 
-  // Modals
+  // Modales
+  const [showNewWarehouseModal, setShowNewWarehouseModal] = useState(false);
   const [showAddOnuModal, setShowAddOnuModal] = useState(false);
   const [showAdjustBulkModal, setShowAdjustBulkModal] = useState(false);
   const [showRmaModal, setShowRmaModal] = useState(false);
@@ -28,6 +30,15 @@ export const WarehousesModule: React.FC = () => {
   const [rmaReason, setRmaReason] = useState('');
 
   // Form states
+  const [newWhForm, setNewWhForm] = useState({
+    name: '',
+    code: '',
+    type: 'SUCURSAL' as WarehouseType,
+    parentId: '',
+    address: '',
+    vehiclePlate: ''
+  });
+
   const [newOnu, setNewOnu] = useState({
     macAddress: '',
     serialNumber: '',
@@ -49,20 +60,22 @@ export const WarehousesModule: React.FC = () => {
       setLoading(true);
       const [whRes, serRes, bulkRes] = await Promise.all([
         api.getWarehouses(),
-        api.getSerializedItems(),
-        api.getBulkInventory()
+        api.getSerializedItems().catch(() => ({ items: [] })),
+        api.getBulkInventory().catch(() => ({ items: [], stocks: [] }))
       ]);
-      setWarehouses(whRes.warehouses);
-      setSerializedItems(serRes.items);
-      setBulkItems(bulkRes.items);
-      setBulkStocks(bulkRes.stocks);
+
+      const loadedWarehouses = whRes.warehouses || [];
+      setWarehouses(loadedWarehouses);
+      setSerializedItems(serRes.items || []);
+      setBulkItems(bulkRes.items || []);
+      setBulkStocks(bulkRes.stocks || []);
       
-      if (!newOnu.currentWarehouseId && whRes.warehouses.length > 0) {
-        setNewOnu(prev => ({ ...prev, currentWarehouseId: whRes.warehouses[0].id }));
+      if (!newOnu.currentWarehouseId && loadedWarehouses.length > 0) {
+        setNewOnu(prev => ({ ...prev, currentWarehouseId: loadedWarehouses[0].id }));
         setBulkAdjust(prev => ({ 
           ...prev, 
-          warehouseId: whRes.warehouses[0].id,
-          bulkItemId: bulkRes.items[0]?.id || ''
+          warehouseId: loadedWarehouses[0].id,
+          bulkItemId: bulkRes.items?.[0]?.id || ''
         }));
       }
     } catch (err) {
@@ -75,6 +88,39 @@ export const WarehousesModule: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Crear nueva Bodega
+  const handleCreateWarehouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newWhForm.name.trim()) return;
+
+    try {
+      setIsSubmittingWh(true);
+      await api.createWarehouse({
+        name: newWhForm.name.trim(),
+        code: newWhForm.code.trim() || undefined,
+        type: newWhForm.type,
+        parentId: newWhForm.parentId || undefined,
+        address: newWhForm.address.trim() || undefined,
+        vehiclePlate: newWhForm.type === 'VEHICULO' ? newWhForm.vehiclePlate.trim() : undefined
+      });
+
+      setShowNewWarehouseModal(false);
+      setNewWhForm({
+        name: '',
+        code: '',
+        type: 'SUCURSAL',
+        parentId: '',
+        address: '',
+        vehiclePlate: ''
+      });
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al crear la bodega: ${err.message}`);
+    } finally {
+      setIsSubmittingWh(false);
+    }
+  };
 
   const handleCreateOnu = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -120,22 +166,60 @@ export const WarehousesModule: React.FC = () => {
     }
   };
 
-  // Filtered items
+  // Helper de ícono y estilo por tipo de bodega
+  const getWarehouseTypeBadge = (type: WarehouseType | string) => {
+    switch (type) {
+      case 'PRINCIPAL':
+      case 'HUB':
+        return {
+          icon: <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />,
+          label: 'Hub Principal',
+          color: 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-800 text-purple-700 dark:text-purple-300'
+        };
+      case 'SUCURSAL':
+      case 'SPOKE':
+        return {
+          icon: <Store className="w-4 h-4 text-sky-600 dark:text-sky-400" />,
+          label: 'Sucursal Regional',
+          color: 'bg-sky-50 dark:bg-sky-950/50 border-sky-200 dark:border-sky-800 text-sky-700 dark:text-sky-300'
+        };
+      case 'VEHICULO':
+        return {
+          icon: <Truck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />,
+          label: 'Móvil / Vehículo',
+          color: 'bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300'
+        };
+      case 'CUARENTENA_RMA':
+        return {
+          icon: <ShieldAlert className="w-4 h-4 text-rose-600 dark:text-rose-400" />,
+          label: 'Cuarentena RMA',
+          color: 'bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300'
+        };
+      default:
+        return {
+          icon: <Layers className="w-4 h-4 text-slate-600" />,
+          label: type,
+          color: 'bg-slate-100 text-slate-700'
+        };
+    }
+  };
+
+  // Filtrado de tablas
   const filteredSerialized = serializedItems.filter(item => {
     const matchesWh = selectedWarehouseId === 'all' || item.currentWarehouseId === selectedWarehouseId;
     const q = searchQuery.toLowerCase();
     const matchesSearch = !q || 
-      item.macAddress.toLowerCase().includes(q) ||
-      item.serialNumber.toLowerCase().includes(q) ||
-      item.model.toLowerCase().includes(q) ||
-      item.brand.toLowerCase().includes(q);
+      item.macAddress?.toLowerCase().includes(q) ||
+      item.serialNumber?.toLowerCase().includes(q) ||
+      item.model?.toLowerCase().includes(q) ||
+      item.brand?.toLowerCase().includes(q);
     return matchesWh && matchesSearch;
   });
 
   const filteredBulkStocks = bulkStocks.filter(stock => {
     const matchesWh = selectedWarehouseId === 'all' || stock.warehouseId === selectedWarehouseId;
     const q = searchQuery.toLowerCase();
-    const matchesSearch = !q || stock.bulkItemName.toLowerCase().includes(q);
+    const matchesSearch = !q || stock.bulkItemName?.toLowerCase().includes(q);
     return matchesWh && matchesSearch;
   });
 
@@ -144,13 +228,13 @@ export const WarehousesModule: React.FC = () => {
       case 'EN_BODEGA':
         return <span className="bg-sky-100 text-sky-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-sky-950 dark:text-sky-300">En Bodega</span>;
       case 'EN_VEHICULO':
-        return <span className="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-300">En Camioneta</span>;
+        return <span className="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-300">En Móvil</span>;
       case 'EN_TRANSITO':
         return <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-amber-950 dark:text-amber-300 animate-pulse">En Tránsito</span>;
       case 'INSTALADO_CLIENTE':
-        return <span className="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-indigo-950 dark:text-indigo-300">Instalado (Wispro)</span>;
+        return <span className="bg-indigo-100 text-indigo-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-indigo-950 dark:text-indigo-300">Instalado</span>;
       case 'RMA_DEFECTUOSO':
-        return <span className="bg-rose-100 text-rose-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-rose-950 dark:text-rose-300 font-bold">RMA / Garantía</span>;
+        return <span className="bg-rose-100 text-rose-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-rose-950 dark:text-rose-300 font-bold">RMA / Dañado</span>;
       default:
         return <span className="bg-slate-100 text-slate-800 text-xs font-semibold px-2.5 py-0.5 rounded-full">{status}</span>;
     }
@@ -159,101 +243,209 @@ export const WarehousesModule: React.FC = () => {
   return (
     <div className="space-y-6">
       
-      {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* ── Top Header con Botón de Creación ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
         <div>
-          <h2 className="text-xl sm:text-2xl font-heading font-bold text-slate-900 dark:text-white">
-            Modelo de Bodegas Hub-and-Spoke
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-500">
-            Jerarquía y stock en tiempo real: Bodega Principal &rarr; Sucursales Zonales &rarr; Bodegas Móviles (Camionetas)
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-heading font-bold text-slate-900 dark:text-white">
+              Gestión de Bodegas y Cadena Logística
+            </h2>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300 font-bold">
+              Hub & Spoke
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
+            Estructura jerárquica: Central (Hub) &rarr; Sucursales Zonales &rarr; Vehículos / Cuadrillas (Spokes móviles)
           </p>
         </div>
 
-        {/* Action buttons (RBAC check for Admin) */}
-        {currentUser?.role === 'ADMIN_BODEGA' && (
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowAddOnuModal(true)}
-              className="inline-flex items-center gap-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition shadow-sm"
+        {/* Acciones */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            onClick={() => setShowNewWarehouseModal(true)}
+            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Nueva Bodega</span>
+          </button>
+
+          {currentUser?.role === 'ADMIN_BODEGA' && (
+            <>
+              <button
+                onClick={() => setShowAddOnuModal(true)}
+                className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-3 py-2.5 rounded-xl transition"
+              >
+                <Package className="w-4 h-4 text-sky-500" />
+                <span>+ Alta ONU</span>
+              </button>
+              <button
+                onClick={() => setShowAdjustBulkModal(true)}
+                className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-semibold px-3 py-2.5 rounded-xl transition"
+              >
+                <Layers className="w-4 h-4 text-emerald-500" />
+                <span>Ajustar Granel</span>
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={loadData}
+            title="Refrescar lista"
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* ── Grid de Tarjetas de Bodegas (Jerarquía Visual) ── */}
+      <div>
+        <div className="flex items-center justify-between mb-3 px-1">
+          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+            Red de Bodegas ({warehouses.length})
+          </h3>
+          <span className="text-xs text-slate-500">
+            Haz clic en una bodega para filtrar su stock
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="h-44 bg-slate-100 dark:bg-slate-800/50 rounded-2xl animate-pulse" />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            
+            {/* Tarjeta General (Todas) */}
+            <div
+              onClick={() => setSelectedWarehouseId('all')}
+              className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
+                selectedWarehouseId === 'all'
+                  ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 shadow-md'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-sky-300 hover:shadow-sm'
+              }`}
             >
-              <Plus className="w-4 h-4" />
-              <span>Alta ONU / Router</span>
-            </button>
-            <button
-              onClick={() => setShowAdjustBulkModal(true)}
-              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold px-3.5 py-2 rounded-xl transition border border-slate-700"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Ajustar Drop / Granel</span>
-            </button>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="p-2 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                    Vista General
+                  </span>
+                </div>
+                <h4 className="font-heading font-bold text-base text-slate-900 dark:text-white">
+                  Todas las Bodegas
+                </h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  Inventario consolidado de toda la red
+                </p>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="text-slate-500">Total Seriados:</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                  {serializedItems.length}
+                </span>
+              </div>
+            </div>
+
+            {/* Listado dinámico de Bodegas */}
+            {warehouses.map(wh => {
+              const badge = getWarehouseTypeBadge(wh.type);
+              const isSelected = selectedWarehouseId === wh.id;
+              const countSer = serializedItems.filter(i => i.currentWarehouseId === wh.id).length;
+              const childCount = wh.childWarehouses?.length || 0;
+
+              return (
+                <div
+                  key={wh.id}
+                  onClick={() => setSelectedWarehouseId(wh.id)}
+                  className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
+                    isSelected
+                      ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 shadow-md'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-sky-300 hover:shadow-sm'
+                  }`}
+                >
+                  <div>
+                    {/* Header de la tarjeta */}
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800">
+                          {badge.icon}
+                        </div>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badge.color}`}>
+                          {badge.label}
+                        </span>
+                      </div>
+                      <span className="font-mono text-[10px] font-bold text-slate-400">
+                        {wh.code}
+                      </span>
+                    </div>
+
+                    {/* Nombre y Ubicación */}
+                    <h4 className="font-heading font-bold text-base text-slate-900 dark:text-white line-clamp-1">
+                      {wh.name}
+                    </h4>
+                    
+                    {wh.address && (
+                      <p className="text-xs text-slate-500 flex items-center gap-1 mt-1 line-clamp-1">
+                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span>{wh.address}</span>
+                      </p>
+                    )}
+
+                    {wh.vehiclePlate && (
+                      <p className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1 mt-1">
+                        <Truck className="w-3 h-3" />
+                        <span>Placa: {wh.vehiclePlate}</span>
+                      </p>
+                    )}
+
+                    {/* Datos de Jerarquía (Abastecida por / Abastece a) */}
+                    <div className="mt-2.5 space-y-1 text-[11px]">
+                      {wh.parentWarehouse ? (
+                        <div className="flex items-center gap-1 text-slate-500">
+                          <span className="text-slate-400">Abastece:</span>
+                          <span className="font-medium text-slate-700 dark:text-slate-300 truncate">
+                            {wh.parentWarehouse.name}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="text-purple-600 dark:text-purple-400 font-semibold flex items-center gap-1">
+                          <GitFork className="w-3 h-3" />
+                          <span>Hub Raíz (Centro de Distribución)</span>
+                        </div>
+                      )}
+
+                      {childCount > 0 && (
+                        <div className="text-sky-600 dark:text-sky-400 font-medium">
+                          &bull; Abastece a {childCount} sub-bodega(s) / vehículo(s)
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Footer con conteos */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Equipos Asignados:</span>
+                    <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
+                      {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Warehouse Selection Cards (Hub, Spokes, Vehicles) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-        <button
-          onClick={() => setSelectedWarehouseId('all')}
-          className={`p-4 rounded-xl border text-left transition-all ${
-            selectedWarehouseId === 'all'
-              ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 text-slate-900 dark:text-white shadow-sm'
-              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
-          }`}
-        >
-          <div className="flex items-center justify-between">
-            <Layers className="w-5 h-5 text-sky-500" />
-            <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500">
-              Total
-            </span>
-          </div>
-          <h4 className="font-heading font-bold text-sm text-slate-900 dark:text-white mt-2">Todas las Bodegas</h4>
-          <p className="text-xs text-slate-500 mt-0.5">{serializedItems.length} Equipos Seriados</p>
-        </button>
-
-        {warehouses.map((wh) => {
-          const isSelected = selectedWarehouseId === wh.id;
-          const countSer = serializedItems.filter(i => i.currentWarehouseId === wh.id).length;
-
-          return (
-            <button
-              key={wh.id}
-              onClick={() => setSelectedWarehouseId(wh.id)}
-              className={`p-4 rounded-xl border text-left transition-all ${
-                isSelected
-                  ? 'bg-sky-50 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 text-slate-900 dark:text-white shadow-sm'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:border-slate-300'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                {wh.type === 'HUB' && <Building2 className="w-5 h-5 text-purple-500" />}
-                {wh.type === 'SPOKE' && <Building2 className="w-5 h-5 text-blue-500" />}
-                {wh.type === 'VEHICLE' && <Truck className="w-5 h-5 text-emerald-500" />}
-                
-                <span className={`text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded ${
-                  wh.type === 'HUB' ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300' :
-                  wh.type === 'SPOKE' ? 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300' :
-                  'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-                }`}>
-                  {wh.type}
-                </span>
-              </div>
-
-              <h4 className="font-heading font-bold text-sm text-slate-900 dark:text-white mt-2 line-clamp-1">
-                {wh.name}
-              </h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {wh.vehiclePlate ? `Placa: ${wh.vehiclePlate}` : wh.code} • {countSer} ONUs
-              </p>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Main Stock Table with Subtabs */}
+      {/* ── Tabla Principal de Existencias Físicas ── */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         
-        {/* Subtabs & Search Header */}
+        {/* Header de Pestañas y Buscador */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
           
           <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto">
@@ -283,7 +475,7 @@ export const WarehousesModule: React.FC = () => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder={activeSubTab === 'serialized' ? "Filtrar por MAC, Serial, Modelo..." : "Filtrar por nombre de material..."}
+              placeholder={activeSubTab === 'serialized' ? "Buscar por MAC, Serial, Modelo..." : "Buscar material a granel..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -292,7 +484,7 @@ export const WarehousesModule: React.FC = () => {
 
         </div>
 
-        {/* Tab 1: Serialized Hardware Table */}
+        {/* Tab 1: Seriados */}
         {activeSubTab === 'serialized' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -352,7 +544,7 @@ export const WarehousesModule: React.FC = () => {
           </div>
         )}
 
-        {/* Tab 2: Bulk Inventory Table (Drop Cable, Tensors, Connectors) */}
+        {/* Tab 2: Granel */}
         {activeSubTab === 'bulk' && (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -412,7 +604,7 @@ export const WarehousesModule: React.FC = () => {
                           )}
                         </td>
                         <td className="py-3 px-4 text-right text-slate-400 text-[11px]">
-                          {new Date(stock.updatedAt).toLocaleDateString()}
+                          {stock.updatedAt ? new Date(stock.updatedAt).toLocaleDateString() : 'N/A'}
                         </td>
                       </tr>
                     );
@@ -424,6 +616,160 @@ export const WarehousesModule: React.FC = () => {
         )}
 
       </div>
+
+      {/* ── MODAL: NUEVA BODEGA (Hub & Spoke Form) ── */}
+      {showNewWarehouseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-bold text-lg text-slate-900 dark:text-white">
+                    Crear Nueva Bodega
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Integra un nuevo nodo a la red logística de Rappido Panamá
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowNewWarehouseModal(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateWarehouse} className="space-y-4 text-xs">
+              
+              {/* Nombre de la bodega */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  Nombre de la Bodega *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Sucursal Metetí, Cuadrilla Móvil #3, Hub Central"
+                  value={newWhForm.name}
+                  onChange={(e) => setNewWhForm({ ...newWhForm, name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                />
+              </div>
+
+              {/* Tipo de Bodega y Código */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    Tipo de Bodega *
+                  </label>
+                  <select
+                    value={newWhForm.type}
+                    onChange={(e) => setNewWhForm({ ...newWhForm, type: e.target.value as WarehouseType })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-sky-500 outline-none"
+                  >
+                    <option value="PRINCIPAL">🏢 Hub Central (Principal)</option>
+                    <option value="SUCURSAL">🏪 Sucursal Regional (Sub-Hub)</option>
+                    <option value="VEHICULO">🚚 Móvil / Cuadrilla (Vehículo)</option>
+                    <option value="CUARENTENA_RMA">⚠️ Cuarentena RMA (Dañados)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    Código Identificador (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. HUB-TOC, SUC-MET, MOV-04"
+                    value={newWhForm.code}
+                    onChange={(e) => setNewWhForm({ ...newWhForm, code: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white font-mono uppercase focus:ring-2 focus:ring-sky-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Bodega Padre (Depende de / Abastecida por) */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1 flex items-center justify-between">
+                  <span>Bodega Padre (Abastecida por)</span>
+                  <span className="text-[11px] text-slate-400 font-normal">Define la jerarquía Hub-and-Spoke</span>
+                </label>
+                <select
+                  value={newWhForm.parentId}
+                  onChange={(e) => setNewWhForm({ ...newWhForm, parentId: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white text-xs font-medium focus:ring-2 focus:ring-sky-500 outline-none"
+                >
+                  <option value="">-- Ninguna (Es un Hub Principal Raíz) --</option>
+                  {warehouses
+                    .filter(w => w.type === 'PRINCIPAL' || w.type === 'SUCURSAL' || w.type === 'HUB' || w.type === 'SPOKE')
+                    .map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.code}) &bull; Tipo: {w.type}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Ubicación / Dirección */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  Ubicación Física / Dirección
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. Tocumen, Vía Panamericana Km 140, Metetí"
+                  value={newWhForm.address}
+                  onChange={(e) => setNewWhForm({ ...newWhForm, address: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                />
+              </div>
+
+              {/* Placa (si es vehículo) */}
+              {newWhForm.type === 'VEHICULO' && (
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
+                  <label className="block text-emerald-800 dark:text-emerald-300 font-bold mb-1">
+                    Placa del Vehículo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. AB-1234, 894321"
+                    value={newWhForm.vehiclePlate}
+                    onChange={(e) => setNewWhForm({ ...newWhForm, vehiclePlate: e.target.value })}
+                    className="w-full bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-mono uppercase focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Acciones del Modal */}
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowNewWarehouseModal(false)}
+                  className="px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingWh}
+                  className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md active:scale-95 transition-all flex items-center gap-2"
+                >
+                  {isSubmittingWh && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  <span>Guardar Bodega</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Alta de ONU */}
       {showAddOnuModal && (
@@ -574,7 +920,7 @@ export const WarehousesModule: React.FC = () => {
                 <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Motivo del Ajuste</label>
                 <input
                   type="text"
-                  placeholder="Ej. Recepción de compras / Ajuste por conteo físico"
+                  placeholder="Ej. Recepción de compras / Conteo físico"
                   value={bulkAdjust.reason}
                   onChange={(e) => setBulkAdjust({ ...bulkAdjust, reason: e.target.value })}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white"
@@ -621,7 +967,7 @@ export const WarehousesModule: React.FC = () => {
                 <textarea
                   required
                   rows={3}
-                  placeholder="Ej. Puerto PON quemado por descarga eléctrica, no sincroniza láser OLT."
+                  placeholder="Ej. Puerto PON quemado, láser no sincroniza."
                   value={rmaReason}
                   onChange={(e) => setRmaReason(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white"

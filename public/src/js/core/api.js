@@ -374,6 +374,7 @@ async function loadTodayOrders(force = false) {
             state.orders         = cached.orders;
             state.finishedOrders = cached.finishedOrders || [];
             state.napOverrides   = cached.napOverrides || {};
+            if (window.updateMesaBadge) window.updateMesaBadge();
             return;
         }
 
@@ -475,6 +476,7 @@ async function loadTodayOrders(force = false) {
         }
 
         cacheSet('orders', { orders: state.orders, finishedOrders: state.finishedOrders }, CFG.cacheTTL.orders);
+        if (window.updateMesaBadge) window.updateMesaBadge();
 
     } catch (e) {
         console.error("Error al cargar órdenes, intentando fallback de caché:", e);
@@ -753,6 +755,7 @@ async function loadIssues(force = false, maxPages = 30, fastPendingOnly = false)
 
         state.issues = uniqueIssues;
         state.finishedIssues = uniqueFinished;
+        if (window.updateMesaBadge) window.updateMesaBadge();
         if (window.updateReportsBadge) window.updateReportsBadge();
         cacheSet('issues', { pending: uniqueIssues, finished: uniqueFinished }, CFG.cacheTTL.issues);
     } catch (e) {

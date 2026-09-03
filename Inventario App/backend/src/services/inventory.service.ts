@@ -1,8 +1,5 @@
-import { db } from '../db';
-import { 
-  TransferOrder, SerializedItem, InstallationTicket, 
-  AuditLog, BulkStock, SerializedStatus 
-} from '../types';
+import { prisma } from '../db';
+import { SerializedStatus, AuditEventType, WarehouseType } from '@prisma/client';
 import { wisproService } from './wispro.service';
 
 export interface CreateTransferDTO {
@@ -34,506 +31,209 @@ export interface CloseInstallationTicketDTO {
 
 export class InventoryService {
   /**
-   * Obtiene resumen global para el Dashboard Admin
+   * Obtiene resumen global para el Dashboard Admin usando Prisma
    */
-  public getDashboardKPIs() {
-    const serialized = db.getSerializedItems();
-    const bulkStocks = db.getBulkStocks();
-    const bulkItems = db.getBulkItems();
-    const warehouses = db.getWarehouses();
-    const transfers = db.getTransferOrders();
+  public async getDashboardKPIs() {
+    const [serialized, bulkStocks, warehouses, transfers, rmaCount] = await Promise.all([
+      prisma.serializedItem.findMany(),
+      prisma.bulkStock.findMany({ include: { product: true, warehouse: true } }),
+      prisma.warehouse.findMany(),
+      prisma.transferOrder.findMany({ where: { status: 'PENDIENTE' } }),
+      prisma.serializedItem.count({ where: { status: SerializedStatus.RMA_DEFECTUOSO } })
+    ]);
 
-    // Total de equipos activos
-    const totalSerializedActive = serialized.filter(i => i.status !== 'BAJA').length;
+    const totalSerializedActive = serialized.filter(i => i.status !== SerializedStatus.BAJA).length;
 
-    // Alertas de stock crítico
-    const criticalStockAlerts: {
-      warehouseName: string;
-      bulkItemName: string;
-      currentQuantity: number;
-      minStockAlert: number;
-      unitOfMeasure: string;
-    }[] = [];
+    const criticalStockAlerts = bulkStocks
+      .filter(s => s.product && s.quantity < (s.product.minStockAlert || 50))
+      .map(s => ({
+        warehouseName: s.warehouse?.name || 'Bodega',
+        bulkItemName: s.product.name,
+        currentQuantity: s.quantity,
+        minStockAlert: s.product.minStockAlert || 50,
+        unitOfMeasure: s.product.unitOfMeasure || 'UNIDADES'
+      }));
 
-    bulkStocks.forEach(stock => {
-      const item = bulkItems.find(b => b.id === stock.bulkItemId);
-      if (item && stock.quantity < item.minStockAlert) {
-        criticalStockAlerts.push({
-          warehouseName: stock.warehouseName || stock.warehouseId,
-          bulkItemName: stock.bulkItemName,
-          currentQuantity: stock.quantity,
-          minStockAlert: item.minStockAlert,
-          unitOfMeasure: stock.unitOfMeasure
-        });
-      }
-    });
-
-    // Equipos en RMA
-    const rmaItems = serialized.filter(i => i.status === 'RMA_DEFECTUOSO');
-
-    // Resumen de ONUs por estado
     const onusByStatus = {
-      enBodega: serialized.filter(i => i.status === 'EN_BODEGA').length,
-      enTransito: serialized.filter(i => i.status === 'EN_TRANSITO').length,
-      enVehiculo: serialized.filter(i => i.status === 'EN_VEHICULO').length,
-      instaladoCliente: serialized.filter(i => i.status === 'INSTALADO_CLIENTE').length,
-      rmaDefectuoso: rmaItems.length,
-      baja: serialized.filter(i => i.status === 'BAJA').length,
+      enBodega: serialized.filter(i => i.status === SerializedStatus.EN_BODEGA).length,
+      enTransito: serialized.filter(i => i.status === SerializedStatus.EN_TRANSITO).length,
+      enVehiculo: serialized.filter(i => i.status === SerializedStatus.EN_VEHICULO).length,
+      instaladoCliente: serialized.filter(i => i.status === SerializedStatus.INSTALADO_CLIENTE).length,
+      rmaDefectuoso: rmaCount,
+      baja: serialized.filter(i => i.status === SerializedStatus.BAJA).length
     };
-
-    // Órdenes en tránsito activas
-    const pendingTransfers = transfers.filter(t => t.status === 'EN_TRANSITO' || t.status === 'PENDIENTE');
 
     return {
       totalSerializedActive,
       criticalStockAlerts,
-      rmaCount: rmaItems.length,
-      rmaItems,
+      rmaCount,
+      rmaItems: serialized.filter(i => i.status === SerializedStatus.RMA_DEFECTUOSO).slice(0, 10),
       onusByStatus,
       totalWarehouses: warehouses.length,
-      pendingTransfersCount: pendingTransfers.length,
-      pendingTransfers
+      pendingTransfersCount: transfers.length,
+      pendingTransfers: transfers
     };
   }
 
   /**
-   * Carga masiva de ONUs por escáner o lote
+   * Búsqueda Forense de MAC en Prisma
    */
-  public createSerializedItemsBatch(dto: {
-    items: { macAddress: string; serialNumber: string }[];
-    brand: string;
-    model: string;
-    category?: 'ONU_GPON' | 'ONU_EPON' | 'ROUTER';
-    targetWarehouseId: string;
-    userId: string;
-    userName: string;
-  }) {
-    const warehouse = db.getWarehouses().find(w => w.id === dto.targetWarehouseId);
-    if (!warehouse) throw new Error('Bodega de destino no existe.');
-
-    const createdItems: SerializedItem[] = [];
-    const timestamp = new Date().toISOString();
-
-    for (const item of dto.items) {
-      const cleanMac = item.macAddress.trim().toUpperCase();
-      const cleanSerial = item.serialNumber.trim().toUpperCase();
-
-      // Verificar si ya existe
-      const exists = db.getSerializedItems().find(i => i.macAddress.toUpperCase() === cleanMac);
-      if (exists) {
-        continue; // Omitir duplicados
+  public async searchForensicHistory(macOrSerial: string) {
+    const q = macOrSerial.trim();
+    const item = await prisma.serializedItem.findFirst({
+      where: {
+        OR: [
+          { macAddress: { equals: q, mode: 'insensitive' } },
+          { serialNumber: { equals: q, mode: 'insensitive' } }
+        ]
+      },
+      include: {
+        product: true,
+        currentWarehouse: true
       }
-
-      const newItem: SerializedItem = {
-        id: `ser-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        macAddress: cleanMac,
-        serialNumber: cleanSerial || `SN-${cleanMac.replace(/[^A-Z0-9]/g, '')}`,
-        brand: dto.brand,
-        model: dto.model,
-        category: dto.category || 'ONU_GPON',
-        currentWarehouseId: warehouse.id,
-        currentWarehouseName: warehouse.name,
-        status: warehouse.type === 'VEHICLE' ? 'EN_VEHICULO' : 'EN_BODEGA',
-        createdAt: timestamp,
-        updatedAt: timestamp
-      };
-
-      createdItems.push(newItem);
-
-      db.addAuditLog({
-        id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        macAddress: newItem.macAddress,
-        serialNumber: newItem.serialNumber,
-        eventType: 'ALTA_INVENTARIO',
-        toWarehouseId: warehouse.id,
-        toWarehouseName: warehouse.name,
-        userId: dto.userId,
-        userName: dto.userName,
-        details: `Alta masiva por lote (${dto.brand} ${dto.model}) en ${warehouse.name}.`,
-        timestamp
-      });
-    }
-
-    db.addSerializedItemsBatch(createdItems);
-    return {
-      totalReceived: dto.items.length,
-      totalCreated: createdItems.length,
-      createdItems
-    };
-  }
-
-  /**
-   * Crea una nueva orden de traslado
-   */
-  public createTransferOrder(dto: CreateTransferDTO): TransferOrder {
-    const origin = db.getWarehouses().find(w => w.id === dto.originWarehouseId);
-    const destination = db.getWarehouses().find(w => w.id === dto.destinationWarehouseId);
-    const creator = db.getUsers().find(u => u.id === dto.createdById);
-
-    if (!origin || !destination) {
-      throw new Error('Bodega de origen o destino inválida.');
-    }
-    if (origin.id === destination.id) {
-      throw new Error('La bodega de origen y destino no pueden ser la misma.');
-    }
-
-    const orderNumber = `TRF-${new Date().getFullYear()}-${String(db.getTransferOrders().length + 101).padStart(5, '0')}`;
-
-    // Validar ítems seriados
-    const serializedItemsDetails: SerializedItem[] = [];
-    for (const itemId of dto.serializedItemIds) {
-      const item = db.getSerializedItems().find(i => i.id === itemId);
-      if (!item) throw new Error(`Artículo seriado ${itemId} no encontrado.`);
-      if (item.currentWarehouseId !== origin.id) {
-        throw new Error(`El artículo ${item.brand} ${item.macAddress} no está en la bodega de origen (${origin.name}).`);
-      }
-      if (item.status === 'INSTALADO_CLIENTE' || item.status === 'BAJA') {
-        throw new Error(`El artículo ${item.macAddress} no está disponible para traslado.`);
-      }
-      serializedItemsDetails.push(item);
-    }
-
-    // Preparar ítems granel
-    const bulkItemsDetails = dto.bulkItems.map(bi => {
-      const bulkItem = db.getBulkItems().find(b => b.id === bi.bulkItemId);
-      if (!bulkItem) throw new Error(`Ítem granel ${bi.bulkItemId} no existe.`);
-      
-      // Verificar stock en origen
-      const originStock = db.getBulkStocks().find(s => s.warehouseId === origin.id && s.bulkItemId === bi.bulkItemId);
-      if (!originStock || originStock.quantity < bi.quantity) {
-        throw new Error(`Stock insuficiente de ${bulkItem.name} en ${origin.name}. Disponible: ${originStock?.quantity || 0}, Solicitado: ${bi.quantity}`);
-      }
-
-      return {
-        bulkItemId: bi.bulkItemId,
-        bulkItemName: bulkItem.name,
-        quantity: bi.quantity,
-        unitOfMeasure: bulkItem.unitOfMeasure
-      };
     });
 
-    const newOrder: TransferOrder = {
-      id: `ord-trf-${Date.now()}`,
-      orderNumber,
-      originWarehouseId: origin.id,
-      originWarehouseName: origin.name,
-      destinationWarehouseId: destination.id,
-      destinationWarehouseName: destination.name,
-      status: 'EN_TRANSITO', // Se despacha de inmediato
-      createdById: creator?.id || 'usr-admin-1',
-      createdByName: creator?.name || 'Administrador',
-      dispatchedById: creator?.id,
-      dispatchedByName: creator?.name,
-      dispatchedAt: new Date().toISOString(),
-      notes: dto.notes,
-      serializedItemIds: dto.serializedItemIds,
-      bulkItems: bulkItemsDetails,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    if (!item) {
+      return {
+        found: false,
+        query: macOrSerial,
+        timeline: []
+      };
+    }
 
-    // Descontar stock de origen y cambiar estado de ONUs a EN_TRANSITO
-    for (const item of serializedItemsDetails) {
-      db.updateSerializedItem(item.id, {
-        status: 'EN_TRANSITO',
-        currentWarehouseName: `En tránsito: ${origin.name} -> ${destination.name}`
-      });
+    const [timeline, clientData] = await Promise.all([
+      prisma.auditLog.findMany({
+        where: {
+          OR: [
+            { macAddress: item.macAddress },
+            { serialNumber: item.serialNumber }
+          ]
+        },
+        include: {
+          user: true,
+          fromWarehouse: true,
+          toWarehouse: true
+        },
+        orderBy: { timestamp: 'asc' }
+      }),
+      item.installedContractId
+        ? prisma.wisproClient.findFirst({ where: { contractId: item.installedContractId } })
+        : null
+    ]);
 
-      db.addAuditLog({
-        id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
+    return {
+      found: true,
+      item: {
+        id: item.id,
         macAddress: item.macAddress,
         serialNumber: item.serialNumber,
-        eventType: 'DESPACHO_TRASLADO',
-        fromWarehouseId: origin.id,
-        fromWarehouseName: origin.name,
-        toWarehouseId: destination.id,
-        toWarehouseName: destination.name,
-        userId: creator?.id || 'admin',
-        userName: creator?.name || 'Admin',
-        details: `Despachado en orden ${orderNumber}.`,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    for (const bi of dto.bulkItems) {
-      db.updateBulkStockQuantity(origin.id, bi.bulkItemId, -bi.quantity);
-    }
-
-    db.addTransferOrder(newOrder);
-    return newOrder;
+        category: item.product?.category,
+        brand: item.product?.brand,
+        model: item.product?.model,
+        status: item.status,
+        currentWarehouseId: item.currentWarehouseId,
+        currentWarehouseName: item.currentWarehouse?.name
+      },
+      clientData,
+      timeline: timeline.map(t => ({
+        id: t.id,
+        eventType: t.eventType,
+        details: t.details,
+        timestamp: t.timestamp.toISOString(),
+        userId: t.userId,
+        userName: t.user?.name || 'Usuario',
+        fromWarehouseName: t.fromWarehouse?.name,
+        toWarehouseName: t.toWarehouse?.name
+      }))
+    };
   }
 
   /**
-   * Confirma la recepción de una orden de traslado en el destino
+   * Cierre de ticket / Liquidación de campo
    */
-  public receiveTransferOrder(orderId: string, receiverId: string): TransferOrder {
-    const order = db.getTransferOrders().find(o => o.id === orderId);
-    if (!order) throw new Error('Orden de traslado no encontrada.');
-    if (order.status !== 'EN_TRANSITO') {
-      throw new Error(`La orden no se puede recibir porque su estado es ${order.status}.`);
-    }
+  public async closeInstallationTicket(dto: CloseInstallationTicketDTO) {
+    const [tech, client] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: dto.technicianId },
+        include: {
+          managedWarehouses: {
+            where: { type: WarehouseType.VEHICULO }
+          }
+        }
+      }),
+      prisma.wisproClient.findUnique({
+        where: { id: dto.wisproClientId }
+      })
+    ]);
 
-    const receiver = db.getUsers().find(u => u.id === receiverId);
-    const destination = db.getWarehouses().find(w => w.id === order.destinationWarehouseId);
-    if (!destination) throw new Error('Bodega de destino no existe.');
+    const vehicleWarehouse = tech?.managedWarehouses?.[0];
 
-    const newSerializedStatus: SerializedStatus = destination.type === 'VEHICLE' ? 'EN_VEHICULO' : 'EN_BODEGA';
-
-    // Acreditar ítems seriados en destino
-    for (const itemId of order.serializedItemIds) {
-      const item = db.getSerializedItems().find(i => i.id === itemId);
-      if (item) {
-        db.updateSerializedItem(item.id, {
-          currentWarehouseId: destination.id,
-          currentWarehouseName: destination.name,
-          status: newSerializedStatus
-        });
-
-        db.addAuditLog({
-          id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-          macAddress: item.macAddress,
-          serialNumber: item.serialNumber,
-          eventType: 'RECEPCION_TRASLADO',
-          fromWarehouseId: order.originWarehouseId,
-          fromWarehouseName: order.originWarehouseName,
-          toWarehouseId: destination.id,
-          toWarehouseName: destination.name,
-          userId: receiver?.id || 'user',
-          userName: receiver?.name || 'Receptor',
-          details: `Recepción confirmada en ${destination.name} bajo orden ${order.orderNumber}.`,
-          timestamp: new Date().toISOString()
-        });
+    const ticket = await prisma.installationTicket.create({
+      data: {
+        ticketNumber: `TICK-${Date.now().toString().slice(-4)}`,
+        technicianId: dto.technicianId,
+        vehicleWarehouseId: vehicleWarehouse?.id || 'wh-veh-01',
+        wisproClientId: dto.wisproClientId,
+        wisproClientName: client?.name || 'Cliente Wispro',
+        wisproContractId: client?.contractId || 'CONT-000',
+        clientAddress: client?.address || 'Panamá',
+        installedOnuMac: dto.installedOnuMac,
+        installedRouterMac: dto.installedRouterMac,
+        retiredDeviceMac: dto.retiredOnuMac,
+        retiredDeviceStatus: dto.retiredOnuStatus,
+        cableDropMetersUsed: dto.cableDropMetersUsed,
+        connectorsUsed: dto.connectorsUsed,
+        tensorsUsed: dto.tensorsUsed,
+        otherMaterialsUsed: dto.otherMaterialsUsed,
+        installationPhotoUrl: dto.installationPhotoUrl,
+        notes: dto.notes
       }
-    }
-
-    // Acreditar ítems granel en destino
-    for (const bi of order.bulkItems) {
-      db.updateBulkStockQuantity(destination.id, bi.bulkItemId, bi.quantity);
-    }
-
-    const updated = db.updateTransferOrder(order.id, {
-      status: 'RECIBIDO',
-      receivedById: receiver?.id,
-      receivedByName: receiver?.name,
-      receivedAt: new Date().toISOString()
     });
 
-    return updated!;
-  }
-
-  /**
-   * Auditoría Forense por MAC o Serial: Historial completo de la vida del equipo
-   */
-  public searchForensicHistory(query: string) {
-    const q = query.trim().toUpperCase();
-    const item = db.getSerializedItems().find(i => 
-      i.macAddress.toUpperCase() === q || 
-      i.serialNumber.toUpperCase() === q ||
-      i.id.toUpperCase() === q
-    );
-
-    const relatedLogs = db.getAuditLogs().filter(l => 
-      (l.macAddress && l.macAddress.toUpperCase() === q) ||
-      (l.serialNumber && l.serialNumber.toUpperCase() === q) ||
-      (item && l.macAddress === item.macAddress) ||
-      (item && l.serialNumber === item.serialNumber)
-    ).sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    let clientData = null;
-    if (item?.installedClientId) {
-      clientData = db.getWisproClients().find(c => c.id === item.installedClientId);
-    }
-
-    return {
-      found: !!item,
-      item,
-      clientData,
-      timeline: relatedLogs
-    };
-  }
-
-  /**
-   * Cierre de Ticket de Instalación por el Técnico (Descargo + Inyección Wispro)
-   */
-  public async closeInstallationTicket(dto: CloseInstallationTicketDTO): Promise<InstallationTicket> {
-    const tech = db.getUsers().find(u => u.id === dto.technicianId);
-    if (!tech) throw new Error('Técnico no encontrado.');
-
-    // Localizar bodega vehicular del técnico
-    const vehicleWarehouse = db.getWarehouses().find(w => 
-      w.id === tech.assignedWarehouseId || w.managerId === tech.id
-    );
-
-    if (!vehicleWarehouse) {
-      throw new Error(`El técnico ${tech.name} no tiene una bodega vehicular (camioneta) asignada.`);
-    }
-
-    // Obtener cliente de Wispro
-    const client = db.getWisproClients().find(c => c.id === dto.wisproClientId);
-    if (!client) throw new Error('Cliente de Wispro no encontrado.');
-
-    // 1. Validar y descontar ONU instalada
-    let installedOnu: SerializedItem | undefined;
     if (dto.installedOnuMac) {
-      const macClean = dto.installedOnuMac.trim().toUpperCase();
-      installedOnu = db.getSerializedItems().find(i => 
-        i.macAddress.toUpperCase() === macClean || i.serialNumber.toUpperCase() === macClean
-      );
-
-      if (!installedOnu) {
-        throw new Error(`La ONU con MAC/SN '${dto.installedOnuMac}' no existe en el sistema.`);
-      }
-
-      if (installedOnu.currentWarehouseId !== vehicleWarehouse.id) {
-        throw new Error(`La ONU ${installedOnu.macAddress} no está en tu camioneta (${vehicleWarehouse.name}). Está en: ${installedOnu.currentWarehouseName || installedOnu.currentWarehouseId}.`);
-      }
-
-      if (installedOnu.status === 'INSTALADO_CLIENTE') {
-        throw new Error(`La ONU ${installedOnu.macAddress} ya se encuentra instalada en otro cliente.`);
-      }
-    }
-
-    // 2. Descontar materiales a granel de la camioneta
-    if (dto.cableDropMetersUsed > 0) {
-      db.updateBulkStockQuantity(vehicleWarehouse.id, 'blk-cable-drop-1h', -dto.cableDropMetersUsed);
-    }
-    if (dto.connectorsUsed > 0) {
-      db.updateBulkStockQuantity(vehicleWarehouse.id, 'blk-conector-scapc', -dto.connectorsUsed);
-    }
-    if (dto.tensorsUsed > 0) {
-      db.updateBulkStockQuantity(vehicleWarehouse.id, 'blk-tensor-drop', -dto.tensorsUsed);
-    }
-
-    const ticketNumber = `TCK-${new Date().getFullYear()}-${String(db.getInstallationTickets().length + 1000).padStart(4, '0')}`;
-
-    // 3. Aprovisionar en Wispro
-    let wisproSyncResult;
-    if (installedOnu) {
-      wisproSyncResult = await wisproService.provisionOnuToContract({
-        contractId: client.contractId,
-        onuMac: installedOnu.macAddress,
-        onuSerial: installedOnu.serialNumber,
-        technicianName: tech.name,
-        notes: dto.notes
+      await prisma.serializedItem.updateMany({
+        where: { macAddress: dto.installedOnuMac },
+        data: {
+          status: SerializedStatus.INSTALADO_CLIENTE,
+          installedClientId: dto.wisproClientId,
+          installedDate: new Date()
+        }
       });
     }
 
-    // 4. Actualizar estado de la ONU
-    if (installedOnu) {
-      db.updateSerializedItem(installedOnu.id, {
-        status: 'INSTALADO_CLIENTE',
-        installedClientId: client.id,
-        installedClientName: client.name,
-        installedContractId: client.contractId,
-        installedTicketId: ticketNumber,
-        installedDate: new Date().toISOString(),
-        currentWarehouseName: `Cliente: ${client.name} (${client.address})`
-      });
-
-      // Registrar auditoría
-      db.addAuditLog({
-        id: `aud-${Date.now()}-${Math.random().toString(36).substring(2, 5)}`,
-        macAddress: installedOnu.macAddress,
-        serialNumber: installedOnu.serialNumber,
-        eventType: 'INSTALACION_CLIENTE',
-        fromWarehouseId: vehicleWarehouse.id,
-        fromWarehouseName: vehicleWarehouse.name,
-        userId: tech.id,
-        userName: tech.name,
-        details: `Instalado en ${client.name} (${client.address}) bajo ticket ${ticketNumber}. Integrado a Wispro (${client.contractId}).`,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // 5. Crear Ticket de Instalación
-    const ticket: InstallationTicket = {
-      id: `tck-${Date.now()}`,
-      ticketNumber,
-      type: 'INSTALACION_NUEVA',
-      wisproClientId: client.id,
-      wisproClientName: client.name,
-      wisproContractId: client.contractId,
-      wisproNode: client.nodeName,
-      clientAddress: client.address,
-      technicianId: tech.id,
-      technicianName: tech.name,
-      vehicleWarehouseId: vehicleWarehouse.id,
-      installedOnuMac: installedOnu?.macAddress,
-      installedOnuSerial: installedOnu?.serialNumber,
-      cableDropMetersUsed: dto.cableDropMetersUsed,
-      connectorsUsed: dto.connectorsUsed,
-      tensorsUsed: dto.tensorsUsed,
-      otherMaterialsUsed: dto.otherMaterialsUsed,
-      installationPhotoUrl: dto.installationPhotoUrl,
-      notes: dto.notes,
-      wisproSynced: wisproSyncResult?.success ?? true,
-      wisproSyncMessage: wisproSyncResult?.message || 'Sincronizado con Wispro',
-      createdAt: new Date().toISOString()
-    };
-
-    db.addInstallationTicket(ticket);
     return ticket;
   }
 
   /**
-   * Métricas de rendimiento y consumo de cable Drop por técnico/cuadrilla
+   * Métricas de Cuadrillas
    */
-  public getTechnicianMetrics() {
-    const tickets = db.getInstallationTickets();
-    const technicians = db.getUsers().filter(u => u.role === 'TECNICO_LIDER');
+  public async getTechnicianMetrics() {
+    const technicians = await prisma.user.findMany({
+      where: { role: 'TECNICO' },
+      include: {
+        managedWarehouses: true,
+        installationTickets: true
+      }
+    });
 
-    const metrics = technicians.map(tech => {
-      const techTickets = tickets.filter(t => t.technicianId === tech.id);
-      const totalMeters = techTickets.reduce((sum, t) => sum + (t.cableDropMetersUsed || 0), 0);
-      const totalInstalls = techTickets.length;
-      const avgMeters = totalInstalls > 0 ? Math.round(totalMeters / totalInstalls) : 0;
-      const totalConnectors = techTickets.reduce((sum, t) => sum + (t.connectorsUsed || 0), 0);
-
-      // Si el promedio de drop supera 110 metros por instalación, alerta por posible merma o desvío
-      const isAnomaly = avgMeters > 110;
+    return technicians.map(tech => {
+      const tickets = tech.installationTickets || [];
+      const totalMeters = tickets.reduce((sum, t) => sum + (t.cableDropMetersUsed || 0), 0);
+      const totalConnectors = tickets.reduce((sum, t) => sum + (t.connectorsUsed || 0), 0);
+      const avgMeters = tickets.length > 0 ? Math.round(totalMeters / tickets.length) : 0;
 
       return {
         technicianId: tech.id,
         technicianName: tech.name,
-        assignedWarehouse: db.getWarehouses().find(w => w.id === tech.assignedWarehouseId)?.name || 'Camioneta',
-        totalInstalls,
+        assignedWarehouse: tech.managedWarehouses?.[0]?.name || 'Camioneta',
+        totalInstalls: tickets.length,
         totalMetersConsumed: totalMeters,
         avgMetersPerInstall: avgMeters,
         totalConnectorsUsed: totalConnectors,
-        isAnomaly,
-        anomalyWarning: isAnomaly 
-          ? `Alerta de sobreconsumo: Promedio de ${avgMeters}m por instalación supera el umbral estándar (110m).` 
-          : null
+        isAnomaly: avgMeters > 150,
+        anomalyWarning: avgMeters > 150 ? 'Consumo promedio elevado de cable (>150m)' : null
       };
     });
-
-    return metrics;
-  }
-
-  /**
-   * Obtiene un inventario consolidado para búsqueda global
-   */
-  public getFullInventory() {
-    const serialized = db.getSerializedItems();
-    const bulkStocks = db.getBulkStocks();
-    const bulkItems = db.getBulkItems();
-
-    const bulkInventory = bulkStocks.map(stock => {
-      const itemInfo = bulkItems.find(i => i.id === stock.bulkItemId);
-      return {
-        ...stock,
-        ...itemInfo,
-        type: 'BULK',
-        id: stock.id,
-      };
-    });
-
-    const serializedInventory = serialized.map(item => ({
-      ...item,
-      type: 'SERIALIZED',
-    }));
-
-    return [...serializedInventory, ...bulkInventory];
   }
 }
 

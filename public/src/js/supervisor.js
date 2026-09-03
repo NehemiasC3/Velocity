@@ -16,17 +16,126 @@ console.log('🚀 Velocity Supervisor v2.0.0-PRO cargado correctamente');
 
 window.updateNapsBadge = function() {
     const badge = document.getElementById('naps-badge');
-    if (!badge) return;
+    const badgeCollapsed = document.getElementById('naps-badge-collapsed');
     const count = state.trackedNaps ? state.trackedNaps.filter(n => !n.resolved).length : 0;
-    if (count > 0) {
+    if (badge) {
         badge.textContent = count;
-        badge.classList.remove('hidden');
-    } else {
-        badge.classList.add('hidden');
+        badge.classList.toggle('hidden', count === 0);
+    }
+    if (badgeCollapsed) {
+        badgeCollapsed.textContent = count;
+        badgeCollapsed.classList.toggle('hidden', count === 0);
+    }
+};
+
+window.calculateMesaCounts = function(activeType = 'all') {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+
+    // 1. Reportes (Mesa de Ayuda / Issues)
+    if (activeType === 'all' || activeType === 'issues') {
+        (state.issues || []).forEach(i => {
+            let tName = state.techs[i.assignable_id];
+            if (!tName && i.assignable_id) {
+                const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
+                tName = f?.name;
+            }
+            if (!tName) tName = 'Sin asignar';
+
+            if (tName === 'Sin asignar') {
+                counts.sin_asignar++;
+                counts.all++;
+                const venc = i.expires_at ? new Date(i.expires_at) : null;
+                if (venc) {
+                    venc.setHours(0, 0, 0, 0);
+                    if (venc.getTime() <= today.getTime()) {
+                        counts.hoy++;
+                    }
+                }
+                return;
+            }
+
+            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+            if (!esAct) return;
+
+            counts.all++;
+            const venc = i.expires_at ? new Date(i.expires_at) : null;
+            if (!venc) {
+                counts.sin_fecha++;
+                counts.hoy++; // Reporte activo sin fecha vence hoy / requiere atención hoy
+                return;
+            }
+            
+            venc.setHours(0, 0, 0, 0);
+            const tTime = today.getTime();
+            const mTime = tomorrow.getTime();
+            const vTime = venc.getTime();
+            
+            if (vTime === tTime || vTime < tTime) counts.hoy++;
+            if (vTime === mTime) counts.manana++;
+            if (vTime < tTime) counts.vencido++;
+        });
+    }
+
+    // 2. Órdenes (Instalaciones)
+    if (activeType === 'all' || activeType === 'orders') {
+        (state.orders || []).forEach(o => {
+            if (o.kind !== 'installation') return;
+
+            const tName = o.techName || 'Sin asignar';
+            if (tName === 'Sin asignar') return; // Excluir instalaciones sin asignar
+
+            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
+            if (!esAct) return;
+
+            counts.all++;
+
+            const sched = o.start_at ? new Date(o.start_at) : null;
+            if (!sched) {
+                counts.sin_fecha++;
+                return;
+            }
+            sched.setHours(0, 0, 0, 0);
+
+            const tTime = today.getTime();
+            const mTime = tomorrow.getTime();
+            const sTime = sched.getTime();
+
+            if (sTime === tTime) counts.hoy++;
+            if (sTime === mTime) counts.manana++;
+            if (sTime < tTime) counts.vencido++;
+        });
+    }
+
+    return counts;
+};
+
+window.updateMesaBadge = function() {
+    const badge = document.getElementById('mesa-badge');
+    const badgeCollapsed = document.getElementById('mesa-badge-collapsed');
+    if (!badge && !badgeCollapsed) return;
+
+    // Misma fuente de la verdad para el total de Hoy
+    const counts = window.calculateMesaCounts('all');
+    const totalToday = counts.hoy;
+
+    if (badge) {
+        badge.textContent = totalToday;
+        badge.classList.toggle('hidden', totalToday === 0);
+    }
+    if (badgeCollapsed) {
+        badgeCollapsed.textContent = totalToday;
+        badgeCollapsed.classList.toggle('hidden', totalToday === 0);
     }
 };
 
 window.updateReportsBadge = function() {
+    if (window.updateMesaBadge) window.updateMesaBadge();
     const badge = document.getElementById('reports-badge');
     if (!badge) return;
     
@@ -1399,7 +1508,7 @@ Views.reports = () => {
                     else if (vd.getTime() === todayChk.getTime()) vencCol = '#d97706';
                     else vencCol = '#059669';
                 }
-                return `<div style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
+                return `<div draggable="true" ondragstart="window.handleDragStart(event, '${issue.id}', 'TICKET')" ondragend="window.handleDragEnd(event)" class="cursor-grab active:cursor-grabbing hover:shadow-xs transition-all" style="display:flex;align-items:flex-start;gap:8px;padding:7px;border-radius:8px;background:#f9fafb;margin-bottom:4px;border:1px solid #f3f4f6;">
                     <div style="width:3px;height:35px;background:#f97316;border-radius:2px;flex-shrink:0;margin-top:2px;"></div>
                     <div style="flex:1;min-width:0;">
                         <div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap;">
@@ -1440,7 +1549,7 @@ Views.reports = () => {
 
         const safeId = techName.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9-]/g,'');
 
-        return `<div style="background:white;border:1px solid #f0f0f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
+        return `<div ondragover="window.handleDragOver(event)" ondragleave="window.handleDragLeave(event)" ondrop="window.handleDropTicket(event, '${techName}')" class="transition-all duration-200" style="background:white;border:1px solid #f0f0f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
             <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f3f4f6;">
                 <div style="display:flex;align-items:center;gap:10px;">
                     <div style="width:38px;height:38px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:800;flex-shrink:0;">${initials}</div>
@@ -1450,8 +1559,88 @@ Views.reports = () => {
                     </div>
                 </div>
             </div>
-            <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
+            <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas (Arrastra aquí para asignar)</p>'}</div>
         </div>`;
+    };
+
+    // Global Drag and Drop Handlers
+    window.handleDragStart = function(event, ticketId, type = 'TICKET') {
+        event.dataTransfer.setData('text/plain', JSON.stringify({ ticketId, type }));
+        event.dataTransfer.effectAllowed = 'move';
+        if (event.target) event.target.style.opacity = '0.5';
+    };
+
+    window.handleDragEnd = function(event) {
+        if (event.target) event.target.style.opacity = '1';
+    };
+
+    window.handleDragOver = function(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const dropTarget = event.currentTarget;
+        if (dropTarget) {
+            dropTarget.style.borderColor = '#0059bb';
+            dropTarget.style.boxShadow = '0 0 0 2px #0059bb';
+        }
+    };
+
+    window.handleDragLeave = function(event) {
+        const dropTarget = event.currentTarget;
+        if (dropTarget) {
+            dropTarget.style.borderColor = '#f0f0f0';
+            dropTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+        }
+    };
+
+    window.handleDropTicket = async function(event, targetTechName) {
+        event.preventDefault();
+        const dropTarget = event.currentTarget;
+        if (dropTarget) {
+            dropTarget.style.borderColor = '#f0f0f0';
+            dropTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.04)';
+        }
+
+        try {
+            const rawData = event.dataTransfer.getData('text/plain');
+            if (!rawData) return;
+            const data = JSON.parse(rawData);
+            const { ticketId, type } = data;
+
+            if (!ticketId || !targetTechName || targetTechName === 'Sin asignar') return;
+
+            const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+            const tech = (db.technicians || []).find(t => 
+                t.name.toLowerCase().includes(targetTechName.toLowerCase()) || 
+                targetTechName.toLowerCase().includes(t.name.toLowerCase())
+            );
+
+            const techId = tech ? (tech.wisproId || tech.id) : targetTechName;
+            const token = localStorage.getItem('Velocity_Token') || localStorage.getItem('token') || 'dev-token';
+
+            const res = await fetch('/api/wispro/assign', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    ticketId,
+                    type: type || 'TICKET',
+                    technicianId: techId
+                })
+            });
+
+            const result = await res.json();
+            if (res.ok) {
+                const issue = (state.issues || []).find(i => String(i.id) === String(ticketId) || String(i.public_id) === String(ticketId));
+                if (issue) issue.assignable_id = techId;
+                if (typeof renderTab === 'function') renderTab(state.tab || 'reports');
+            } else {
+                alert(`Error al asignar: ${result.error || result.message}`);
+            }
+        } catch (err) {
+            console.error('Error en handleDropTicket:', err);
+        }
     };
 
     // Resumen global WhatsApp
@@ -2076,11 +2265,11 @@ Views.prueba = () => {
             const encodedIssues = encodeURIComponent(JSON.stringify(data.issues));
             const encodedOrders = encodeURIComponent(JSON.stringify(data.orders));
 
-            return `<div style="border-bottom:1px solid #f3f4f6; padding:4px 0;">
-                <div onclick="window.openZoneModal('${safeTechName}', '${safeZoneName}', '${encodedIssues}', '${encodedOrders}')" style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;cursor:pointer;user-select:none;transition:background 0.2s;border-radius:6px;" class="hover:bg-surface-container-low/50 px-2">
-                    <div style="display:flex;align-items:center;gap:6px;">
-                        <span class="material-symbols-outlined" style="font-size:14px;color:#6b7280;">location_on</span>
-                        <span style="font-size:14px;font-weight:700;color:#374151;">${zone}</span>
+            return `<div class="py-0.5">
+                <div onclick="window.openZoneModal('${safeTechName}', '${safeZoneName}', '${encodedIssues}', '${encodedOrders}')" class="flex items-center justify-between py-2 px-2.5 rounded-xl cursor-pointer select-none hover:bg-surface-container-low/60 active:scale-[0.99] transition-all">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-sm text-on-surface-variant/60">location_on</span>
+                        <span class="text-xs font-bold text-on-surface">${zone}</span>
                     </div>
                     ${badgesHtml}
                 </div>
@@ -2090,106 +2279,29 @@ Views.prueba = () => {
         const safeId = techName.replace(/\s+/g,'-').replace(/[^a-zA-Z0-9-]/g,'');
         const totalItems = issuesList.length + ordersList.length;
 
-        return `<div style="background:white;border:1px solid #f0f0f0;border-radius:14px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.04);">
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid #f3f4f6;">
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <div style="width:38px;height:38px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;color:white;font-size:14px;font-weight:800;flex-shrink:0;">${initials}</div>
+        return `<div class="flex flex-col bg-surface-container-lowest border border-outline-variant/20 rounded-2xl overflow-hidden shadow-sm hover:shadow-md transition-all">
+            <!-- Header Fijo de la Tarjeta -->
+            <div class="flex items-center justify-between p-4 border-b border-outline-variant/15 flex-shrink-0 bg-surface-container-lowest">
+                <div class="flex items-center gap-3">
+                    <div style="background:${color};" class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-black flex-shrink-0 shadow-sm">${initials}</div>
                     <div>
-                        <p style="font-weight:800;color:#111827;font-size:17px;margin:0;line-height:1.2;">${techName}</p>
-                        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
-                            <span style="font-size:13px;font-weight:700;color:#4b5563;">${totalItems} tarea${totalItems!==1?'s':''}</span>
+                        <p class="font-extrabold text-on-surface text-base leading-tight">${techName}</p>
+                        <div class="flex items-center gap-2 mt-0.5 flex-wrap">
+                            <span class="text-xs font-bold text-on-surface-variant/80">${totalItems} tarea${totalItems!==1?'s':''}</span>
                         </div>
                     </div>
                 </div>
             </div>
-            <div style="padding:10px 16px;">${zoneRows||'<p style="font-size:13px;color:#9ca3af;text-align:center;padding:8px;">Sin zonas</p>'}</div>
+            <!-- Lista de Tareas / Zonas con Altura Máxima y Scroll Interno -->
+            <div class="max-h-56 overflow-y-auto p-3 space-y-1 divide-y divide-outline-variant/10">
+                ${zoneRows || '<p class="text-xs font-semibold text-on-surface-variant/50 text-center py-4">Sin zonas</p>'}
+            </div>
         </div>`;
     };
 
-    // Calculate filter button counts precisely, respecting the active type filter
-    const counts = { all: 0, hoy: 0, manana: 0, vencido: 0, sin_fecha: 0, sin_asignar: 0 };
-    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-
-    // Issues count calculation
-    if (activeType === 'all' || activeType === 'issues') {
-        state.issues.forEach(i => {
-            let tName = state.techs[i.assignable_id];
-            if (!tName && i.assignable_id) {
-                const f = (db.technicians || []).find(t => String(t.wisproId) === String(i.assignable_id) || String(t.id) === String(i.assignable_id));
-                tName = f?.name;
-            }
-            if (!tName) tName = 'Sin asignar';
-
-            if (tName === 'Sin asignar') {
-                counts.sin_asignar++;
-                counts.all++;
-                const venc = i.expires_at ? new Date(i.expires_at) : null;
-                if (venc) {
-                    venc.setHours(0,0,0,0);
-                    if (venc.getTime() <= today.getTime()) {
-                        counts.hoy++;
-                    }
-                }
-                return;
-            }
-
-            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-            if (!esAct) return;
-
-            counts.all++;
-            const venc = i.expires_at ? new Date(i.expires_at) : null;
-            if (!venc) {
-                counts.sin_fecha++;
-                counts.hoy++; // No date is active today
-                return;
-            }
-            
-            venc.setHours(0,0,0,0);
-            const tTime = today.getTime();
-            const mTime = tomorrow.getTime();
-            const vTime = venc.getTime();
-            
-            if (vTime === tTime || vTime < tTime) counts.hoy++;
-            if (vTime === mTime) counts.manana++;
-            if (vTime < tTime) counts.vencido++;
-        });
-    }
-
-    // Orders count calculation (only installation)
-    if (activeType === 'all' || activeType === 'orders') {
-        state.orders.forEach(o => {
-            if (o.kind !== 'installation') return;
-
-            const tName = o.techName || 'Sin asignar';
-            if (tName === 'Sin asignar') return; // Excluir instalaciones sin asignar del conteo
-
-            const esAct = TECNICOS_ACTIVOS.some(n => tName.toLowerCase().includes(n.split(' ')[0].toLowerCase()));
-            if (!esAct) return;
-
-            counts.all++;
-
-            const sched = o.start_at ? new Date(o.start_at) : null;
-            if (!sched) {
-                counts.sin_fecha++;
-                return;
-            }
-            sched.setHours(0,0,0,0);
-
-            const tTime = today.getTime();
-            const mTime = tomorrow.getTime();
-            const sTime = sched.getTime();
-
-            if (sTime === tTime) {
-                counts.hoy++;
-            }
-            if (sTime === mTime) {
-                counts.manana++;
-            }
-            if (sTime < tTime) {
-                counts.vencido++;
-            }
-        });
-    }
+    // Calculate filter button counts precisely using the unified single source of truth
+    const counts = window.calculateMesaCounts(activeType);
+    if (window.updateMesaBadge) window.updateMesaBadge();
 
     // Global WhatsApp Summary
     const tmrw = new Date();
@@ -2538,45 +2650,41 @@ Views.prueba = () => {
     }).join('');
 
     return `<div>
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-            <div>
-                <h2 class="text-2xl font-extrabold text-on-surface">Prueba Unificada (Mesa de Ayuda + Órdenes)</h2>
-                <p class="text-sm text-on-surface-variant mt-1">Reportes y órdenes activos agrupados por técnico</p>
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
+            <div class="relative group max-w-md w-full">
+                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+                <input type="text" 
+                    id="prueba-search-input"
+                    placeholder="Buscar por zona, cliente, técnico, ID... (Enter)" 
+                    value="${search || ''}"
+                    onkeydown="if(event.key === 'Enter') { window.setPruebaSearch(this.value); }"
+                    class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+                >
+                ${search ? `
+                    <button onclick="window.setPruebaSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                        <span class="material-symbols-outlined text-sm">close</span>
+                    </button>
+                ` : ''}
             </div>
+
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
                 <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:6px 12px;display:flex;align-items:center;gap:5px;">
                     <span style="width:7px;height:7px;background:#f97316;border-radius:50%;display:inline-block;"></span>
-                    <span style="font-size:14px;font-weight:700;color:#c2410c;">Pendientes ${totalActiveTasks}</span>
+                    <span style="font-size:13px;font-weight:700;color:#c2410c;">Pendientes ${totalActiveTasks}</span>
                 </div>
                 <div style="display:flex;gap:4px;background:var(--surface-container-low);padding:4px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);align-items:center;">
                     ${typeButtons}
                 </div>
-                <button onclick="window.refreshPrueba()" style="width:34px;height:34px;border:1px solid #e5e7eb;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+                <button onclick="window.refreshPrueba()" style="width:34px;height:34px;border:1px solid #e5e7eb;border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Refrescar datos">
                     <span class="material-symbols-outlined inline-block ${state.isSyncing ? 'animate-spin' : ''}" style="font-size:17px;color:#6b7280;">sync</span>
                 </button>
             </div>
         </div>
 
-        <div class="relative group mb-4 max-w-md">
-            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
-            <input type="text" 
-                id="prueba-search-input"
-                placeholder="Buscar por zona, cliente, técnico, ID... (Enter)" 
-                value="${search || ''}"
-                onkeydown="if(event.key === 'Enter') { window.setPruebaSearch(this.value); }"
-                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
-            >
-            ${search ? `
-                <button onclick="window.setPruebaSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
-                    <span class="material-symbols-outlined text-sm">close</span>
-                </button>
-            ` : ''}
-        </div>
-
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
         ${totalActiveTasks === 0
             ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin tareas pendientes</p></div>`
-            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;">${techCards}</div>`
+            : `<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 items-start">${techCards}</div>`
         }
 
         ${finishedSectionHtml}
@@ -4529,43 +4637,39 @@ Views.naps = () => {
 
     return `
     <div>
-        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
-            <div>
-                <h2 class="text-2xl font-extrabold text-on-surface">Reportes de NAPs</h2>
-                <p class="text-sm text-on-surface-variant mt-1">Control de niveles altos y saturación de puertos detectados en campo</p>
+        <div class="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-3">
+            <div class="relative group max-w-md w-full">
+                <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
+                <input type="text" 
+                    id="nap-search-input"
+                    placeholder="Buscar NAPs... (Enter)" 
+                    value="${search || ''}"
+                    onkeydown="if(event.key === 'Enter') { window.setNapSearch(this.value); }"
+                    class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
+                >
+                ${search ? `
+                    <button onclick="window.setNapSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
+                        <span class="material-symbols-outlined text-sm">close</span>
+                    </button>
+                ` : ''}
             </div>
-            <div class="flex flex-wrap items-center gap-3">
+
+            <div class="flex flex-wrap items-center gap-2">
                 <input type="file" id="nap-import-file" accept=".csv" class="hidden" onchange="window.importNapsFromCSV(event)">
                 <input type="file" id="nap-import-pdf-file" accept=".pdf" class="hidden" onchange="window.importNapsFromPDF(event)">
-                <button onclick="document.getElementById('nap-import-file').click()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
-                    <span class="material-symbols-outlined text-[16px]">publish</span> Importar CSV
+                <button onclick="document.getElementById('nap-import-file').click()" class="border border-outline-variant/30 text-on-surface hover:bg-surface-container/40 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[15px]">publish</span> Importar CSV
                 </button>
-                <button onclick="document.getElementById('nap-import-pdf-file').click()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
-                    <span class="material-symbols-outlined text-[16px]">upload_file</span> Importar PDF de Campo
+                <button onclick="document.getElementById('nap-import-pdf-file').click()" class="border border-outline-variant/30 text-on-surface hover:bg-surface-container/40 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[15px]">upload_file</span> Importar PDF
                 </button>
-                <button onclick="window.exportNapsToCSV()" class="border border-outline-variant text-on-surface hover:bg-surface-container/40 px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 active:scale-95 transition-all">
-                    <span class="material-symbols-outlined text-[16px]">download</span> Exportar CSV
+                <button onclick="window.exportNapsToCSV()" class="border border-outline-variant/30 text-on-surface hover:bg-surface-container/40 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-all">
+                    <span class="material-symbols-outlined text-[15px]">download</span> Exportar CSV
                 </button>
-                <button onclick="window.exportNapsToPDF()" class="bg-on-surface text-white hover:opacity-90 px-4 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 active:scale-95 transition-all shadow-md">
-                    <span class="material-symbols-outlined text-[16px]">print</span> Exportar PDF
+                <button onclick="window.exportNapsToPDF()" class="bg-secondary text-white hover:opacity-95 px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 transition-all shadow-sm">
+                    <span class="material-symbols-outlined text-[15px]">print</span> Exportar PDF
                 </button>
             </div>
-        </div>
-
-        <div class="relative group mb-4 max-w-md">
-            <span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant/40 group-focus-within:text-secondary transition-colors text-lg">search</span>
-            <input type="text" 
-                id="nap-search-input"
-                placeholder="Buscar NAPs... (Enter)" 
-                value="${search || ''}"
-                onkeydown="if(event.key === 'Enter') { window.setNapSearch(this.value); }"
-                class="w-full bg-surface-container-lowest border border-outline-variant/25 focus:border-secondary focus:ring-2 focus:ring-secondary/5 rounded-xl pl-9 pr-8 py-2 text-xs font-semibold outline-none transition-all shadow-sm placeholder:text-on-surface-variant/40"
-            >
-            ${search ? `
-                <button onclick="window.setNapSearch('');" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full hover:bg-surface-container-high text-on-surface-variant/60">
-                    <span class="material-symbols-outlined text-sm">close</span>
-                </button>
-            ` : ''}
         </div>
 
         <div class="flex flex-wrap items-center justify-between bg-surface-container-low p-3 rounded-2xl border border-outline-variant/30 mb-6 gap-3">
@@ -6653,6 +6757,8 @@ async function initApp() {
         state.knownOrderIds = new Set([...state.orders, ...state.finishedOrders].map(o => o.id));
         state.knownIssueIds = new Set([...state.issues, ...state.finishedIssues].map(i => i.id));
         
+        if (window.updateMesaBadge) window.updateMesaBadge();
+        if (window.updateNapsBadge) window.updateNapsBadge();
     } catch(e) {
         console.error('Error en carga inicial:', e);
     }

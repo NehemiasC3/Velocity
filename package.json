@@ -4,13 +4,14 @@
   "description": "Suite de Operaciones ISP desacoplada en TypeScript, React y Node.js",
   "private": true,
   "scripts": {
-    "dev": "node server.js",
-    "dev:backend": "npm --prefix backend run dev",
-    "dev:frontend": "npm --prefix frontend run dev",
-    "build:backend": "npm --prefix backend run build",
-    "build:frontend": "npm --prefix frontend run build",
-    "build:all": "npm --prefix backend run build && npm --prefix frontend run build",
-    "typecheck": "npm --prefix backend run typecheck && npm --prefix frontend run typecheck",
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently -n \"BACKEND,FRONTEND\" -c \"cyan,magenta\" \"npm --prefix \\\"Inventario App/backend\\\" run dev\" \"npm --prefix \\\"Inventario App/frontend\\\" run dev\"",
+    "dev:suite": "concurrently -n \"PORTAL_3000,BACKEND_4000,FRONTEND_5173\" -c \"yellow,cyan,magenta\" \"node server.js\" \"npm --prefix \\\"Inventario App/backend\\\" run dev\" \"npm --prefix \\\"Inventario App/frontend\\\" run dev\"",
+    "dev:backend": "npm --prefix \"Inventario App/backend\" run dev",
+    "dev:frontend": "npm --prefix \"Inventario App/frontend\" run dev",
+    "build:backend": "npm --prefix \"Inventario App/backend\" run build",
+    "build:frontend": "npm --prefix \"Inventario App/frontend\" run build",
+    "build:all": "npm --prefix \"Inventario App/backend\" run build && npm --prefix \"Inventario App/frontend\" run build",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   },
@@ -28,7 +29,18 @@
     "web-push": "^3.6.7",
     "write-file-atomic": "^5.0.1"
   },
-  "keywords": ["velocity", "isp", "react", "typescript", "express", "wispro"],
+  "keywords": [
+    "velocity",
+    "isp",
+    "react",
+    "typescript",
+    "express",
+    "wispro"
+  ],
   "author": "Velocity Team",
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "ssh2": "^1.17.0"
+  }
 }

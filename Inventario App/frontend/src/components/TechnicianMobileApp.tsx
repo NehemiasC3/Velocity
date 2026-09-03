@@ -119,7 +119,7 @@ export const TechnicianMobileApp: React.FC = () => {
   const selectedClient = pendingClients.find(c => c.id === selectedClientId);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="w-full space-y-6">
       
       {/* Mobile Device Frame Header */}
       <div className="bg-slate-900 rounded-3xl p-6 text-white border border-slate-800 shadow-2xl space-y-4">

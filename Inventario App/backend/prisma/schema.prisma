@@ -1,0 +1,466 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// 1. ENUMS (Clasificaciones, Roles y Estados)
+// ──────────────────────────────────────────────
+
+enum Role {
+  SUPERADMIN
+  SUPERVISOR_MESA
+  BODEGUERO_CENTRAL
+  BODEGUERO_SUCURSAL
+  TECNICO
+}
+
+enum WarehouseType {
+  PRINCIPAL       // Hub Central (ej. Tocumen)
+  SUCURSAL        // Sub-Hubs Regionales (ej. Metetí, Tortí)
+  VEHICULO        // Cuadrillas / Vehículos de Técnicos (Spokes móviles)
+  CUARENTENA_RMA  // Depósito de equipos defectuosos / garantías
+}
+
+enum WarehouseStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ItemCategory {
+  ONU_ONT                // Equipos terminales ópticos
+  ROUTER_WIFI            // Routers inalámbricos, Mesh, APs
+  CABLE_DROP             // Bobinas / Carretes de fibra óptica
+  CONECTORIZACION        // Conectores SC/APC, Acopladores, Rosetas
+  HERRAJE_PLANTA_EXTERNA // Tensores drop, Flejes, Splitters, Cajas NAP
+  HERRAMIENTA_EQUIPO     // Fusionadoras, OTDR, Power Meter, VFL
+  MISCELANEOS            // Consumibles generales
+}
+
+enum TrackingType {
+  SERIALIZED // ONUs, Routers (Identificación individual por MAC / Serial)
+  BATCHED    // Bobinas de Cable, Carretes (Control por Lote / Bobina con metraje inicial y remanente)
+  BULK       // Conectores, Tensores, Cajas NAP (Conteo por unidades o existencias directas)
+}
+
+enum UnitOfMeasure {
+  METROS
+  UNIDADES
+  ROLLOS
+  CAJAS
+  KITS
+}
+
+enum SerializedStatus {
+  EN_BODEGA
+  EN_TRANSITO
+  EN_VEHICULO
+  INSTALADO_CLIENTE
+  RMA_DEFECTUOSO
+  BAJA
+}
+
+enum BatchStatus {
+  DISPONIBLE
+  EN_USO
+  AGOTADO
+  EN_TRANSITO
+  DEFECTUOSO
+}
+
+enum TransferStatus {
+  PENDIENTE
+  EN_TRANSITO
+  RECIBIDO
+  RECHAZADO
+  CANCELADO
+}
+
+enum InstallationTicketType {
+  INSTALACION_NUEVA
+  CAMBIO_EQUIPO
+  MIGRACION
+  REPARACION_DROP
+}
+
+enum RetiredDeviceStatus {
+  RMA_DEFECTUOSO
+  RECUPERADO_BUENO
+}
+
+enum AuditEventType {
+  ALTA_INVENTARIO
+  DESPACHO_TRASLADO
+  RECEPCION_TRASLADO
+  CARGA_VEHICULO
+  INSTALACION_CLIENTE
+  RETIRO_CLIENTE
+  REPORTE_RMA
+  AJUSTE_STOCK
+  CONSUMO_BOBINA
+}
+
+enum WisproClientStatus {
+  ACTIVO
+  PENDIENTE_INSTALACION
+  SUSPENDIDO
+}
+
+// ──────────────────────────────────────────────
+// 2. MODELO DE USUARIOS Y ACCESO (RBAC)
+// ──────────────────────────────────────────────
+
+model User {
+  id                  String               @id @default(uuid())
+  name                String
+  email               String               @unique
+  password            String?
+  role                Role                 @default(TECNICO)
+  phone               String?
+
+  // Ubicación Base (Sucursal asignada al bodeguero o Vehículo del técnico)
+  baseWarehouseId     String?              @map("base_warehouse_id")
+  baseWarehouse       Warehouse?           @relation("UserBaseWarehouse", fields: [baseWarehouseId], references: [id])
+
+  // Bodegas donde figura como Encargado/Responsable
+  managedWarehouses   Warehouse[]          @relation("WarehouseManager")
+
+  // Trazabilidad de Traslados
+  createdTransfers    TransferOrder[]      @relation("TransferCreatedBy")
+  dispatchedTransfers TransferOrder[]      @relation("TransferDispatchedBy")
+  receivedTransfers   TransferOrder[]      @relation("TransferReceivedBy")
+
+  // Operaciones de Campo y Auditoría
+  installationTickets InstallationTicket[] @relation("TechnicianInstallations")
+  auditLogs           AuditLog[]           @relation("UserAuditLogs")
+
+  createdAt           DateTime             @default(now()) @map("created_at")
+  updatedAt           DateTime             @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+// ──────────────────────────────────────────────
+// 3. JERARQUÍA INFINITA DE BODEGAS (Hub & Spoke)
+// ──────────────────────────────────────────────
+
+model Warehouse {
+  id                   String               @id @default(uuid())
+  name                 String
+  code                 String               @unique
+  type                 WarehouseType        @default(VEHICULO)
+  address              String?
+  vehiclePlate         String?              @map("vehicle_plate")
+  status               WarehouseStatus      @default(ACTIVE)
+
+  // Responsable / Encargado
+  managerId            String?              @map("manager_id")
+  manager              User?                @relation("WarehouseManager", fields: [managerId], references: [id])
+
+  // Jerarquía Infinita (Self-Relation: quién abastece a quién)
+  parentId             String?              @map("parent_id")
+  parentWarehouse      Warehouse?           @relation("WarehouseHierarchy", fields: [parentId], references: [id])
+  childWarehouses      Warehouse[]          @relation("WarehouseHierarchy")
+
+  // Usuarios con base en esta bodega
+  assignedUsers        User[]               @relation("UserBaseWarehouse")
+
+  // ── Existencias Físicas en esta Bodega ──
+  bulkStocks           BulkStock[]          // Existencias Granel (BULK)
+  batchItems           BatchItem[]          // Bobinas / Lotes asignados (BATCHED)
+  serializedItems      SerializedItem[]     // Equipos serializados presentes (SERIALIZED)
+
+  // Rutas de Traslados
+  sourceTransfers      TransferOrder[]      @relation("TransferSourceWarehouse")
+  destinationTransfers TransferOrder[]      @relation("TransferDestinationWarehouse")
+
+  // Consumo en Campo y Trazabilidad Forense
+  installationTickets  InstallationTicket[] @relation("VehicleWarehouseTickets")
+  fromAuditLogs        AuditLog[]           @relation("AuditFromWarehouse")
+  toAuditLogs          AuditLog[]           @relation("AuditToWarehouse")
+
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  @@map("warehouses")
+}
+
+// ──────────────────────────────────────────────
+// 4. CATÁLOGO CENTRAL DINÁMICO (ProductCatalog)
+// ──────────────────────────────────────────────
+
+model ProductCatalog {
+  id              String            @id @default(uuid())
+  sku             String            @unique
+  name            String
+  brand           String?           // Ej: Huawei, ZTE, FiberHome, Optictimes
+  model           String?           // Ej: EG8145V5, F670L, Drop 1 Hilo G.657A2
+  description     String?
+  category        ItemCategory
+  trackingType    TrackingType      @default(BULK) @map("tracking_type")
+  unitOfMeasure   UnitOfMeasure     @default(UNIDADES) @map("unit_of_measure")
+  minStockAlert   Float             @default(10) @map("min_stock_alert")
+  isActive        Boolean           @default(true) @map("is_active")
+
+  // Relaciones con las tablas de stock físico según naturaleza
+  bulkStocks      BulkStock[]
+  batchItems      BatchItem[]
+  serializedItems SerializedItem[]
+  transferItems   TransferOrderItem[]
+
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  @@map("product_catalog")
+}
+
+// ──────────────────────────────────────────────
+// 5. TABLAS DE EXISTENCIAS FÍSICAS (Stock Real)
+// ──────────────────────────────────────────────
+
+// A. CONTROL A GRANEL (BULK) — Conectores, Tensores, Cajas NAP, etc.
+model BulkStock {
+  id              String         @id @default(uuid())
+  productId       String         @map("product_id")
+  product         ProductCatalog @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  warehouseId     String         @map("warehouse_id")
+  warehouse       Warehouse      @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  
+  quantity        Float          @default(0) // Unidades o cantidades directas disponibles
+
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId])
+  @@map("bulk_stocks")
+}
+
+// B. CONTROL POR LOTES / BOBINAS (BATCHED) — Bobinas de Cable Drop, Carretes
+model BatchItem {
+  id                String         @id @default(uuid())
+  batchNumber       String         @map("batch_number") // Ej: "BOB-4501", "LOT-2026-03"
+  
+  productId         String         @map("product_id")
+  product           ProductCatalog @relation(fields: [productId], references: [id])
+  
+  currentWarehouseId String        @map("current_warehouse_id")
+  currentWarehouse   Warehouse     @relation(fields: [currentWarehouseId], references: [id])
+  
+  initialQuantity   Float          @map("initial_quantity") // Ej: 1000 (metros)
+  currentQuantity   Float          @map("current_quantity") // Ej: 450 (metros restantes)
+  unitOfMeasure     UnitOfMeasure  @default(METROS) @map("unit_of_measure")
+  
+  status            BatchStatus    @default(DISPONIBLE)
+  notes             String?
+
+  transferOrders    TransferOrder[] @relation("TransferOrderBatches")
+
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  @@unique([productId, batchNumber])
+  @@index([currentWarehouseId])
+  @@index([status])
+  @@map("batch_items")
+}
+
+// C. CONTROL DE EQUIPOS SERIALIZADOS (SERIALIZED) — ONTs, Routers WiFi, Switches
+model SerializedItem {
+  id                  String             @id @default(uuid())
+  macAddress          String             @unique @map("mac_address")
+  serialNumber        String             @unique @map("serial_number")
+  
+  productId           String             @map("product_id")
+  product             ProductCatalog     @relation(fields: [productId], references: [id])
+  
+  currentWarehouseId  String             @map("current_warehouse_id")
+  currentWarehouse    Warehouse          @relation(fields: [currentWarehouseId], references: [id])
+  
+  status              SerializedStatus   @default(EN_BODEGA)
+  
+  // Trazabilidad de Instalación en Wispro
+  installedTicketId   String?            @map("installed_ticket_id")
+  installedClientId   String?            @map("installed_client_id")
+  installedClientName String?            @map("installed_client_name")
+  installedContractId String?            @map("installed_contract_id")
+  installedDate       DateTime?          @map("installed_date")
+  warrantyExpiration  DateTime?          @map("warranty_expiration")
+  notes               String?
+
+  transferOrders      TransferOrder[]    @relation("TransferOrderSerializedItems")
+
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+
+  @@index([currentWarehouseId])
+  @@index([status])
+  @@map("serialized_items")
+}
+
+// ──────────────────────────────────────────────
+// 6. TRASLADOS Y CADENA DE CUSTODIA (Hub -> Spoke)
+// ──────────────────────────────────────────────
+
+model TransferOrder {
+  id                     String               @id @default(uuid())
+  orderNumber            String               @unique @map("order_number")
+  
+  // Ruta Exacta
+  sourceWarehouseId      String               @map("source_warehouse_id")
+  sourceWarehouse        Warehouse            @relation("TransferSourceWarehouse", fields: [sourceWarehouseId], references: [id])
+  
+  destinationWarehouseId String               @map("destination_warehouse_id")
+  destinationWarehouse   Warehouse            @relation("TransferDestinationWarehouse", fields: [destinationWarehouseId], references: [id])
+  
+  status                 TransferStatus       @default(PENDIENTE)
+
+  // Auditoría de Firmas y Responsables
+  createdByUserId        String               @map("created_by_user_id")
+  createdByUser          User                 @relation("TransferCreatedBy", fields: [createdByUserId], references: [id])
+  
+  dispatchedByUserId     String?              @map("dispatched_by_user_id")
+  dispatchedByUser       User?                @relation("TransferDispatchedBy", fields: [dispatchedByUserId], references: [id])
+  dispatchedAt           DateTime?            @map("dispatched_at")
+
+  receivedByUserId       String?              @map("received_by_user_id")
+  receivedByUser         User?                @relation("TransferReceivedBy", fields: [receivedByUserId], references: [id])
+  receivedAt             DateTime?            @map("received_at")
+
+  notes                  String?
+
+  // Contenido de la Carga Trasladada
+  items                  TransferOrderItem[]  // Materiales a granel o resumen
+  batchItems             BatchItem[]          @relation("TransferOrderBatches")         // Bobinas completas en tránsito
+  serializedItems        SerializedItem[]     @relation("TransferOrderSerializedItems") // Equipos con MAC en tránsito
+
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+
+  @@map("transfer_orders")
+}
+
+model TransferOrderItem {
+  id              String         @id @default(uuid())
+  transferOrderId String         @map("transfer_order_id")
+  transferOrder   TransferOrder  @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
+  
+  productId       String         @map("product_id")
+  product         ProductCatalog @relation(fields: [productId], references: [id])
+  
+  quantity        Float
+  unitOfMeasure   UnitOfMeasure  @map("unit_of_measure")
+
+  @@map("transfer_order_items")
+}
+
+// ──────────────────────────────────────────────
+// 7. LIQUIDACIÓN DE ÓRDENES EN CAMPO (Mesa + Wispro)
+// ──────────────────────────────────────────────
+
+model InstallationTicket {
+  id                   String                 @id @default(uuid())
+  ticketNumber         String                 @unique @map("ticket_number")
+  type                 InstallationTicketType @default(INSTALACION_NUEVA)
+  
+  wisproClientId       String                 @map("wispro_client_id")
+  wisproClientName     String                 @map("wispro_client_name")
+  wisproContractId     String                 @map("wispro_contract_id")
+  wisproNode           String?                @map("wispro_node")
+  clientAddress        String                 @map("client_address")
+  
+  technicianId         String                 @map("technician_id")
+  technician           User                   @relation("TechnicianInstallations", fields: [technicianId], references: [id])
+  
+  vehicleWarehouseId   String                 @map("vehicle_warehouse_id")
+  vehicleWarehouse     Warehouse              @relation("VehicleWarehouseTickets", fields: [vehicleWarehouseId], references: [id])
+
+  installedOnuMac      String?                @map("installed_onu_mac")
+  installedOnuSerial   String?                @map("installed_onu_serial")
+  installedRouterMac   String?                @map("installed_router_mac")
+  retiredDeviceMac     String?                @map("retired_device_mac")
+  retiredDeviceStatus  RetiredDeviceStatus?   @map("retired_device_status")
+
+  usedSpoolBatchNumber String?                @map("used_spool_batch_number") // Bobina de la que se extrajo el cable
+  cableDropMetersUsed  Float                  @default(0) @map("cable_drop_meters_used")
+  connectorsUsed       Int                    @default(0) @map("connectors_used")
+  tensorsUsed          Int                    @default(0) @map("tensors_used")
+  otherMaterialsUsed   String?                @map("other_materials_used")
+  installationPhotoUrl String?                @map("installation_photo_url")
+  notes                String?
+  
+  wisproSynced         Boolean                @default(false) @map("wispro_synced")
+  wisproSyncMessage    String?                @map("wispro_sync_message")
+
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  @@map("installation_tickets")
+}
+
+// ──────────────────────────────────────────────
+// 8. AUDITORÍA FORENSE Y TRAZABILIDAD
+// ──────────────────────────────────────────────
+
+model AuditLog {
+  id              String         @id @default(uuid())
+  macAddress      String?        @map("mac_address")
+  serialNumber    String?        @map("serial_number")
+  batchNumber     String?        @map("batch_number")
+  eventType       AuditEventType @map("event_type")
+  
+  fromWarehouseId String?        @map("from_warehouse_id")
+  fromWarehouse   Warehouse?     @relation("AuditFromWarehouse", fields: [fromWarehouseId], references: [id])
+  
+  toWarehouseId   String?        @map("to_warehouse_id")
+  toWarehouse     Warehouse?     @relation("AuditToWarehouse", fields: [toWarehouseId], references: [id])
+  
+  userId          String         @map("user_id")
+  user            User           @relation("UserAuditLogs", fields: [userId], references: [id])
+  
+  details         String
+  timestamp       DateTime       @default(now())
+
+  @@map("audit_logs")
+}
+
+// ──────────────────────────────────────────────
+// 9. SINCRONIZACIÓN CON WISPRO ISP
+// ──────────────────────────────────────────────
+
+model WisproClient {
+  id             String             @id @default(uuid())
+  name           String
+  email          String?
+  phone          String?
+  address        String
+  identification String?
+  nodeName       String             @map("node_name")
+  contractId     String             @unique @map("contract_id")
+  planName       String             @map("plan_name")
+  currentOnuMac  String?            @map("current_onu_mac")
+  status         WisproClientStatus @default(ACTIVO)
+
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  @@map("wispro_clients")
+}
+
+model WisproConfig {
+  id                String    @id @default("default")
+  apiUrl            String    @default("https://www.cloud.wispro.co/api/v1") @map("api_url")
+  apiToken          String    @default("") @map("api_token")
+  autoSyncMinutes   Int       @default(15) @map("auto_sync_minutes")
+  lastSyncTimestamp DateTime? @map("last_sync_timestamp")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("wispro_configs")
+}

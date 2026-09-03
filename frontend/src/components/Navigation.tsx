@@ -1,10 +1,26 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { UserSession } from '../types/auth';
-import { Server, Search, LogOut, ShieldCheck, Activity, Bell } from 'lucide-react';
+import { 
+  Server, 
+  Boxes, 
+  LogOut, 
+  ShieldCheck, 
+  Activity, 
+  Bell, 
+  ChevronDown, 
+  LayoutDashboard, 
+  Warehouse, 
+  Truck, 
+  ClipboardCheck 
+} from 'lucide-react';
+
+export type MainTab = 'inventory' | 'overview' | 'settings';
+export type InventorySubTab = 'dashboard' | 'warehouses' | 'transfers' | 'audits';
 
 interface NavigationProps {
-  activeTab: 'inventory' | 'overview' | 'settings';
-  onTabChange: (tab: 'inventory' | 'overview' | 'settings') => void;
+  activeTab: MainTab;
+  activeSubTab?: InventorySubTab;
+  onTabChange: (tab: MainTab, subTab?: InventorySubTab) => void;
   session: UserSession | null;
   onLogout: () => void;
   onOpenLogin: () => void;
@@ -12,13 +28,23 @@ interface NavigationProps {
 
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
+  activeSubTab = 'dashboard',
   onTabChange,
   session,
   onLogout,
   onOpenLogin
 }) => {
+  const [isInventoryOpen, setIsInventoryOpen] = useState<boolean>(activeTab === 'inventory');
+
+  const handleParentInventoryClick = () => {
+    setIsInventoryOpen(prev => !prev);
+    if (activeTab !== 'inventory') {
+      onTabChange('inventory', activeSubTab);
+    }
+  };
+
   return (
-    <header className="border-b border-slate-800/80 bg-slate-950/70 backdrop-blur sticky top-0 z-40">
+    <header className="border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
         {/* Logo & Brand */}
         <div className="flex items-center gap-6">
@@ -35,19 +61,103 @@ export const Navigation: React.FC<NavigationProps> = ({
           </div>
 
           {/* Tab Navigation Buttons */}
-          <nav className="hidden md:flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
-            <button
-              onClick={() => onTabChange('inventory')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
-                activeTab === 'inventory'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-              }`}
-            >
-              <Search className="w-3.5 h-3.5" />
-              <span>Inventario Instantáneo</span>
-            </button>
+          <nav className="hidden md:flex items-center gap-2 bg-slate-900/90 p-1 rounded-xl border border-slate-800">
+            
+            {/* 📦 INVENTARIO CON DROPDOWN / ACORDEÓN */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={handleParentInventoryClick}
+                className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeTab === 'inventory'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+                }`}
+              >
+                <Boxes className="w-3.5 h-3.5" />
+                <span>Inventario</span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 transition-transform duration-300 ${
+                    isInventoryOpen ? 'rotate-180 text-white' : 'text-slate-400'
+                  }`}
+                />
+              </button>
 
+              {/* Menú Desplegable de Sub-Ítems */}
+              {isInventoryOpen && (
+                <div className="absolute top-full left-0 mt-2 w-52 bg-slate-900/95 backdrop-blur-md rounded-xl border border-slate-800 shadow-xl py-1.5 z-50 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                    Módulo de Inventario
+                  </div>
+                  
+                  {/* Sub-ítem 1: Dashboard */}
+                  <button
+                    onClick={() => {
+                      onTabChange('inventory', 'dashboard');
+                      setIsInventoryOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition ${
+                      activeTab === 'inventory' && activeSubTab === 'dashboard'
+                        ? 'bg-indigo-600/20 text-indigo-300 font-semibold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <LayoutDashboard className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Dashboard</span>
+                  </button>
+
+                  {/* Sub-ítem 2: Bodegas */}
+                  <button
+                    onClick={() => {
+                      onTabChange('inventory', 'warehouses');
+                      setIsInventoryOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition ${
+                      activeTab === 'inventory' && activeSubTab === 'warehouses'
+                        ? 'bg-indigo-600/20 text-indigo-300 font-semibold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Warehouse className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Bodegas</span>
+                  </button>
+
+                  {/* Sub-ítem 3: Envíos / Traslados */}
+                  <button
+                    onClick={() => {
+                      onTabChange('inventory', 'transfers');
+                      setIsInventoryOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition ${
+                      activeTab === 'inventory' && activeSubTab === 'transfers'
+                        ? 'bg-indigo-600/20 text-indigo-300 font-semibold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <Truck className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Envíos / Traslados</span>
+                  </button>
+
+                  {/* Sub-ítem 4: Auditorías */}
+                  <button
+                    onClick={() => {
+                      onTabChange('inventory', 'audits');
+                      setIsInventoryOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs font-medium transition ${
+                      activeTab === 'inventory' && activeSubTab === 'audits'
+                        ? 'bg-indigo-600/20 text-indigo-300 font-semibold'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                    }`}
+                  >
+                    <ClipboardCheck className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Auditorías</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Estado del Sistema */}
             <button
               onClick={() => onTabChange('overview')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -60,6 +170,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               <span>Estado del Sistema</span>
             </button>
 
+            {/* Preferencias */}
             <button
               onClick={() => onTabChange('settings')}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -113,3 +224,4 @@ export const Navigation: React.FC<NavigationProps> = ({
     </header>
   );
 };
+

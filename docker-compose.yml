@@ -1,6 +1,29 @@
 services:
   # ==========================================
-  # 🚀 VELOCITY BACKEND (TypeScript & Express)
+  # 🗄️ BASE DE DATOS POSTGRESQL (Prisma & Inventario)
+  # ==========================================
+  postgres:
+    image: postgres:15-alpine
+    container_name: velocity-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-velocity_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-VelocitySecure2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-velocity_inventory}
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    networks:
+      - velocity-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================
+  # 🚀 VELOCITY BACKEND (TypeScript & Express / Mesa)
   # ==========================================
   velocity-backend:
     build:
@@ -22,9 +45,40 @@ services:
       - ./public:/public
     networks:
       - velocity-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # ==========================================
-  # 🎨 VELOCITY FRONTEND (React & Nginx + HTTPS Ready)
+  # 📦 INVENTORY BACKEND API (Node.js + Prisma)
+  # ==========================================
+  inventory-backend:
+    build:
+      context: "./Inventario App/backend"
+      dockerfile: Dockerfile
+    container_name: velocity-inventory-api
+    restart: unless-stopped
+    ports:
+      - "${INVENTORY_API_PORT:-4000}:4000"
+    environment:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public
+      - JWT_SECRET=${JWT_SECRET:-velocity_secret_key_production_2026}
+    depends_on:
+      - postgres
+    networks:
+      - velocity-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================
+  # 🎨 VELOCITY FRONTEND (React & Nginx + Reverse Proxy)
   # ==========================================
   velocity-frontend:
     build:
@@ -39,101 +93,19 @@ services:
       - "${FRONTEND_SSL_PORT:-443}:443"
     depends_on:
       - velocity-backend
+      - inventory-backend
     volumes:
-      # Descomenta las siguientes líneas en producción para montar tus certificados SSL Let's Encrypt / Certbot:
+      # Descomenta en producción para montar certificados SSL Let's Encrypt / Certbot:
       # - /etc/letsencrypt:/etc/letsencrypt:ro
       # - ./nginx-ssl.conf:/etc/nginx/conf.d/default.conf:ro
       - ./data/cache:/var/cache/nginx
     networks:
       - velocity-net
-
-  # ==========================================
-  # 🗄️ GENIEACS DEPENDENCIAS (Mongo & Redis)
-  # ==========================================
-  genieacs-mongo:
-    image: mongo:6.0
-    container_name: genieacs-mongo
-    restart: unless-stopped
-    volumes:
-      - ./data/genieacs-mongo:/data/db
-    networks:
-      - velocity-net
-
-  genieacs-redis:
-    image: redis:7-alpine
-    container_name: genieacs-redis
-    restart: unless-stopped
-    networks:
-      - velocity-net
-
-  # ==========================================
-  # 📡 GENIEACS SERVICIOS (CWMP, NBI, FS, UI)
-  # ==========================================
-  genieacs-cwmp:
-    image: genieacs/genieacs:1.2.9
-    container_name: genieacs-cwmp
-    command: genieacs-cwmp
-    restart: unless-stopped
-    environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
-      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
-      - GENIEACS_CWMP_ACCESS_LOG_FILE=/var/log/genieacs/genieacs-cwmp-access.log
-      - GENIEACS_DEBUG_FILE=/var/log/genieacs/genieacs-debug.yaml
-    ports:
-      - "7547:7547"
-    depends_on:
-      - genieacs-mongo
-      - genieacs-redis
-    networks:
-      - velocity-net
-
-  genieacs-nbi:
-    image: genieacs/genieacs:1.2.9
-    container_name: genieacs-nbi
-    command: genieacs-nbi
-    restart: unless-stopped
-    environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
-      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
-    ports:
-      - "7557:7557"
-    depends_on:
-      - genieacs-mongo
-      - genieacs-redis
-    networks:
-      - velocity-net
-
-  genieacs-fs:
-    image: genieacs/genieacs:1.2.9
-    container_name: genieacs-fs
-    command: genieacs-fs
-    restart: unless-stopped
-    environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
-      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
-    ports:
-      - "7567:7567"
-    depends_on:
-      - genieacs-mongo
-      - genieacs-redis
-    networks:
-      - velocity-net
-
-  genieacs-ui:
-    image: genieacs/genieacs:1.2.9
-    container_name: genieacs-ui
-    command: genieacs-ui
-    restart: unless-stopped
-    environment:
-      - GENIEACS_MONGODB_CONNECTION_URL=mongodb://genieacs-mongo:27017/genieacs
-      - GENIEACS_REDIS_CONNECTION_URL=redis://genieacs-redis:6379/0
-    ports:
-      - "3001:3000"
-    depends_on:
-      - genieacs-mongo
-      - genieacs-redis
-    networks:
-      - velocity-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   velocity-net:

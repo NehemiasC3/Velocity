@@ -1,4 +1,14 @@
-export type Role = 'ADMIN_BODEGA' | 'ENCARGADO_PERSONAL' | 'TECNICO_LIDER' | 'TECNICO_AYUDANTE';
+export type Role = 
+  | 'SUPERADMIN' 
+  | 'ADMIN_BODEGA' 
+  | 'BODEGUERO_PRINCIPAL' 
+  | 'BODEGUERO_SUCURSAL' 
+  | 'TECNICO' 
+  | 'TECNICO_LIDER' 
+  | 'TECNICO_AYUDANTE' 
+  | 'SUPERVISOR_MESA' 
+  | 'AUDITOR_INTERNO' 
+  | 'ENCARGADO_PERSONAL';
 
 export interface User {
   id: string;
@@ -6,11 +16,14 @@ export interface User {
   email: string;
   role: Role;
   phone?: string;
+  baseWarehouseId?: string | null;
+  baseWarehouseName?: string | null;
   assignedWarehouseId?: string;
-  createdAt: string;
+  managedWarehouses?: { id: string; name: string; type: string }[];
+  createdAt?: string;
 }
 
-export type WarehouseType = 'HUB' | 'SPOKE' | 'VEHICLE';
+export type WarehouseType = 'PRINCIPAL' | 'SUCURSAL' | 'VEHICULO' | 'CUARENTENA_RMA' | 'HUB' | 'SPOKE';
 
 export interface Warehouse {
   id: string;
@@ -18,11 +31,19 @@ export interface Warehouse {
   code: string;
   type: WarehouseType;
   address?: string;
+  location?: string;
   vehiclePlate?: string;
   managerId?: string;
   managerName?: string;
+  manager?: { id: string; name: string; email: string; role?: string };
+  parentId?: string | null;
+  parent_id?: string | null;
+  parentWarehouse?: { id: string; name: string; code: string; type: string; address?: string } | null;
+  childWarehouses?: { id: string; name: string; code: string; type: string; status?: string; vehiclePlate?: string }[];
+  _count?: { serializedItems?: number; batchItems?: number; bulkStocks?: number };
   status: 'ACTIVE' | 'INACTIVE';
-  createdAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type SerializedStatus = 
@@ -37,11 +58,14 @@ export interface SerializedItem {
   id: string;
   macAddress: string;
   serialNumber: string;
-  brand: string;
-  model: string;
-  category: 'ONU_GPON' | 'ONU_EPON' | 'ROUTER' | 'OLT' | 'SWITCH' | 'MININODE';
+  brand?: string;
+  model?: string;
+  category?: 'ONU_GPON' | 'ONU_EPON' | 'ROUTER' | 'OLT' | 'SWITCH' | 'MININODE' | string;
+  productId?: string;
+  product?: ProductCatalog;
   currentWarehouseId: string;
   currentWarehouseName?: string;
+  currentWarehouse?: Warehouse;
   status: SerializedStatus;
   installedTicketId?: string;
   installedClientId?: string;
@@ -49,8 +73,8 @@ export interface SerializedItem {
   installedContractId?: string;
   installedDate?: string;
   notes?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface BulkItem {
@@ -78,45 +102,80 @@ export interface BulkStock {
 
 export type TransferStatus = 'PENDIENTE' | 'EN_TRANSITO' | 'RECIBIDO' | 'RECHAZADO' | 'CANCELADO';
 
+export interface BatchItem {
+  id: string;
+  batchNumber: string;
+  productId: string;
+  product?: ProductCatalog;
+  currentWarehouseId: string;
+  currentWarehouse?: Warehouse;
+  initialQuantity: number;
+  currentQuantity: number;
+  unitOfMeasure: string;
+  status: 'DISPONIBLE' | 'EN_USO' | 'AGOTADO' | 'EN_TRANSITO' | 'DEFECTUOSO';
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface TransferOrderItem {
+  id: string;
+  transferOrderId?: string;
+  productId: string;
+  product?: ProductCatalog;
+  quantity: number;
+  unitOfMeasure: string;
+}
+
 export interface TransferOrder {
   id: string;
   orderNumber: string;
-  originWarehouseId: string;
-  originWarehouseName: string;
+  sourceWarehouseId: string;
+  sourceWarehouse?: Warehouse;
   destinationWarehouseId: string;
-  destinationWarehouseName: string;
+  destinationWarehouse?: Warehouse;
   status: TransferStatus;
-  createdById: string;
-  createdByName: string;
-  dispatchedById?: string;
-  dispatchedByName?: string;
+  createdByUserId?: string;
+  createdByUser?: { id: string; name: string; email: string; role?: string };
+  dispatchedByUserId?: string;
+  dispatchedByUser?: { id: string; name: string; email: string; role?: string };
   dispatchedAt?: string;
-  receivedById?: string;
-  receivedByName?: string;
+  receivedByUserId?: string;
+  receivedByUser?: { id: string; name: string; email: string; role?: string };
   receivedAt?: string;
   notes?: string;
-  serializedItemIds: string[];
-  bulkItems: {
+  items?: TransferOrderItem[];
+  batchItems?: BatchItem[];
+  serializedItems?: SerializedItem[];
+  // Legacy / UI Helpers
+  originWarehouseId?: string;
+  originWarehouseName?: string;
+  destinationWarehouseName?: string;
+  createdById?: string;
+  createdByName?: string;
+  serializedItemIds?: string[];
+  bulkItems?: {
     bulkItemId: string;
     bulkItemName: string;
     quantity: number;
     unitOfMeasure: string;
   }[];
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
 }
+
+export type InstallationTicketType = 'INSTALACION_NUEVA' | 'CAMBIO_EQUIPO' | 'MIGRACION' | 'REPARACION_DROP';
 
 export interface InstallationTicket {
   id: string;
   ticketNumber: string;
-  type: 'INSTALACION_NUEVA' | 'CAMBIO_EQUIPO' | 'MIGRACION' | 'REPARACION_DROP';
+  type: InstallationTicketType;
   wisproClientId: string;
   wisproClientName: string;
   wisproContractId: string;
   wisproNode?: string;
   clientAddress: string;
   technicianId: string;
-  technicianName: string;
+  technicianName?: string;
   vehicleWarehouseId: string;
   installedOnuMac?: string;
   installedOnuSerial?: string;
@@ -203,3 +262,58 @@ export interface TechnicianMetric {
   isAnomaly: boolean;
   anomalyWarning: string | null;
 }
+
+export type ItemCategory = 
+  | 'ONU_ONT' 
+  | 'ROUTER_WIFI' 
+  | 'CABLE_DROP' 
+  | 'CONECTORIZACION' 
+  | 'HERRAJE_PLANTA_EXTERNA' 
+  | 'HERRAMIENTA_EQUIPO' 
+  | 'MISCELANEOS';
+
+export type TrackingType = 'SERIALIZED' | 'BATCHED' | 'BULK';
+
+export type UnitOfMeasure = 'METROS' | 'UNIDADES' | 'ROLLOS' | 'CAJAS' | 'KITS';
+
+export interface ProductCatalog {
+  id: string;
+  sku: string;
+  name: string;
+  brand?: string | null;
+  model?: string | null;
+  description?: string | null;
+  category: ItemCategory;
+  trackingType: TrackingType;
+  unitOfMeasure: UnitOfMeasure;
+  minStockAlert: number;
+  isActive: boolean;
+  _count?: {
+    serializedItems?: number;
+    batchItems?: number;
+    bulkStocks?: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AnalyticsKPIs {
+  total_active_onus: number;
+  total_installed_onus: number;
+  total_quarantine_onus: number;
+  monthly_cable_consumption: number;
+  daily_cable_consumption_7d: {
+    date: string;
+    label: string;
+    meters: number;
+  }[];
+  top_technicians: {
+    technicianId: string;
+    technicianName: string;
+    closedTickets: number;
+    metersInstalled: number;
+  }[];
+  total_warehouses: number;
+  total_tickets_month: number;
+}
+

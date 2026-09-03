@@ -306,37 +306,183 @@ window.hideLoadingOverlay = function() {
     }
 };
 
-window.switchTab = function(tab) {
-    state.tab = tab;
-    sessionStorage.setItem('V_Tab', tab);
+/**
+ * Alterna el estado del acordeón de navegación.
+ * Cierra automáticamente otros acordeones abiertos para mantener la barra limpia.
+ * @param {string} accordionId - ID del contenedor acordeón (ej: 'accordion-inventory')
+ */
+window.toggleNavAccordion = function(accordionId) {
+    const targetItem = document.getElementById(accordionId);
+    if (!targetItem) return;
 
-    // Actualizar nav
+    const content = targetItem.querySelector('.accordion-content');
+    const chevron = targetItem.querySelector('.chevron-icon');
+    const isExpanded = content && content.classList.contains('expanded');
+
+    // Comportamiento Acordeón: Cerrar otros acordeones
+    document.querySelectorAll('.accordion-item').forEach(item => {
+        if (item.id !== accordionId) {
+            const otherContent = item.querySelector('.accordion-content');
+            const otherChevron = item.querySelector('.chevron-icon');
+            if (otherContent) otherContent.classList.remove('expanded');
+            if (otherChevron) otherChevron.classList.remove('rotated');
+        }
+    });
+
+    // Alternar el actual
+    if (content && chevron) {
+        if (isExpanded) {
+            content.classList.remove('expanded');
+            chevron.classList.remove('rotated');
+        } else {
+            content.classList.add('expanded');
+            chevron.classList.add('rotated');
+        }
+    }
+};
+
+window.switchTab = function(tab, subTab = 'dashboard') {
+    state.tab = tab;
+    state.inventorySubTab = subTab;
+    sessionStorage.setItem('V_Tab', tab);
+    if (subTab) sessionStorage.setItem('V_SubTab', subTab);
+
+    // 1. Actualizar botones directos
     document.querySelectorAll('.nav-btn').forEach(btn => {
         const isActive = btn.id === `nav-${tab}`;
         btn.classList.toggle('bg-primary-container', isActive);
         btn.classList.toggle('text-white', isActive);
-        btn.classList.toggle('shadow-lg', isActive);
+        btn.classList.toggle('shadow-sm', isActive);
         btn.classList.toggle('text-on-surface-variant', !isActive);
         const icon = btn.querySelector('.material-symbols-outlined');
         if (icon) icon.style.fontVariationSettings = isActive ? "'FILL' 1" : "'FILL' 0";
     });
 
-    // Título
-    const titles = { dashboard: 'Resumen', orders: 'Órdenes', technicians: 'Técnicos', reports: 'Reportes', naps: 'NAPs', users: 'Cuentas', settings: 'Ajustes', prueba: 'Prueba', inventory: 'Inventario' };
+    // 2. Resaltar Contenedor Padre de Inventario
+    const invParentBtn = document.getElementById('nav-inventory-parent');
+    const invContent = document.getElementById('content-inventory');
+    const invChevron = document.getElementById('chevron-inventory');
+
+    if (invParentBtn) {
+        const isInvActive = tab === 'inventory';
+        invParentBtn.classList.toggle('bg-secondary/15', isInvActive);
+        invParentBtn.classList.toggle('text-secondary', isInvActive);
+        invParentBtn.classList.toggle('font-bold', isInvActive);
+
+        // Auto expandir el acordeón si estamos navegando a inventario
+        if (isInvActive && invContent && !invContent.classList.contains('expanded')) {
+            invContent.classList.add('expanded');
+            if (invChevron) invChevron.classList.add('rotated');
+        }
+    }
+
+    // 3. Resaltar Sub-Ítems del Acordeón
+    document.querySelectorAll('.subnav-btn').forEach(subBtn => {
+        const isSubActive = subBtn.id === `nav-sub-${tab}-${subTab}`;
+        subBtn.classList.toggle('bg-secondary', isSubActive);
+        subBtn.classList.toggle('text-white', isSubActive);
+        subBtn.classList.toggle('font-semibold', isSubActive);
+        subBtn.classList.toggle('shadow-sm', isSubActive);
+        subBtn.classList.toggle('text-on-surface-variant', !isSubActive);
+    });
+
+    // 4. Título Dinámico
+    const subTabTitles = {
+        dashboard: 'Dashboard',
+        bodegas: 'Bodegas',
+        catalog: 'Catálogo',
+        inbound: 'Ingreso Inbound',
+        traslados: 'Envíos / Traslados',
+        rma: 'Devoluciones RMA',
+        auditorias: 'Auditorías'
+    };
+    const titles = { 
+        dashboard: 'Resumen', 
+        technicians: 'Técnicos', 
+        naps: 'NAPs', 
+        users: 'Cuentas', 
+        settings: 'Ajustes', 
+        prueba: 'Mesa de Órdenes', 
+        inventory: `Inventario › ${subTabTitles[subTab] || 'Dashboard'}` 
+    };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
-    // Elegant section loader overlay
+    // 5. Section loader overlay
     window.showLoadingOverlay('Abriendo sección...');
     setTimeout(() => {
-        renderTab(tab);
+        renderTab(tab, subTab);
         window.hideLoadingOverlay();
-    }, 180);
+    }, 150);
 }
 
-function renderTab(tab) {
+/**
+ * Alterna el modo del sidebar entre expandido (texto + iconos) y colapsado (solo iconos estilo Wispro).
+ */
+window.toggleSidebarCollapse = function() {
+    const isCollapsed = document.body.classList.toggle('sidebar-collapsed');
+    localStorage.setItem('V_Sidebar_Collapsed', isCollapsed ? 'true' : 'false');
+};
+
+// Restaurar estado del sidebar al cargar
+if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', () => {
+        if (localStorage.getItem('V_Sidebar_Collapsed') === 'true') {
+            document.body.classList.add('sidebar-collapsed');
+        }
+    });
+}
+
+function renderTab(tab, subTab) {
     const el = document.getElementById('main-content');
     if (!el) return;
+
+    // ── INTEGRACIÓN DINÁMICA DE REACT (PUERTO 5173) PARA INVENTARIO ──
+    if (tab === 'inventory') {
+        const sub = subTab || 'dashboard';
+        const tabMap = {
+            'dashboard': 'dashboard',
+            'bodegas': 'warehouses',
+            'warehouses': 'warehouses',
+            'catalog': 'catalog',
+            'catalogo': 'catalog',
+            'inbound': 'inbound',
+            'ingreso': 'inbound',
+            'traslados': 'transfers',
+            'transfers': 'transfers',
+            'rma': 'rma',
+            'devoluciones': 'rma',
+            'auditorias': 'audit',
+            'audit': 'audit'
+        };
+        const canonicalTab = tabMap[sub] || sub;
+        const timestamp = Date.now();
+        const iframeSrc = `http://localhost:5173/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&t=${timestamp}`;
+        
+        let iframeContainer = document.getElementById('inventory-iframe-wrapper');
+        if (!iframeContainer) {
+            el.innerHTML = `
+                <div id="inventory-iframe-wrapper" class="w-full h-[calc(100vh-3.5rem)] m-0 p-0 overflow-hidden border-none bg-white">
+                    <iframe 
+                        id="inventory-react-iframe" 
+                        src="${iframeSrc}" 
+                        class="w-full h-full border-none m-0 p-0 bg-white" 
+                        allow="clipboard-read; clipboard-write;"
+                        title="Velocity ISP Inventory App"
+                    ></iframe>
+                </div>
+            `;
+        } else {
+            const iframe = document.getElementById('inventory-react-iframe');
+            if (iframe) {
+                try {
+                    // Envío postMessage para cambio de tab instantáneo (< 5ms) sin recargar la página entera
+                    iframe.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: canonicalTab }, '*');
+                } catch (e) {}
+            }
+        }
+        return;
+    }
 
     // Persistencia de foco y cursor
     const activeEl = document.activeElement;
@@ -345,7 +491,8 @@ function renderTab(tab) {
     const start = hasSelection ? activeEl.selectionStart : null;
     const end = hasSelection ? activeEl.selectionEnd : null;
 
-    el.innerHTML = Views[tab] ? Views[tab]() : '<p class="p-8 text-on-surface-variant">Vista no encontrada</p>';
+    const renderedHtml = Views[tab] ? Views[tab]() : '<p class="p-8 text-on-surface-variant">Vista no encontrada</p>';
+    el.innerHTML = `<div class="w-full max-w-[1600px] mx-auto px-4 sm:px-6 py-4">${renderedHtml}</div>`;
 
     // Restaurar foco
     if (activeId) {

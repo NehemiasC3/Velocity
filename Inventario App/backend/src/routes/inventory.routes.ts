@@ -1,8 +1,10 @@
 import { Router } from 'express';
-import { inventoryController } from '../controllers/inventory.controller';
+import { InventoryController } from '../controllers/inventory.controller';
 
 const router = Router();
 
-router.get('/inventory', inventoryController.getFullInventory);
+// Inbound Inventory (Alta de Stock Físico Transaccional)
+router.post('/inventory/inbound', InventoryController.inboundInventory);
+router.post('/inbound', InventoryController.inboundInventory);
 
 export default router;

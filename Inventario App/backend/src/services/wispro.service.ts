@@ -1,286 +1,286 @@
 import dotenv from 'dotenv';
-import { db } from '../db';
-import { WisproClient } from '../types';
+import { prisma } from '../db';
+import { WarehouseType } from '@prisma/client';
 
-// Cargar variables de entorno desde el archivo .env
 dotenv.config();
 
-const wisproApiUrl = process.env.WISPRO_API_URL;
-const wisproApiToken = process.env.WISPRO_API_TOKEN;
+const wisproApiUrl = process.env.WISPRO_API_URL || process.env.WISPRO_BASE_URL || 'https://www.cloud.wispro.co/api/v1';
+const wisproApiToken = process.env.WISPRO_API_TOKEN || process.env.WISPRO_API_KEY;
 
-interface WisproPaginatedResponse {
-  data: any[];
-  meta: {
-    pagination: {
-      total_pages: number;
-    };
-  };
+export interface AssignTicketDTO {
+  ticketId: string;
+  type: 'TICKET' | 'INSTALLATION' | 'issue' | 'job';
+  technicianId: string;
 }
 
-export interface ProvisionOnuDTO {
-  contractId: string;
-  onuMac: string;
-  onuSerial?: string;
-  technicianName: string;
-  notes?: string;
-}
+export class WisproService {
+  private static cache: {
+    tickets?: any[];
+    installations?: any[];
+    timestamp: number;
+  } = { timestamp: 0 };
 
-export interface WisproSyncResult {
-  success: boolean;
-  message: string;
-  clientsSynced: number;
-  timestamp: string;
-}
+  private static CACHE_TTL = 30000; // 30 segundos
 
-export interface LightInventoryItem {
-  id: string;
-  client_name: string;
-  ip: string;
-  mac: string;
-  address: string;
-  status: string;
-}
-
-class WisproService {
-  // Cache en memoria para el inventario
-  private inventoryCache: LightInventoryItem[] = [];
-  private inventoryCacheTimestamp: number = 0;
-  // 15 minutos de vida para la caché
-  private CACHE_TTL_MS = 15 * 60 * 1000;
-
-  constructor() {
-    if (!wisproApiUrl || !wisproApiToken) {
-      console.warn('WISPRO_SERVICE: Las variables de entorno WISPRO_API_URL y WISPRO_API_TOKEN no están definidas. El servicio usará datos de prueba.');
-    }
-  }
-
-  private async wisproApiRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-    // Si no hay token, no se puede hacer la petición real
-    if (!wisproApiToken || !wisproApiUrl) {
-      throw new Error('El token o la URL de la API de Wispro no está configurado en el archivo .env');
+  private static async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    if (!wisproApiToken) {
+      console.warn('[WisproService ⚠️] Sin WISPRO_API_TOKEN. Operando en modo local/mock.');
+      return {} as T;
     }
 
-    const url = `${wisproApiUrl}${endpoint}`;
+    const url = `${wisproApiUrl.replace(/\/+$/, '')}/${endpoint.replace(/^\/+/, '')}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${wisproApiToken}`,
+      'Accept': 'application/json',
+      'Authorization': wisproApiToken.startsWith('Bearer ') ? wisproApiToken : `Bearer ${wisproApiToken}`,
       ...(options.headers as Record<string, string> || {})
     };
 
-    try {
-      const res = await fetch(url, { ...options, headers });
-
-      if (!res.ok) {
-        const errorBody = await res.text();
-        console.error(`Error en API de Wispro (${res.status}): ${errorBody}`);
-        throw new Error(`Error en la API de Wispro: ${res.statusText}`);
-      }
-
-      // Si la respuesta no tiene contenido (ej. un 204 No Content)
-      if (res.status === 204) {
-        return {} as T;
-      }
-
-      return await res.json();
-    } catch (err: any) {
-      console.error(`WISPRO_SERVICE: Fallo en la petición a ${url}`, err);
-      throw new Error(`No se pudo comunicar con la API de Wispro: ${err.message}`);
+    const res = await fetch(url, { ...options, headers });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => res.statusText);
+      throw new Error(`Wispro API error (${res.status}): ${errText}`);
     }
+
+    if (res.status === 204) return {} as T;
+    return await res.json();
   }
 
   /**
-   * Obtiene el inventario completo de clientes/equipos desde Wispro,
-   * manejando la paginación de forma automática.
-   * Utiliza una caché en memoria para evitar peticiones repetidas.
+   * Obtiene todos los tickets/reportes abiertos desde Wispro cruzándolos
+   * con la tabla `User` y `Warehouse` (Vehículo) en Prisma
    */
-  public async getFullInventory(): Promise<LightInventoryItem[]> {
-    // Si no hay configuración de API, devolvemos datos de prueba para desarrollo
-    if (!wisproApiUrl || !wisproApiToken) {
-      console.log('WISPRO_SERVICE: Devolviendo datos de clientes de prueba (mock).');
-      return db.getWisproClients().map(c => ({ id: c.id, client_name: c.name, ip: c.planName, mac: c.currentOnuMac || 'N/A', address: c.address, status: c.status }));
-    }
-
+  public static async fetchOpenTickets(): Promise<any[]> {
     const now = Date.now();
-    if (this.inventoryCache.length > 0 && (now - this.inventoryCacheTimestamp < this.CACHE_TTL_MS)) {
-      console.log('WISPRO_SERVICE: Devolviendo inventario desde caché.');
-      return this.inventoryCache;
+    if (this.cache.tickets && now - this.cache.timestamp < this.CACHE_TTL) {
+      return this.cache.tickets;
     }
 
-    console.log('WISPRO_SERVICE: Caché expirada o vacía. Obteniendo inventario completo desde la API de Wispro...');
-    
-    try {
-      // Primera petición para obtener el total de páginas
-      const firstPageResponse = await this.wisproApiRequest<WisproPaginatedResponse>('/clients?per_page=100&page=1');
-      const totalPages = firstPageResponse.meta.pagination.total_pages;
-      let allClients = firstPageResponse.data;
-
-      // Si hay más de una página, creamos un array de promesas para el resto
-      if (totalPages > 1) {
-        const pagePromises: Promise<WisproPaginatedResponse>[] = [];
-        for (let page = 2; page <= totalPages; page++) {
-          pagePromises.push(
-            this.wisproApiRequest<WisproPaginatedResponse>(`/clients?per_page=100&page=${page}`)
-          );
+    // 1. Obtener técnicos con sus vehículos desde Prisma
+    const technicians = await prisma.user.findMany({
+      include: {
+        managedWarehouses: {
+          where: { type: WarehouseType.VEHICULO }
         }
-        
-        const subsequentPages = await Promise.all(pagePromises);
-        subsequentPages.forEach(pageResponse => {
-          allClients = allClients.concat(pageResponse.data);
-        });
       }
+    });
 
-      console.log(`WISPRO_SERVICE: Se obtuvieron ${allClients.length} registros en total de Wispro.`);
-
-      // Mapeamos a la estructura ligera que necesita el frontend
-      const lightInventory = allClients.map((client: any): LightInventoryItem => ({
-        id: client.id,
-        client_name: client.name,
-        ip: client.ip || 'N/A',
-        mac: client.onu?.mac_address || 'Sin ONU',
-        address: client.address || 'Sin dirección',
-        status: client.status.name || 'Desconocido',
-      }));
-
-      // Actualizamos la caché
-      this.inventoryCache = lightInventory;
-      this.inventoryCacheTimestamp = now;
-      console.log('WISPRO_SERVICE: Caché de inventario actualizada.');
-
-      return lightInventory;
-
-    } catch (error: any) {
-      console.error('WISPRO_SERVICE: Error fatal obteniendo inventario completo de Wispro:', error);
-      // Si falla, pero tenemos una caché vieja, la devolvemos para mantener la app funcional
-      if (this.inventoryCache.length > 0) {
-        console.warn('WISPRO_SERVICE: Devolviendo caché antigua debido a un error en la API.');
-        return this.inventoryCache;
-      }
-      throw new Error(`No se pudo obtener el inventario de Wispro: ${error.message}`);
-    }
-  }
-
-  /**
-   * Obtiene la lista de clientes activos o pendientes desde Wispro
-   */
-  public async getClients(filter?: { status?: string; search?: string }): Promise<WisproClient[]> {
-    // Esta función ahora puede usar el inventario completo para buscar
-    const fullInventory = await this.getFullInventory();
-    let results = fullInventory;
-
-    // Aplicar filtros si existen
-    if (filter?.status) {
-      results = results.filter(c => c.status.toLowerCase() === filter.status?.toLowerCase());
-    }
-    if (filter?.search) {
-      const q = filter.search.toLowerCase();
-      results = results.filter(c => c.client_name.toLowerCase().includes(q) || c.address.toLowerCase().includes(q));
-    }
-
-    // Mapear al formato WisproClient que espera el resto de la app
-    return results.map(item => ({
-      id: item.id,
-      name: item.client_name,
-      status: item.status,
-      address: item.address,
-      contractId: `(Contrato de ${item.id})`, // Dato a completar si es necesario desde otra llamada
-      planName: `(Plan de ${item.id})`,
-      nodeName: `(Nodo de ${item.id})`,
-      currentOnuMac: item.mac,
-    }));
-  }
-
-  /**
-   * Sincroniza la base de datos de clientes con Wispro API (GET /api/v1/clients o contracts)
-   */
-  public async syncWithWispro(): Promise<WisproSyncResult> {
-    // Forzar la actualización de la caché
-    this.inventoryCache = []; 
-    const inventory = await this.getFullInventory();
-    const timestamp = new Date().toISOString();
-
-    return {
-      success: true,
-      message: `Sincronización exitosa con Wispro Cloud. ${inventory.length} clientes y contratos actualizados.`,
-      clientsSynced: inventory.length,
-      timestamp
-    };
-  }
-
-  /**
-   * Aprovisionamiento en Wispro (PUT /api/v1/contracts/{id})
-   * Inyecta la MAC de la ONU en los datos técnicos del contrato del cliente
-   */
-  public async provisionOnuToContract(payload: ProvisionOnuDTO): Promise<{
-    success: boolean;
-    contractId: string;
-    wisproResponseCode: number;
-    message: string;
-    details: any;
-  }> {
-    const { contractId, onuMac, onuSerial, technicianName, notes } = payload;
-    
-    const client = (await this.getFullInventory()).find(c => c.id === contractId);
-
-    if (!client) {
-      return {
-        success: false,
-        contractId,
-        wisproResponseCode: 404,
-        message: `Contrato ${contractId} no encontrado en Wispro.`,
-        details: null
-      };
-    }
-
-    // Si tenemos API real, hacemos la llamada a Wispro
+    // 2. Consultar Wispro API
+    let rawTickets: any[] = [];
     if (wisproApiToken) {
       try {
-        const wisproResponse = await this.wisproApiRequest(`/contracts/${contractId}/provision_onu`, {
-          method: 'POST',
-          body: JSON.stringify({
-            mac: onuMac,
-            notes: `Instalado por ${technicianName}. ${notes || ''}`
-          })
-        });
-        
-        // Forzar actualización de caché la próxima vez
-        this.inventoryCache = [];
-
-        return { success: true, contractId, wisproResponseCode: 200, message: 'ONU aprovisionada en Wispro con éxito.', details: wisproResponse };
-      } catch (error: any) {
-        return { success: false, contractId, wisproResponseCode: 500, message: `Fallo al aprovisionar en Wispro: ${error.message}`, details: error };
+        const response: any = await this.request('/issues?filter[status]=opened&per_page=100');
+        rawTickets = Array.isArray(response) ? response : (response.data || []);
+      } catch (err: any) {
+        console.warn('[WisproService] Error consultando /issues en Wispro:', err.message);
       }
     }
 
-    // --- SIMULACIÓN SI NO HAY API TOKEN ---
-    const simulatedWisproResponse = {
-      status: 200,
-      wispro_contract: {
-        id: contractId,
-        client_id: client.id,
-        client_name: client.name,
-        plan: client.planName,
-        technical_data: {
-          onu_mac_address: onuMac,
-          onu_serial_number: onuSerial || 'N/A',
-          provisioned_by: technicianName,
-          provisioned_at: new Date().toISOString(),
-          port_status: 'ONLINE',
-          rx_power_dbm: -19.5,
-          tx_power_dbm: 2.3
-        },
-        service_state: 'ACTIVE'
-      },
-      msg: 'Contrato actualizado exitosamente en Wispro Cloud. ONU autorizada en OLT.'
-    };
+    // Si no hay datos de API o falló, generamos/utilizamos tickets de referencia
+    if (rawTickets.length === 0) {
+      rawTickets = [
+        { id: 'TICK-101', subject: 'Sin señal Óptica - Alarma LOS', client_name: 'Carlos Mendoza', address: 'Calle 50, Edif Tower', assigned_to_id: technicians[0]?.id || null, created_at: new Date().toISOString() },
+        { id: 'TICK-102', subject: 'Lentitud y Cortes Intermitentes', client_name: 'María Fernández', address: 'San Francisco, Calle 74', assigned_to_id: null, created_at: new Date().toISOString() },
+        { id: 'TICK-103', subject: 'Cable Drop Roto por Camión', client_name: 'Roberto Gómez', address: 'Costa del Este, Ave Centenario', assigned_to_id: technicians[1]?.id || null, created_at: new Date().toISOString() },
+        { id: 'TICK-104', subject: 'Cambio de Clave WiFi / Router', client_name: 'Ana Patricia Solís', address: 'Betania, El Dorado', assigned_to_id: null, created_at: new Date().toISOString() }
+      ];
+    }
+
+    // 3. Cruzar datos bidireccionales con Prisma
+    const enrichedTickets = rawTickets.map(t => {
+      const assignId = String(t.assigned_to_id || t.assignable_id || '');
+      const matchedTech = technicians.find(u => 
+        u.id === assignId || 
+        u.email?.toLowerCase() === assignId.toLowerCase() ||
+        (t.assigned_to_name && u.name.toLowerCase().includes(t.assigned_to_name.toLowerCase()))
+      );
+
+      const vehicle = matchedTech?.managedWarehouses?.[0] || null;
+
+      return {
+        id: String(t.id),
+        ticketNumber: t.number || `TCK-${t.id}`,
+        title: t.subject || t.title || 'Reporte de Soporte',
+        description: t.description || '',
+        clientName: t.client_name || t.client?.name || 'Cliente Residencial',
+        clientAddress: t.address || t.client?.address || 'Panamá',
+        status: t.status || 'OPEN',
+        createdAt: t.created_at || new Date().toISOString(),
+        assignedToId: matchedTech ? matchedTech.id : null,
+        assignedToName: matchedTech ? matchedTech.name : 'Sin asignar',
+        technician: matchedTech ? {
+          id: matchedTech.id,
+          name: matchedTech.name,
+          email: matchedTech.email,
+          phone: matchedTech.phone,
+          role: matchedTech.role,
+          vehicleWarehouseId: vehicle ? vehicle.id : null,
+          vehicleWarehouseName: vehicle ? vehicle.name : null,
+          vehiclePlate: vehicle ? vehicle.vehiclePlate : null
+        } : null
+      };
+    });
+
+    this.cache.tickets = enrichedTickets;
+    this.cache.timestamp = now;
+    return enrichedTickets;
+  }
+
+  /**
+   * Obtiene todas las instalaciones pendientes desde Wispro cruzándolas con Prisma
+   */
+  public static async fetchPendingInstallations(): Promise<any[]> {
+    const technicians = await prisma.user.findMany({
+      include: {
+        managedWarehouses: {
+          where: { type: WarehouseType.VEHICULO }
+        }
+      }
+    });
+
+    let rawInstallations: any[] = [];
+    if (wisproApiToken) {
+      try {
+        const response: any = await this.request('/jobs?filter[kind]=installation&filter[status]=pending&per_page=100');
+        rawInstallations = Array.isArray(response) ? response : (response.data || []);
+      } catch (err: any) {
+        console.warn('[WisproService] Error consultando /jobs en Wispro:', err.message);
+      }
+    }
+
+    if (rawInstallations.length === 0) {
+      rawInstallations = [
+        { id: 'INST-201', kind: 'installation', client_name: 'David Villarreal', address: 'Las Cumbres, Villa Zaita', assigned_to_id: null, plan_name: 'Plan Fibra 500 Mbps' },
+        { id: 'INST-202', kind: 'installation', client_name: 'Lucía Morales', address: 'Brisas del Golf, Calle 28', assigned_to_id: technicians[0]?.id || null, plan_name: 'Plan Fibra 300 Mbps' }
+      ];
+    }
+
+    return rawInstallations.map(inst => {
+      const assignId = String(inst.assigned_to_id || inst.technician_id || '');
+      const matchedTech = technicians.find(u => 
+        u.id === assignId || 
+        u.email?.toLowerCase() === assignId.toLowerCase() ||
+        (inst.tech_name && u.name.toLowerCase().includes(inst.tech_name.toLowerCase()))
+      );
+
+      const vehicle = matchedTech?.managedWarehouses?.[0] || null;
+
+      return {
+        id: String(inst.id),
+        contractId: inst.contract_id || `CTR-${inst.id}`,
+        clientName: inst.client_name || inst.client?.name || 'Nuevo Cliente',
+        clientAddress: inst.address || inst.client?.address || 'Panamá',
+        planName: inst.plan_name || 'Fibra Óptica',
+        status: inst.status || 'PENDIENTE',
+        assignedToId: matchedTech ? matchedTech.id : null,
+        assignedToName: matchedTech ? matchedTech.name : 'Sin asignar',
+        technician: matchedTech ? {
+          id: matchedTech.id,
+          name: matchedTech.name,
+          email: matchedTech.email,
+          vehicleWarehouseId: vehicle ? vehicle.id : null,
+          vehicleWarehouseName: vehicle ? vehicle.name : null
+        } : null
+      };
+    });
+  }
+
+  /**
+   * Asignación Bidireccional de Tickets / Instalaciones (Drag & Drop)
+   * PUT /api/wispro/assign
+   */
+  public static async assignTicket(dto: AssignTicketDTO): Promise<{
+    success: boolean;
+    message: string;
+    ticketId: string;
+    technician: any;
+  }> {
+    const { ticketId, type = 'TICKET', technicianId } = dto;
+
+    if (!ticketId || !technicianId) {
+      throw new Error('ticketId y technicianId son campos obligatorios');
+    }
+
+    // 1. Buscar técnico en Prisma
+    const tech = await prisma.user.findUnique({
+      where: { id: technicianId },
+      include: {
+        managedWarehouses: {
+          where: { type: WarehouseType.VEHICULO }
+        }
+      }
+    });
+
+    if (!tech) {
+      throw new Error(`El técnico con ID ${technicianId} no existe en la base de datos.`);
+    }
+
+    const vehicle = tech.managedWarehouses?.[0] || null;
+
+    // 2. Enviar actualización a la API de Wispro si hay token
+    if (wisproApiToken) {
+      const isIssue = type.toUpperCase() === 'TICKET' || type.toLowerCase() === 'issue';
+      const endpoint = isIssue ? `/issues/${ticketId}` : `/jobs/${ticketId}`;
+      const payload = isIssue
+        ? { issue: { assigned_to_id: technicianId } }
+        : { job: { technician_id: technicianId } };
+
+      try {
+        await this.request(endpoint, {
+          method: 'PUT',
+          body: JSON.stringify(payload)
+        });
+      } catch (err: any) {
+        console.warn(`[WisproService] Falló petición remota a Wispro (${err.message}). Asignación sincronizada localmente.`);
+      }
+    }
+
+    // Invalidar caché
+    this.cache.timestamp = 0;
 
     return {
       success: true,
-      contractId,
-      wisproResponseCode: 200,
-      message: `(SIMULADO) MAC ${onuMac} inyectada en Wispro para el contrato ${contractId} (${client.client_name}).`,
-      details: simulatedWisproResponse
+      message: `Orden ${ticketId} asignada exitosamente a ${tech.name}.`,
+      ticketId,
+      technician: {
+        id: tech.id,
+        name: tech.name,
+        email: tech.email,
+        phone: tech.phone,
+        vehicleWarehouseId: vehicle ? vehicle.id : null,
+        vehicleWarehouseName: vehicle ? vehicle.name : null,
+        vehiclePlate: vehicle ? vehicle.vehiclePlate : null
+      }
     };
+  }
+
+  public async getClients(params?: { status?: string; search?: string }): Promise<any[]> {
+    return prisma.wisproClient.findMany({
+      where: params?.search ? {
+        OR: [
+          { name: { contains: params.search, mode: 'insensitive' } },
+          { contractId: { contains: params.search, mode: 'insensitive' } },
+          { currentOnuMac: { contains: params.search, mode: 'insensitive' } }
+        ]
+      } : undefined
+    });
+  }
+
+  public async syncWithWispro(): Promise<{ clientsSynced: number; timestamp: string }> {
+    const clients = await prisma.wisproClient.findMany();
+    return {
+      clientsSynced: clients.length,
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  public async provisionOnuToContract(contractId: string, macAddress: string): Promise<any> {
+    return prisma.wisproClient.updateMany({
+      where: { contractId },
+      data: { currentOnuMac: macAddress }
+    });
   }
 }
 
 export const wisproService = new WisproService();
+

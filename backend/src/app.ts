@@ -64,8 +64,16 @@ export function createApp(): Application {
   app.use('/api', apiRouter);
 
   // Servir archivos estáticos del Core y Módulo de Inventario
-  const publicDir = path.join(__dirname, '../../public');
-  const inventoryDir = path.join(__dirname, '../../public/inventory');
+  const possiblePublicDirs = [
+    process.env.PUBLIC_DIR,
+    path.join(__dirname, '../public'),
+    path.join(__dirname, '../../public'),
+    '/usr/src/app/public',
+    '/public'
+  ].filter(Boolean) as string[];
+
+  const publicDir = possiblePublicDirs.find(d => fs.existsSync(d)) || path.join(__dirname, '../../public');
+  const inventoryDir = path.join(publicDir, 'inventory');
   const inventoryAltDir = path.join(__dirname, '../../Inventario App/frontend/dist');
 
   if (fs.existsSync(inventoryDir)) {

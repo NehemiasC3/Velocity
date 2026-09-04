@@ -4,37 +4,37 @@
 
 @layer base {
   body {
-    background-color: #0B0F19;
-    color: #F1F5F9;
+    background-color: #f8fafc;
+    color: #1e293b;
     font-family: 'Inter', system-ui, -apple-system, sans-serif;
   }
 }
 
-/* Custom modern scrollbar for table and containers */
+/* Custom clean modern scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #0d1322;
+  background: #f1f5f9;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27354f;
+  background: #cbd5e1;
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3b82f6;
+  background: #94a3b8;
 }
 
-/* Glow effects and animation utilities */
+/* Subtle border & glow utilities */
 .glow-effect {
-  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15);
+  box-shadow: 0 4px 20px -2px rgba(0, 89, 187, 0.08);
 }
 
 .glow-border {
-  border-color: rgba(99, 102, 241, 0.35);
-  box-shadow: 0 0 15px -3px rgba(99, 102, 241, 0.2);
+  border-color: rgba(0, 89, 187, 0.25);
+  box-shadow: 0 0 15px -3px rgba(0, 89, 187, 0.1);
 }

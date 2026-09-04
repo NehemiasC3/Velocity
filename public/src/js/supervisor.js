@@ -7550,8 +7550,19 @@ async function initApp() {
     loadInventoryData();
     loadDynamicClients();
 
+    // Soporte para apertura directa de pestañas mediante query params o hash (ej: /supervisor?tab=inventory&subTab=catalog)
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const qTab = urlParams.get('tab') || window.location.hash.replace('#', '');
+        const qSub = urlParams.get('subTab') || urlParams.get('sub') || '';
+        if (qTab) {
+            state.tab = qTab;
+            if (qSub) state.subTab = qSub;
+        }
+    } catch (e) {}
+
     // 3. Renderizar vista de inmediato para eliminar cualquier sensación de bloqueo
-    switchTab(state.tab);
+    switchTab(state.tab, state.subTab || 'dashboard');
 
     // 4. Mostrar indicador de sincronización ligero (se autocierra a los 1.2s como máximo)
     if (window.showLoadingOverlay) window.showLoadingOverlay('Sincronizando con Wispro...');

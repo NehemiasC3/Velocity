@@ -78,6 +78,18 @@ const AppContent: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
+  // Redirección centralizadora: Si el usuario abre /inventory/ directamente en la ventana principal,
+  // redirigir de inmediato al portal central /supervisor con la pestaña de inventario
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.self === window.top) {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('standalone') !== 'true') {
+        const requestedTab = params.get('tab') || 'dashboard';
+        window.location.replace(`/supervisor?tab=inventory&subTab=${encodeURIComponent(requestedTab)}`);
+      }
+    }
+  }, []);
+
   // Escuchar cambios de parámetros y mensajes postMessage desde el padre (supervisor.html)
   useEffect(() => {
     const handleUrlChange = () => {

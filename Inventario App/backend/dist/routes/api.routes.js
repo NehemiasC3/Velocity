@@ -9,11 +9,11 @@ const inventory_service_1 = require("../services/inventory.service");
 const wispro_service_1 = require("../services/wispro.service");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const inventory_routes_1 = __importDefault(require("./inventory.routes"));
-const warehouse_controller_1 = require("../controllers/warehouse.controller");
 const inventory_controller_1 = require("../controllers/inventory.controller");
 const transfer_controller_1 = require("../controllers/transfer.controller");
 const liquidation_controller_1 = require("../controllers/liquidation.controller");
 const search_controller_1 = require("../controllers/search.controller");
+const warehouse_routes_1 = __importDefault(require("./warehouse.routes"));
 const catalog_routes_1 = __importDefault(require("./catalog.routes"));
 const transfer_routes_1 = __importDefault(require("./transfer.routes"));
 const liquidation_routes_1 = __importDefault(require("./liquidation.routes"));
@@ -44,11 +44,7 @@ router.use('/catalog', catalog_routes_1.default);
 // ==========================================
 // 4. BODEGAS (HUB & SPOKE CON JERARQUÍA PRISMA)
 // ==========================================
-router.get('/warehouses', warehouse_controller_1.WarehouseController.getWarehouses);
-router.get('/warehouses/:id', warehouse_controller_1.WarehouseController.getWarehouseById);
-router.post('/warehouses', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRole)(['SUPERADMIN', 'ADMIN_BODEGA']), warehouse_controller_1.WarehouseController.createWarehouse);
-router.put('/warehouses/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRole)(['SUPERADMIN', 'ADMIN_BODEGA']), warehouse_controller_1.WarehouseController.updateWarehouse);
-router.delete('/warehouses/:id', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRole)(['SUPERADMIN', 'ADMIN_BODEGA']), warehouse_controller_1.WarehouseController.deleteWarehouse);
+router.use('/warehouses', warehouse_routes_1.default);
 // ==========================================
 // 5. INVENTARIO FÍSICO, INBOUND & STOCK
 // ==========================================

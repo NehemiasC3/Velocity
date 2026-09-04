@@ -9,6 +9,7 @@ import { InventoryController } from '../controllers/inventory.controller';
 import { TransferController } from '../controllers/transfer.controller';
 import { LiquidationController } from '../controllers/liquidation.controller';
 import { SearchController } from '../controllers/search.controller';
+import warehouseRoutes from './warehouse.routes';
 import catalogRoutes from './catalog.routes';
 import transferRoutes from './transfer.routes';
 import liquidationRoutes from './liquidation.routes';
@@ -45,11 +46,7 @@ router.use('/catalog', catalogRoutes);
 // ==========================================
 // 4. BODEGAS (HUB & SPOKE CON JERARQUÍA PRISMA)
 // ==========================================
-router.get('/warehouses', WarehouseController.getWarehouses);
-router.get('/warehouses/:id', WarehouseController.getWarehouseById);
-router.post('/warehouses', authMiddleware, requireRole(['SUPERADMIN', 'ADMIN_BODEGA']), WarehouseController.createWarehouse);
-router.put('/warehouses/:id', authMiddleware, requireRole(['SUPERADMIN', 'ADMIN_BODEGA']), WarehouseController.updateWarehouse);
-router.delete('/warehouses/:id', authMiddleware, requireRole(['SUPERADMIN', 'ADMIN_BODEGA']), WarehouseController.deleteWarehouse);
+router.use('/warehouses', warehouseRoutes);
 
 // ==========================================
 // 5. INVENTARIO FÍSICO, INBOUND & STOCK

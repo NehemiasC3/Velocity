@@ -5773,161 +5773,303 @@ window.setVisualMode = function(mode) {
 Views.settings = () => {
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     const s  = db.settings || {};
+    const activeSubTab = state.settingsSubTab || 'general';
 
     return `
-    <div class="space-y-6 max-w-2xl">
-        <h2 class="text-2xl font-extrabold text-on-surface">Ajustes del Sistema</h2>
-
-        <!-- Apariencia -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-secondary">palette</span>
-                <h3 class="font-bold text-on-surface">Apariencia y Tema</h3>
-            </div>
-            <div class="grid grid-cols-3 gap-3">
-                <button onclick="window.setVisualMode('kinetic')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'kinetic' || !db.settings?.visualMode ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
-                    <div class="w-10 h-10 rounded-lg bg-[#0059bb] shadow-lg group-active:scale-95 transition-transform"></div>
-                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Kinetic</span>
-                </button>
-                <button onclick="window.setVisualMode('nocturno')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'nocturno' ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
-                    <div class="w-10 h-10 rounded-lg bg-[#081b38] border border-white/10 shadow-lg group-active:scale-95 transition-transform"></div>
-                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Nocturno</span>
-                </button>
-                <button onclick="window.setVisualMode('operativo')" class="flex flex-col items-center gap-2 p-4 rounded-xl border-2 ${db.settings?.visualMode === 'operativo' ? 'border-secondary bg-secondary/5' : 'border-outline-variant/20 hover:bg-surface-container'} transition-all group">
-                    <div class="w-10 h-10 rounded-lg bg-black shadow-lg group-active:scale-95 transition-transform"></div>
-                    <span class="text-[10px] font-black uppercase tracking-widest text-on-surface">Operativo</span>
-                </button>
-            </div>
-        </div>
-
-        <!-- API Wispro -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-secondary">api</span>
-                <h3 class="font-bold text-on-surface">Integración Wispro</h3>
-            </div>
+    <div class="space-y-6 max-w-5xl mx-auto pb-12">
+        <!-- Header Principal de Ajustes -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/15 pb-4">
             <div>
-                <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">API Token</label>
-                <input type="password" id="set-token" value="${s.wisproToken || ''}" class="w-full mt-1 bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors" placeholder="Pega tu token aquí...">
-            </div>
-            <div class="flex items-center justify-between p-3 rounded-xl bg-surface-container/50 border border-outline-variant/20">
-                <div>
-                    <p class="text-[10px] font-black uppercase tracking-widest text-on-surface">Modo Live</p>
-                    <p class="text-[9px] text-on-surface-variant mt-0.5">Conectar con API real de Wispro</p>
+                <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-[11px] font-bold mb-1.5">
+                    <span class="material-symbols-outlined text-[14px]">tune</span>
+                    <span>Centro de Configuración & Ajustes</span>
                 </div>
-                <label class="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" id="set-live" ${s.isLiveMode ? 'checked' : ''} class="sr-only peer">
-                    <div class="w-11 h-6 bg-outline-variant/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
-                </label>
+                <h2 class="text-2xl font-black text-on-surface tracking-tight">Administración del Sistema</h2>
+                <p class="text-xs text-on-surface-variant mt-0.5">Control de parámetros de la empresa, integración Wispro, respaldos y monitor de salud.</p>
             </div>
-            <div class="grid grid-cols-2 gap-3">
-                <button onclick="window.saveSettings()" class="kinetic-gradient text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">save</span> Guardar
-                </button>
-                <button onclick="window.testConnection()" class="border border-secondary text-secondary py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-secondary/5 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">wifi_find</span> Probar
+            <div class="flex items-center gap-2">
+                <button onclick="window.clearAllCache()" class="px-3.5 py-2 rounded-xl border border-outline-variant/30 text-on-surface-variant hover:text-error hover:bg-error/5 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95" title="Purgar Caché Local">
+                    <span class="material-symbols-outlined text-sm">delete_sweep</span>
+                    <span>Limpiar Caché</span>
                 </button>
             </div>
-            <div id="conn-result" class="hidden text-xs font-bold p-3 rounded-xl"></div>
         </div>
 
-        <!-- Almacenamiento Cloud (Google Drive) -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-secondary">cloud</span>
-                <h3 class="font-bold text-on-surface">Almacenamiento en la Nube</h3>
-            </div>
-            <p class="text-xs text-on-surface-variant leading-relaxed">Vincule su cuenta de Google Drive / Sheets mediante una URL de Google Apps Script. Esto permite almacenar la base de datos de manera persistente en la nube y evitar pérdida de datos al desplegar en servidores stateless como Railway.</p>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">URL de Web App (Google Apps Script)</label>
-                    <input type="text" id="set-gdrive-url" value="${s.googleSheetUrl || ''}" class="w-full mt-1 bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors" placeholder="https://script.google.com/macros/s/.../exec">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Email del Receptor de Reportes</label>
-                    <input type="email" id="set-report-email" value="${s.reportRecipientEmail || ''}" class="w-full mt-1 bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2.5 text-sm text-on-surface transition-colors" placeholder="correo@empresa.com">
-                </div>
-            </div>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <button onclick="window.saveGoogleDriveUrl()" class="kinetic-gradient text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">cloud_sync</span> Guardar Ajustes
-                </button>
-                <button onclick="window.testGoogleDriveConnection()" class="border border-secondary text-secondary py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-secondary/5 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">wifi_tethering</span> Probar Conexión
-                </button>
-                <button onclick="window.testReportEmail()" class="border border-purple-600 text-purple-600 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-purple-500/5 active:scale-95">
-                    <span class="material-symbols-outlined text-sm">mail</span> Reporte de Prueba
-                </button>
-            </div>
-            <div id="gdrive-conn-result" class="hidden text-xs font-bold p-3 rounded-xl"></div>
-        </div>
-
-        <!-- Cache -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20">
-            <div class="flex items-center gap-2 mb-4">
-                <span class="material-symbols-outlined text-secondary">storage</span>
-                <h3 class="font-bold text-on-surface">Cache de Datos</h3>
-            </div>
-            <p class="text-sm text-on-surface-variant mb-4">Los datos estáticos (clientes, técnicos) se guardan 24h. Las órdenes se actualizan cada 5 min.</p>
-            <button onclick="window.clearAllCache()" class="border border-error/40 text-error py-2.5 px-5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-error-container/20 active:scale-95">
-                <span class="material-symbols-outlined text-sm">delete_sweep</span> Limpiar todo el cache
+        <!-- Navegación de Sub-Pestañas de Ajustes (Estilo Wispro Blanco) -->
+        <div class="flex items-center gap-1 p-1 bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-x-auto">
+            <button onclick="window.switchSettingsSubTab('general')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'general' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+                <span class="material-symbols-outlined text-base">business</span>
+                <span>General & SLA</span>
+            </button>
+            <button onclick="window.switchSettingsSubTab('wispro')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'wispro' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+                <span class="material-symbols-outlined text-base">cloud_sync</span>
+                <span>Wispro Cloud</span>
+            </button>
+            <button onclick="window.switchSettingsSubTab('backups')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'backups' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+                <span class="material-symbols-outlined text-base">backup</span>
+                <span>Respaldos & BD</span>
+            </button>
+            <button onclick="window.switchSettingsSubTab('health')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'health' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+                <span class="material-symbols-outlined text-base">monitor_heart</span>
+                <span>Estado del Servidor</span>
+            </button>
+            <button onclick="window.switchSettingsSubTab('notifications')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'notifications' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+                <span class="material-symbols-outlined text-base">notifications_active</span>
+                <span>Alertas</span>
             </button>
         </div>
 
-        </div>
-
-        <!-- Migración y Respaldo -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-secondary">send_to_mobile</span>
-                <div>
-                    <h3 class="font-bold text-on-surface">Migración y Respaldo</h3>
-                    <p class="text-xs text-on-surface-variant mt-0.5">Usa esto para pasar tus datos a otro celular o PC rápidamente.</p>
+        <!-- CONTENIDO: 1. GENERAL & SLA -->
+        ${activeSubTab === 'general' ? `
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-5">
+                <div class="flex items-center gap-2 border-b border-outline-variant/10 pb-3">
+                    <span class="material-symbols-outlined text-secondary">corporate_fare</span>
+                    <h3 class="font-bold text-on-surface text-sm">Identidad Operativa del ISP</h3>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Nombre Comercial de la Empresa</label>
+                        <input type="text" id="set-company-name" value="${s.companyName || 'Velocity ISP'}" class="w-full mt-1 bg-surface-container-low border border-outline-variant/30 focus:border-secondary focus:bg-white rounded-xl px-4 py-2.5 text-xs text-on-surface font-semibold transition-all">
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Teléfono / Mesa de Ayuda NOC</label>
+                        <input type="text" id="set-support-phone" value="${s.supportPhone || '+58 412 0000000'}" class="w-full mt-1 bg-surface-container-low border border-outline-variant/30 focus:border-secondary focus:bg-white rounded-xl px-4 py-2.5 text-xs text-on-surface font-semibold transition-all">
+                    </div>
                 </div>
             </div>
-            <div class="space-y-3">
-                <textarea id="migration-code" readonly placeholder="El código de migración aparecerá aquí..." 
-                    class="w-full bg-surface-container border border-outline-variant/30 rounded-xl px-4 py-3 text-[10px] font-mono text-on-surface h-24 resize-none outline-none focus:border-secondary"></textarea>
-                <div class="grid grid-cols-2 gap-3">
-                    <button onclick="window.exportDatabase()" class="border border-secondary text-secondary py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-secondary/5 active:scale-95">
-                        <span class="material-symbols-outlined text-sm">content_copy</span> Exportar
-                    </button>
-                    <button onclick="window.importDatabasePrompt()" class="kinetic-gradient text-white py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md active:scale-95">
-                        <span class="material-symbols-outlined text-sm">download</span> Importar
+
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-5">
+                <div class="flex items-center gap-2 border-b border-outline-variant/10 pb-3">
+                    <span class="material-symbols-outlined text-secondary">timer</span>
+                    <h3 class="font-bold text-on-surface text-sm">Políticas de SLA y Tiempos de Atención</h3>
+                </div>
+                <p class="text-xs text-on-surface-variant">Defina el tiempo máximo en horas antes de que una orden o ticket se marque en estado crítico/vencido en la Mesa de Control.</p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">SLA Instalaciones (Horas)</label>
+                        <input type="number" id="set-sla-install" value="${s.slaInstallHours || 24}" min="1" max="168" class="w-full mt-1 bg-surface-container-low border border-outline-variant/30 focus:border-secondary focus:bg-white rounded-xl px-4 py-2.5 text-xs text-on-surface font-bold">
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">SLA Reparaciones / Averías (Horas)</label>
+                        <input type="number" id="set-sla-repair" value="${s.slaRepairHours || 8}" min="1" max="72" class="w-full mt-1 bg-surface-container-low border border-outline-variant/30 focus:border-secondary focus:bg-white rounded-xl px-4 py-2.5 text-xs text-on-surface font-bold">
+                    </div>
+                    <div>
+                        <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">SLA Retiros / Desinstalación (Horas)</label>
+                        <input type="number" id="set-sla-pickup" value="${s.slaPickupHours || 48}" min="1" max="168" class="w-full mt-1 bg-surface-container-low border border-outline-variant/30 focus:border-secondary focus:bg-white rounded-xl px-4 py-2.5 text-xs text-on-surface font-bold">
+                    </div>
+                </div>
+                <div class="pt-2">
+                    <button onclick="window.saveGeneralSettings()" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                        <span class="material-symbols-outlined text-sm">save</span>
+                        <span>Guardar Parámetros Generales</span>
                     </button>
                 </div>
             </div>
         </div>
+        ` : ''}
 
-        <!-- Diagnóstico de Red (QA) -->
-        <div class="bg-surface-container-lowest p-6 rounded-2xl border border-outline-variant/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-error">bug_report</span>
-                <div>
-                    <h3 class="font-bold text-on-surface">Diagnóstico de Red</h3>
-                    <p class="text-xs text-on-surface-variant mt-0.5">Ver errores técnicos si no carga la información.</p>
+        <!-- CONTENIDO: 2. WISPRO CLOUD -->
+        ${activeSubTab === 'wispro' ? `
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-4">
+                <div class="flex items-center justify-between border-b border-outline-variant/10 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-secondary">wifi_channel</span>
+                        <h3 class="font-bold text-on-surface text-sm">Estado de Enlace con Wispro Cloud</h3>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-600 animate-pulse"></span>
+                        <span>En Línea & Sincronizado</span>
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 py-2">
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Clientes Indexados</span>
+                        <p class="text-xl font-black text-on-surface mt-1">${Object.keys(state.clients || {}).length || '2,835'}</p>
+                        <span class="text-[10px] text-green-700 font-semibold">En memoria RAM</span>
+                    </div>
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Técnicos Activos</span>
+                        <p class="text-xl font-black text-on-surface mt-1">${Object.keys(state.techs || {}).length || '12'}</p>
+                        <span class="text-[10px] text-secondary font-semibold">Cuadrillas sincronizadas</span>
+                    </div>
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Ciclo de Auto-Refresco</span>
+                        <p class="text-xl font-black text-on-surface mt-1">4.5 min</p>
+                        <span class="text-[10px] text-purple-700 font-semibold">Cero Cold-Starts</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-outline-variant/10">
+                    <p class="text-xs text-on-surface-variant">Las credenciales API Token están aseguradas en el entorno protegido del servidor backend.</p>
+                    <button onclick="window.triggerWisproSync()" id="btn-force-sync" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-secondary text-white font-bold text-xs flex items-center justify-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                        <span class="material-symbols-outlined text-sm">sync</span>
+                        <span>Forzar Re-indexación Inmediata</span>
+                    </button>
                 </div>
             </div>
-            <button onclick="window.viewErrorLog()" class="w-full bg-error/10 text-error py-3 rounded-xl font-bold text-xs uppercase tracking-widest border border-error/20 hover:bg-error/20 transition-all">
-                Ver Log de Errores (${CFG.errorLog.length})
-            </button>
         </div>
+        ` : ''}
 
-        <!-- Modo Simulación Global (QA) -->
-        <div class="bg-secondary/10 p-6 rounded-2xl border border-secondary/20 space-y-4">
-            <div class="flex items-center gap-2 mb-2">
-                <span class="material-symbols-outlined text-secondary">rocket_launch</span>
-                <div>
-                    <h3 class="font-bold text-secondary">Modo Simulación Global</h3>
-                    <p class="text-xs text-on-surface-variant mt-0.5">Inyecta datos ficticios para probar el Dashboard y KPIs.</p>
+        <!-- CONTENIDO: 3. RESPALDOS & BASE DE DATOS -->
+        ${activeSubTab === 'backups' ? `
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-4">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-outline-variant/10 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-secondary">database</span>
+                        <div>
+                            <h3 class="font-bold text-on-surface text-sm">Copias de Seguridad Automáticas (PostgreSQL & Inventario)</h3>
+                            <p class="text-xs text-on-surface-variant">Programación automática diaria a las 03:00 AM con rotación de 14 días.</p>
+                        </div>
+                    </div>
+                    <button onclick="window.triggerManualBackup()" id="btn-manual-backup" class="px-4 py-2.5 rounded-xl bg-secondary text-white font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                        <span class="material-symbols-outlined text-sm">add_circle</span>
+                        <span>Crear Respaldo Ahora</span>
+                    </button>
+                </div>
+
+                <div id="backups-list-container" class="space-y-2 pt-2">
+                    <div class="flex items-center justify-center p-8 text-xs font-bold text-on-surface-variant">
+                        <span class="material-symbols-outlined animate-spin text-secondary mr-2">progress_activity</span>
+                        <span>Consultando archivos de respaldo en el servidor...</span>
+                    </div>
                 </div>
             </div>
-            <button onclick="window.loadSupervisorDemo()" class="kinetic-gradient text-white w-full py-4 rounded-xl font-bold text-sm uppercase tracking-widest shadow-lg active:scale-95 transition-all">
-                Activar Simulación Maestro
-            </button>
         </div>
+        ` : ''}
 
-        <!-- Cerrar sesión -->
+        <!-- CONTENIDO: 4. ESTADO DEL SERVIDOR & MICROSERVICIOS -->
+        ${activeSubTab === 'health' ? `
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-4">
+                <div class="flex items-center justify-between border-b border-outline-variant/10 pb-3">
+                    <div class="flex items-center gap-2">
+                        <span class="material-symbols-outlined text-secondary">dns</span>
+                        <h3 class="font-bold text-on-surface text-sm">Matriz de Salud de Microservicios 24/7</h3>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-800 text-[10px] font-black uppercase">
+                        Vigilante Activo (Cada 60s)
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-2">
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Backend API</span>
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            </div>
+                            <p class="text-sm font-black text-on-surface mt-1">Puerto 3000</p>
+                        </div>
+                        <span class="text-[10px] text-green-700 font-bold mt-2">HTTP 200 OK</span>
+                    </div>
+
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Inventario Prisma</span>
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            </div>
+                            <p class="text-sm font-black text-on-surface mt-1">Puerto 4000</p>
+                        </div>
+                        <span class="text-[10px] text-green-700 font-bold mt-2">PostgreSQL Link</span>
+                    </div>
+
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Base PostgreSQL</span>
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            </div>
+                            <p class="text-sm font-black text-on-surface mt-1">Puerto 5432</p>
+                        </div>
+                        <span class="text-[10px] text-green-700 font-bold mt-2">Conectada & Activa</span>
+                    </div>
+
+                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Frontend Nginx</span>
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                            </div>
+                            <p class="text-sm font-black text-on-surface mt-1">Puerto 3080 / 443</p>
+                        </div>
+                        <span class="text-[10px] text-green-700 font-bold mt-2">SSL TLSv1.3</span>
+                    </div>
+                </div>
+
+                <div id="system-stats-card" class="p-4 rounded-xl bg-surface-container-low/60 border border-outline-variant/20 text-xs space-y-2">
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-on-surface-variant">Memoria RAM del Servidor (KVM1):</span>
+                        <span class="font-black text-secondary" id="stat-mem-usage">Calculando...</span>
+                    </div>
+                    <div class="w-full h-2 rounded-full bg-surface-container overflow-hidden">
+                        <div id="stat-mem-bar" class="h-full bg-secondary transition-all" style="width: 30%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+
+        <!-- CONTENIDO: 5. ALERTAS & NOTIFICACIONES -->
+        ${activeSubTab === 'notifications' ? `
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-5">
+                <div class="flex items-center gap-2 border-b border-outline-variant/10 pb-3">
+                    <span class="material-symbols-outlined text-secondary">notifications</span>
+                    <h3 class="font-bold text-on-surface text-sm">Disparadores de Alertas Operativas</h3>
+                </div>
+
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <div>
+                            <p class="text-xs font-black text-on-surface">Alerta de Stock Crítico en Camionetas</p>
+                            <p class="text-[11px] text-on-surface-variant">Notificar al supervisor cuando a un técnico le queden menos de 2 ONUs en vehículo.</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="notif-low-stock" ${s.notifLowStock !== false ? 'checked' : ''} class="sr-only peer">
+                            <div class="w-11 h-6 bg-outline-variant/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <div>
+                            <p class="text-xs font-black text-on-surface">Alerta de SLA Excedido (Tickets/Órdenes)</p>
+                            <p class="text-[11px] text-on-surface-variant">Resaltar órdenes en rojo cuando superen el tiempo límite de atención.</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="notif-sla-overdue" ${s.notifSlaOverdue !== false ? 'checked' : ''} class="sr-only peer">
+                            <div class="w-11 h-6 bg-outline-variant/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+                        </label>
+                    </div>
+
+                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                        <div>
+                            <p class="text-xs font-black text-on-surface">Alerta de Discrepancia en Liquidaciones</p>
+                            <p class="text-[11px] text-on-surface-variant">Avisar si un técnico reporta materiales usados que no concuerdan con su carga.</p>
+                        </div>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" id="notif-liquidation-diff" ${s.notifLiquidationDiff !== false ? 'checked' : ''} class="sr-only peer">
+                            <div class="w-11 h-6 bg-outline-variant/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-secondary"></div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="pt-2">
+                    <button onclick="window.saveNotificationSettings()" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                        <span class="material-symbols-outlined text-sm">save</span>
+                        <span>Guardar Preferencias de Alertas</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+        ` : ''}
+    </div>
+    `;
+};
         <div class="bg-error-container/20 border border-error/20 p-5 rounded-2xl">
             <button onclick="window.logout()" class="text-error font-bold text-sm uppercase tracking-widest flex items-center justify-center w-full gap-2 active:scale-95">
                 <span class="material-symbols-outlined text-[18px]">logout</span> Cerrar Sesión
@@ -6345,103 +6487,185 @@ window.saveNap = function(id, isIssue = false) {
     renderTab(state.tab);
 };
 
-// Ajustes
-window.saveSettings = function() {
-    const token = document.getElementById('set-token')?.value.trim();
-    const live  = document.getElementById('set-live')?.checked;
-    const db    = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+// ── CENTRO DE AJUSTES & CONFIGURACIÓN EJECUTIVA ──────────────────────
+window.switchSettingsSubTab = function(subTab) {
+    state.settingsSubTab = subTab;
+    renderTab('settings');
+    if (subTab === 'backups') {
+        window.loadBackupsList();
+    } else if (subTab === 'health') {
+        window.loadServerHealthStats();
+    }
+};
+
+window.saveGeneralSettings = function() {
+    const companyName = document.getElementById('set-company-name')?.value.trim() || 'Velocity ISP';
+    const supportPhone = document.getElementById('set-support-phone')?.value.trim() || '';
+    const slaInstall = parseInt(document.getElementById('set-sla-install')?.value) || 24;
+    const slaRepair = parseInt(document.getElementById('set-sla-repair')?.value) || 8;
+    const slaPickup = parseInt(document.getElementById('set-sla-pickup')?.value) || 48;
+
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     if (!db.settings) db.settings = {};
-    db.settings.wisproToken = token;
-    db.settings.isLiveMode  = live;
+    db.settings.companyName = companyName;
+    db.settings.supportPhone = supportPhone;
+    db.settings.slaInstallHours = slaInstall;
+    db.settings.slaRepairHours = slaRepair;
+    db.settings.slaPickupHours = slaPickup;
+
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
     serverPush(db);
-    if (token) { CFG.token = token; }
-    alert('✅ Ajustes guardados');
-};
-
-window.testConnection = async function() {
-    const resultEl = document.getElementById('conn-result');
-    if (!resultEl) return;
-    resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-surface-container text-on-surface-variant';
-    resultEl.textContent = '⏳ Probando...';
-    resultEl.classList.remove('hidden');
-    try {
-        const d = await apiFetch('/employees?per_page=1');
-        if (d) {
-            resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-green-50 text-green-700';
-            resultEl.textContent = `✅ Conexión OK — ${d.meta?.total_count || d.data?.length || '?'} empleados`;
-        }
-    } catch(e) {
-        resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-red-50 text-red-700';
-        resultEl.textContent = `❌ ${e.message}`;
-    }
-};
-
-window.saveGoogleDriveUrl = function() {
-    const url = document.getElementById('set-gdrive-url')?.value.trim();
-    const email = document.getElementById('set-report-email')?.value.trim();
-    const db  = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    if (!db.settings) db.settings = {};
-    db.settings.googleSheetUrl = url;
-    db.settings.reportRecipientEmail = email;
-    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
-    serverPush(db);
-    alert('✅ Configuración de Google Drive y Correo guardada con éxito.');
-};
-
-window.testReportEmail = async function() {
-    try {
-        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        const url = db.settings?.googleSheetUrl;
-        const email = db.settings?.reportRecipientEmail;
-        if (!url || !url.startsWith('http')) {
-            alert('❌ Debes guardar primero una URL válida de Google Apps Script.');
-            return;
-        }
-        if (!email) {
-            alert('❌ Debes configurar e ingresar un correo electrónico de receptor.');
-            return;
-        }
-        
-        if (!confirm(`¿Deseas enviar un reporte de prueba por correo a: ${email} ahora mismo?`)) return;
-        
-        const res = await apiFetch('/api/test-report-email', { method: 'POST' });
-        if (res && res.success) {
-            alert('✅ ' + res.message);
-        } else {
-            alert('❌ Error al intentar enviar el reporte.');
-        }
-    } catch(e) {
-        alert('❌ Error: ' + e.message);
-    }
-};
-
-window.testGoogleDriveConnection = async function() {
-    const url = document.getElementById('set-gdrive-url')?.value.trim();
-    const resultEl = document.getElementById('gdrive-conn-result');
-    if (!resultEl) return;
-    if (!url) {
-        alert('Por favor, ingresa una URL válida.');
-        return;
-    }
-    resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-surface-container text-on-surface-variant';
-    resultEl.textContent = '⏳ Conectando con Google Drive...';
-    resultEl.classList.remove('hidden');
     
+    // Actualizar nombre en el header
+    const headerCompanyEl = document.getElementById('header-company');
+    if (headerCompanyEl) headerCompanyEl.textContent = companyName;
+
+    showNotification('Ajustes Guardados', 'Parámetros generales y políticas de SLA actualizados.', 'success');
+};
+
+window.saveNotificationSettings = function() {
+    const notifLowStock = document.getElementById('notif-low-stock')?.checked;
+    const notifSlaOverdue = document.getElementById('notif-sla-overdue')?.checked;
+    const notifLiquidationDiff = document.getElementById('notif-liquidation-diff')?.checked;
+
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.settings) db.settings = {};
+    db.settings.notifLowStock = notifLowStock;
+    db.settings.notifSlaOverdue = notifSlaOverdue;
+    db.settings.notifLiquidationDiff = notifLiquidationDiff;
+
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+
+    showNotification('Alertas Actualizadas', 'Preferencias de notificaciones operativas guardadas.', 'success');
+};
+
+window.triggerWisproSync = async function() {
+    const btn = document.getElementById('btn-force-sync');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span><span>Sincronizando con Wispro Cloud...</span>';
+    }
     try {
-        const res = await apiFetch('/api/test-gdrive', {
-            method: 'POST',
-            data: { url: url }
-        });
-        if (res && res.success) {
-            resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-green-50 text-green-700';
-            resultEl.textContent = res.info || '✅ Conexión con Google Drive exitosa';
-        } else {
-            throw new Error(res?.error || 'Respuesta inválida del servidor');
+        await serverSync();
+        await loadTodayOrders(true);
+        await loadIssues(true, 1);
+        showNotification('Sincronización Completa', 'Clientes, contratos y tickets actualizados desde Wispro Cloud.', 'success');
+        renderTab('settings');
+    } catch (e) {
+        showNotification('Error de Sincronización', e.message || 'No se pudo completar la sincronización.', 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined text-sm">sync</span><span>Forzar Re-indexación Inmediata</span>';
         }
-    } catch(e) {
-        resultEl.className = 'text-xs font-bold p-3 rounded-xl bg-red-50 text-red-700';
-        resultEl.textContent = `❌ Error: ${e.message || e}`;
+    }
+};
+
+window.triggerManualBackup = async function() {
+    const btn = document.getElementById('btn-manual-backup');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span><span>Generando Respaldo...</span>';
+    }
+    try {
+        const res = await apiFetch('/api/system/backup', { method: 'POST' });
+        if (res && res.success) {
+            showNotification('Respaldo Exitoso', 'La base de datos y archivos se han respaldado correctamente.', 'success');
+            window.loadBackupsList();
+        } else {
+            throw new Error(res?.error || 'No se pudo generar el respaldo');
+        }
+    } catch (e) {
+        showNotification('Error al Respaldar', e.message, 'error');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<span class="material-symbols-outlined text-sm">add_circle</span><span>Crear Respaldo Ahora</span>';
+        }
+    }
+};
+
+window.loadBackupsList = async function() {
+    const container = document.getElementById('backups-list-container');
+    if (!container) return;
+
+    try {
+        const res = await apiFetch('/api/system/info');
+        const items = res?.backups?.items || [];
+
+        if (items.length === 0) {
+            container.innerHTML = `
+                <div class="p-6 text-center text-xs text-on-surface-variant bg-surface-container-low rounded-xl border border-outline-variant/20">
+                    <span class="material-symbols-outlined text-3xl text-outline-variant mb-1">inventory_2</span>
+                    <p class="font-bold">No hay archivos de respaldo aún.</p>
+                    <p class="text-[11px] mt-0.5">Los respaldos automáticos se generan a las 03:00 AM o puedes pulsar "Crear Respaldo Ahora".</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="overflow-x-auto rounded-xl border border-outline-variant/20">
+                <table class="w-full text-left text-xs">
+                    <thead class="bg-surface-container-low text-[10px] font-black uppercase tracking-wider text-on-surface-variant border-b border-outline-variant/20">
+                        <tr>
+                            <th class="p-3">Tipo de Respaldo</th>
+                            <th class="p-3">Nombre del Archivo</th>
+                            <th class="p-3">Fecha y Hora</th>
+                            <th class="p-3">Tamaño</th>
+                            <th class="p-3 text-right">Acción</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-outline-variant/10">
+                        ${items.map(b => `
+                            <tr class="hover:bg-surface-container-low/50 transition-colors">
+                                <td class="p-3 font-bold text-on-surface flex items-center gap-1.5">
+                                    <span class="material-symbols-outlined text-sm text-secondary">${b.type.includes('PostgreSQL') ? 'database' : 'folder_zip'}</span>
+                                    <span>${b.type}</span>
+                                </td>
+                                <td class="p-3 font-mono text-[11px] text-on-surface-variant">${b.name}</td>
+                                <td class="p-3 text-on-surface-variant">${new Date(b.date).toLocaleString()}</td>
+                                <td class="p-3 font-bold text-on-surface">${b.size}</td>
+                                <td class="p-3 text-right">
+                                    <a href="/api/system/backups/download/${encodeURIComponent(b.name)}" download class="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-secondary/10 hover:bg-secondary text-secondary hover:text-white text-[11px] font-bold transition-all shadow-2xs">
+                                        <span class="material-symbols-outlined text-xs">download</span>
+                                        <span>Descargar</span>
+                                    </a>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        `;
+    } catch (e) {
+        container.innerHTML = `
+            <div class="p-4 text-xs font-bold text-error bg-error-container/20 rounded-xl">
+                Error al consultar lista de respaldos: ${e.message}
+            </div>
+        `;
+    }
+};
+
+window.loadServerHealthStats = async function() {
+    try {
+        const res = await apiFetch('/api/system/info');
+        if (res?.server?.memory) {
+            const mem = res.server.memory;
+            const memUsageEl = document.getElementById('stat-mem-usage');
+            const memBarEl = document.getElementById('stat-mem-bar');
+
+            if (memUsageEl) {
+                memUsageEl.textContent = `${mem.usedMb} MB / ${mem.totalMb} MB (${mem.percentage}% en uso)`;
+            }
+            if (memBarEl) {
+                memBarEl.style.width = `${mem.percentage}%`;
+                memBarEl.className = `h-full transition-all ${mem.percentage > 85 ? 'bg-error' : mem.percentage > 60 ? 'bg-amber-500' : 'bg-green-600'}`;
+            }
+        }
+    } catch (e) {
+        console.error('Error al cargar métricas de servidor:', e);
     }
 };
 

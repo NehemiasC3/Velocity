@@ -49,6 +49,8 @@ services:
       - ./data:/usr/src/app/data
       - ./public:/usr/src/app/public
       - ./public:/public
+      - ./backups:/opt/velocity/backups
+      - ./backups:/usr/src/app/backups
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
       interval: 15s

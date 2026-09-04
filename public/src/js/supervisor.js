@@ -6067,15 +6067,20 @@ Views.settings = () => {
             </div>
         </div>
         ` : ''}
-    </div>
-    `;
-};
-        <div class="bg-error-container/20 border border-error/20 p-5 rounded-2xl">
-            <button onclick="window.logout()" class="text-error font-bold text-sm uppercase tracking-widest flex items-center justify-center w-full gap-2 active:scale-95">
-                <span class="material-symbols-outlined text-[18px]">logout</span> Cerrar Sesión
+
+        <!-- Cerrar Sesión del Supervisor -->
+        <div class="bg-red-50/50 border border-error/20 p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div>
+                <p class="text-xs font-black text-error">Finalizar Sesión Operativa</p>
+                <p class="text-[11px] text-on-surface-variant">Cierra la sesión actual de forma segura en este navegador.</p>
+            </div>
+            <button onclick="window.logout()" class="px-5 py-2.5 rounded-xl bg-error text-white font-bold text-xs flex items-center gap-1.5 hover:bg-error/90 active:scale-95 transition-all shadow-2xs">
+                <span class="material-symbols-outlined text-[16px]">logout</span>
+                <span>Cerrar Sesión</span>
             </button>
         </div>
-    </div>`;
+    </div>
+    `;
 };
 
 // ── ACCIONES ──────────────────────────────────────────────────────────────

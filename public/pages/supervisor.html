@@ -859,8 +859,8 @@
                     Cancelar
                 </button>
                 <div class="w-px bg-gray-100"></div>
-                <button onclick="sessionStorage.clear(); window.location.href='login.html';"
-                    class="flex-1 py-4 text-sm font-bold text-error hover:bg-red-50 transition-colors">
+                <button onclick="sessionStorage.clear(); localStorage.clear(); window.location.href='/login';"
+                    class="flex-1 py-4 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors">
                     Cerrar sesión
                 </button>
             </div>

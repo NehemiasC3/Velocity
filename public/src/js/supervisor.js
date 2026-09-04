@@ -7495,8 +7495,8 @@ window.deleteInactiveUsers = function() {
 // ── INIT ──────────────────────────────────────────────────────────────────
 async function initApp() {
     // Verificar auth
-    const role = sessionStorage.getItem('Velocity_Role');
-    if (role !== 'supervisor') { window.location.href = 'login.html'; return; }
+    const role = sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role');
+    if (role !== 'supervisor') { window.location.href = '/login'; return; }
     
     // Mostrar pantalla de carga elegante (deja visible el menú lateral)
     if (window.showLoadingOverlay) window.showLoadingOverlay('Conectando con Wispro...');

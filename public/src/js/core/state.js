@@ -80,14 +80,14 @@ window.getSessionToken = function() {
     return sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token') || '';
 };
 
-// Validar sesión inicial (si no estamos en login.html y no hay token, redirigir)
+// Validar sesión inicial (si no estamos en login y no hay token, redirigir)
 (function checkInitialAuth() {
-    const isLoginPage = window.location.pathname.endsWith('login.html');
+    const path = window.location.pathname.toLowerCase();
+    const isLoginPage = path.includes('login') || path === '/' || path === '';
     const token = window.getSessionToken();
     if (!token && !isLoginPage) {
         console.warn('[Velocity Auth] No se encontró sesión activa. Redirigiendo a login...');
-        const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
-        window.location.href = loginUrl;
+        window.location.href = '/login';
     }
 })();
 

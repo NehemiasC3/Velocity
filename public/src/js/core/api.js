@@ -1,11 +1,12 @@
 // Velocity API Module
 async function apiFetch(path, opts = {}, silent = false) {
     const token = typeof window.getSessionToken === 'function' ? window.getSessionToken() : (sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token') || '');
+    const currentPath = window.location.pathname.toLowerCase();
+    const isLoginPage = currentPath.includes('login') || currentPath === '/' || currentPath === '';
+
     if (!token && !path.includes('/api/login')) {
-        const isLoginPage = window.location.pathname.endsWith('login.html');
         if (!isLoginPage) {
-            const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
-            window.location.href = loginUrl;
+            window.location.href = '/login';
         }
         return null;
     }
@@ -49,10 +50,8 @@ async function apiFetch(path, opts = {}, silent = false) {
                 localStorage.removeItem('Velocity_Token');
                 localStorage.removeItem('Velocity_Role');
 
-                const isLoginPage = window.location.pathname.endsWith('login.html');
                 if (!isLoginPage) {
-                    const loginUrl = window.location.pathname.includes('/pages/') ? 'login.html' : 'pages/login.html';
-                    window.location.href = loginUrl;
+                    window.location.href = '/login';
                 }
                 throw new Error('Sesión inválida o expirada.');
             }

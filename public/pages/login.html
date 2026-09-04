@@ -164,7 +164,7 @@
                 
                 console.log('[Velocity] Intentando login remoto para:', email.toLowerCase());
                 
-                // Petición al servidor (NUEVO)
+                // Petición al servidor
                 fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -173,15 +173,22 @@
                 .then(res => res.json())
                 .then(data => {
                     if (data.success) {
-                        // Guardar información de sesión
+                        // Guardar información de sesión en ambos almacenamientos
                         sessionStorage.setItem('Velocity_Token', data.token);
                         sessionStorage.setItem('Velocity_Role', data.role);
                         sessionStorage.setItem('Velocity_Active_User', data.userId);
                         sessionStorage.setItem('Velocity_Active_Email', email);
                         sessionStorage.setItem('Velocity_User_Name', data.name);
+
+                        localStorage.setItem('Velocity_Token', data.token);
+                        localStorage.setItem('Velocity_Role', data.role);
+                        localStorage.setItem('Velocity_Active_User', data.userId);
+                        localStorage.setItem('Velocity_Active_Email', email);
+                        localStorage.setItem('Velocity_User_Name', data.name);
                         
-                        // Redirigir según el rol devuelto por el servidor
-                        window.location.href = data.role === 'supervisor' ? 'supervisor.html' : 'technician.html';
+                        // Redirigir según el rol devuelto por el servidor con rutas limpias
+                        const destination = data.role === 'supervisor' ? '/supervisor' : '/technician';
+                        window.location.href = destination;
                     } else {
                         showLoginError(data.error || 'Error al iniciar sesión');
                         btn.innerHTML = originalText;
@@ -194,7 +201,7 @@
                     btn.innerHTML = originalText;
                     btn.disabled = false;
                 });
-            }, 600);
+            }, 300);
         }
 
         function showLoginError(msg) {

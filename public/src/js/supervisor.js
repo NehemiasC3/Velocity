@@ -7495,8 +7495,13 @@ window.deleteInactiveUsers = function() {
 // ── INIT ──────────────────────────────────────────────────────────────────
 async function initApp() {
     // Verificar auth
-    const role = sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role');
-    if (role !== 'supervisor') { window.location.href = '/login'; return; }
+    const role = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
+    const allowedRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
+    if (!allowedRoles.includes(role)) {
+        console.warn('[Velocity Auth] Rol no autorizado para panel supervisor:', role);
+        window.location.href = '/login';
+        return;
+    }
     
     // Mostrar pantalla de carga elegante (deja visible el menú lateral)
     if (window.showLoadingOverlay) window.showLoadingOverlay('Conectando con Wispro...');

@@ -187,7 +187,9 @@
                         localStorage.setItem('Velocity_User_Name', data.name);
                         
                         // Redirigir según el rol devuelto por el servidor con rutas limpias
-                        const destination = data.role === 'supervisor' ? '/supervisor' : '/technician';
+                        const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
+                        const destination = adminRoles.includes(String(data.role).toLowerCase()) ? '/supervisor' : '/technician';
+                        console.log('[Velocity Auth] Login exitoso para rol:', data.role, '-> Redirigiendo a:', destination);
                         window.location.href = destination;
                     } else {
                         showLoginError(data.error || 'Error al iniciar sesión');

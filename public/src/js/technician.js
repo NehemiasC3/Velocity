@@ -25,8 +25,9 @@ const SESSION_ROLE  = sessionStorage.getItem('Velocity_Role') || localStorage.ge
 const SESSION_ID    = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
 const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token');
 
-if (SESSION_ROLE !== 'technician' || !SESSION_TOKEN) {
-    window.location.href = 'login.html';
+const allowedTechRoles = ['technician', 'admin', 'superadmin', 'supervisor'];
+if (!allowedTechRoles.includes(String(SESSION_ROLE).toLowerCase()) || !SESSION_TOKEN) {
+    window.location.href = '/login';
 }
 
 // ── API ───────────────────────────────────────────────────────────────────

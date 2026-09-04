@@ -463,34 +463,32 @@ export const WarehousesModule: React.FC = () => {
                       </div>
                       
                       <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-[10px] font-bold text-slate-400">
+                        <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                           {wh.code}
                         </span>
-                        {isAdmin && (
-                          <div className="flex items-center gap-0.5 ml-1 border-l border-slate-200 dark:border-slate-800 pl-1">
-                            <button
-                              type="button"
-                              onClick={(e) => handleOpenEditModal(wh, e)}
-                              title="Editar bodega (Nombre, tipo, ubicación)"
-                              className="p-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => handleDeleteWarehouse(wh, e)}
-                              disabled={isDeletingWhId === wh.id}
-                              title="Eliminar bodega"
-                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors disabled:opacity-50"
-                            >
-                              {isDeletingWhId === wh.id ? (
-                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-500" />
-                              ) : (
-                                <Trash2 className="w-3.5 h-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        )}
+                        <div className="flex items-center gap-1 ml-1 border-l border-slate-200 dark:border-slate-700 pl-1.5">
+                          <button
+                            type="button"
+                            onClick={(e) => handleOpenEditModal(wh, e)}
+                            title="Editar bodega (Nombre, tipo, ubicación)"
+                            className="p-1.5 rounded-lg text-sky-600 hover:text-sky-700 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/70 dark:hover:bg-sky-900/80 transition-colors border border-sky-200 dark:border-sky-800 shadow-2xs"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteWarehouse(wh, e)}
+                            disabled={isDeletingWhId === wh.id}
+                            title="Eliminar bodega"
+                            className="p-1.5 rounded-lg text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900/80 transition-colors border border-rose-200 dark:border-rose-800 shadow-2xs disabled:opacity-50"
+                          >
+                            {isDeletingWhId === wh.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                            ) : (
+                              <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -537,12 +535,23 @@ export const WarehousesModule: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Footer con conteos */}
+                  {/* Footer con conteos y botón de edición */}
                   <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">Equipos Asignados:</span>
-                    <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
-                      {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
-                    </span>
+                    <div>
+                      <span className="text-slate-500 block text-[10px]">Equipos Asignados:</span>
+                      <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
+                        {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={(e) => handleOpenEditModal(wh, e)}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 px-3 py-1.5 rounded-xl border border-sky-200 dark:border-sky-800 transition active:scale-95 shadow-2xs"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Editar</span>
+                    </button>
                   </div>
                 </div>
               );

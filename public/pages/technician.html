@@ -4,6 +4,13 @@
     <meta charset="utf-8">
     <meta content="width=device-width, initial-scale=1.0" name="viewport">
     <title>Velocity - Panel de Técnico</title>
+    <script>
+      // Ocultar .html y /pages/ de la barra de direcciones
+      if (window.location.pathname.endsWith('.html') || window.location.pathname.startsWith('/pages/')) {
+        const cleanPath = window.location.pathname.replace(/^\/pages/, '').replace(/\.html$/, '');
+        window.history.replaceState(null, '', (cleanPath || '/') + window.location.search + window.location.hash);
+      }
+    </script>
     <link rel="icon" href="../logo-velocity.svg?v=2" type="image/svg+xml">
     <!-- PWA Support -->
 

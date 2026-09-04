@@ -131,79 +131,103 @@
     <script>
         // Cargar credenciales guardadas y sincronizar con el servidor al iniciar
         window.addEventListener('DOMContentLoaded', async () => {
-
             const saved = localStorage.getItem('V_Remember');
             if (saved) {
                 try {
                     const { email, pass } = JSON.parse(saved);
-                    document.getElementById('login-email').value    = email || '';
-                    document.getElementById('login-password').value = pass  || '';
-                    document.getElementById('remember-me').checked  = true;
+                    if (document.getElementById('login-email')) document.getElementById('login-email').value = email || '';
+                    if (document.getElementById('login-password')) document.getElementById('login-password').value = pass || '';
+                    if (document.getElementById('remember-me')) document.getElementById('remember-me').checked = true;
                 } catch {}
             }
         });
 
-        function handleLogin(event) {
-            event.preventDefault();
-            const btn = event.submitter;
-            const originalText = btn.innerHTML;
-            btn.innerHTML = `<span class="material-symbols-outlined text-sm" style="animation: spin 1s linear infinite;">sync</span> Validando...`;
-            btn.disabled = true;
+        async function handleLogin(event) {
+            if (event) {
+                event.preventDefault();
+            }
+            
+            const btn = (event && event.submitter) || (event && event.target && event.target.querySelector('button[type="submit"]')) || document.querySelector('button[type="submit"]') || document.querySelector('button');
+            const originalText = btn ? btn.innerHTML : 'Iniciar Sesión';
+            
+            if (btn) {
+                btn.innerHTML = `<span class="material-symbols-outlined text-sm" style="animation: spin 1s linear infinite;">sync</span> Validando...`;
+                btn.disabled = true;
+            }
 
-            setTimeout(() => {
-                const email    = document.getElementById('login-email').value.trim();
-                const password = document.getElementById('login-password').value;
-                const remember = document.getElementById('remember-me').checked;
+            const emailInput = document.getElementById('login-email');
+            const passwordInput = document.getElementById('login-password');
+            const rememberInput = document.getElementById('remember-me');
 
-                // Guardar o limpiar credenciales según el checkbox
-                if (remember) {
-                    localStorage.setItem('V_Remember', JSON.stringify({ email, pass: password }));
-                } else {
-                    localStorage.removeItem('V_Remember');
+            const email = emailInput ? emailInput.value.trim() : '';
+            const password = passwordInput ? passwordInput.value : '';
+            const remember = rememberInput ? rememberInput.checked : false;
+
+            if (!email || !password) {
+                showLoginError('Por favor ingresa tu correo y contraseña.');
+                if (btn) {
+                    btn.innerHTML = originalText;
+                    btn.disabled = false;
                 }
-                
-                console.log('[Velocity] Intentando login remoto para:', email.toLowerCase());
-                
-                // Petición al servidor
-                fetch('/api/login', {
+                return;
+            }
+
+            // Guardar o limpiar credenciales según el checkbox
+            if (remember) {
+                localStorage.setItem('V_Remember', JSON.stringify({ email, pass: password }));
+            } else {
+                localStorage.removeItem('V_Remember');
+            }
+            
+            console.log('[Velocity] Intentando login remoto para:', email.toLowerCase());
+            
+            try {
+                const res = await fetch('/api/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) {
-                        // Guardar información de sesión en ambos almacenamientos
-                        sessionStorage.setItem('Velocity_Token', data.token);
-                        sessionStorage.setItem('Velocity_Role', data.role);
-                        sessionStorage.setItem('Velocity_Active_User', data.userId);
-                        sessionStorage.setItem('Velocity_Active_Email', email);
-                        sessionStorage.setItem('Velocity_User_Name', data.name);
+                });
 
-                        localStorage.setItem('Velocity_Token', data.token);
-                        localStorage.setItem('Velocity_Role', data.role);
-                        localStorage.setItem('Velocity_Active_User', data.userId);
-                        localStorage.setItem('Velocity_Active_Email', email);
-                        localStorage.setItem('Velocity_User_Name', data.name);
-                        
-                        // Redirigir según el rol devuelto por el servidor con rutas limpias
-                        const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
-                        const destination = adminRoles.includes(String(data.role).toLowerCase()) ? '/supervisor' : '/technician';
-                        console.log('[Velocity Auth] Login exitoso para rol:', data.role, '-> Redirigiendo a:', destination);
-                        window.location.href = destination;
-                    } else {
-                        showLoginError(data.error || 'Error al iniciar sesión');
+                const data = await res.json();
+
+                if (data && data.success) {
+                    // Guardar información de sesión en ambos almacenamientos
+                    sessionStorage.setItem('Velocity_Token', data.token);
+                    sessionStorage.setItem('Velocity_Role', data.role);
+                    sessionStorage.setItem('Velocity_Active_User', data.userId);
+                    sessionStorage.setItem('Velocity_Active_Email', email);
+                    sessionStorage.setItem('Velocity_User_Name', data.name);
+
+                    localStorage.setItem('Velocity_Token', data.token);
+                    localStorage.setItem('Velocity_Role', data.role);
+                    localStorage.setItem('Velocity_Active_User', data.userId);
+                    localStorage.setItem('Velocity_Active_Email', email);
+                    localStorage.setItem('Velocity_User_Name', data.name);
+                    
+                    // Redirigir según el rol devuelto por el servidor con rutas limpias
+                    const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
+                    const destination = adminRoles.includes(String(data.role).toLowerCase()) ? '/supervisor' : '/technician';
+                    console.log('[Velocity Auth] Login exitoso para rol:', data.role, '-> Redirigiendo a:', destination);
+                    
+                    if (btn) {
+                        btn.innerHTML = `<span class="material-symbols-outlined text-sm">check_circle</span> Redirigiendo...`;
+                    }
+                    window.location.replace(destination);
+                } else {
+                    showLoginError(data?.error || 'Credenciales incorrectas. Verifica tu contraseña.');
+                    if (btn) {
                         btn.innerHTML = originalText;
                         btn.disabled = false;
                     }
-                })
-                .catch(err => {
-                    console.error('Login Error:', err);
-                    showLoginError('Error de conexión con el servidor.');
+                }
+            } catch (err) {
+                console.error('[Velocity Login Error]:', err);
+                showLoginError('Error de conexión con el servidor. Intenta nuevamente.');
+                if (btn) {
                     btn.innerHTML = originalText;
                     btn.disabled = false;
-                });
-            }, 300);
+                }
+            }
         }
 
         function showLoginError(msg) {
@@ -211,12 +235,13 @@
             if (!el) {
                 el = document.createElement('div');
                 el.id = 'login-error';
-                el.className = 'flex items-center gap-2 p-3 bg-error-container/30 border border-error/30 rounded-xl text-error text-sm font-bold';
-                document.querySelector('form').prepend(el);
+                el.className = 'flex items-center gap-2 p-3 bg-red-100 border border-red-300 rounded-xl text-red-700 text-sm font-bold shadow-sm';
+                const form = document.querySelector('form');
+                if (form) form.prepend(el);
             }
-            el.innerHTML = `<span class="material-symbols-outlined text-sm">error</span> ${msg}`;
+            el.innerHTML = `<span class="material-symbols-outlined text-base">error</span> <span>${msg}</span>`;
             el.style.display = 'flex';
-            setTimeout(() => { if (el) el.style.display = 'none'; }, 4000);
+            setTimeout(() => { if (el) el.style.display = 'none'; }, 5000);
         }
 
         function togglePassVis(id) {
@@ -227,9 +252,10 @@
             const icon = input.parentElement.querySelector('.material-symbols-outlined');
             if (icon) icon.textContent = isPass ? 'visibility_off' : 'visibility';
         }
+
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('../sw.js').then(reg => {
+                navigator.serviceWorker.register('../sw.js?v=4.1.0').then(reg => {
                     console.log('[Velocity PWA] Login SW registrado');
                 }).catch(err => {
                     console.warn('[Velocity PWA] Error SW:', err);

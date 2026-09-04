@@ -176,6 +176,19 @@ class ApiService {
     });
   }
 
+  public async updateWarehouse(id: string, data: Partial<Warehouse>): Promise<{ success?: boolean; message?: string; warehouse: Warehouse }> {
+    return this.request(`/warehouses/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async deleteWarehouse(id: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/warehouses/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
   // Serialized Inventory
   public async getSerializedItems(params?: { warehouseId?: string; status?: string; search?: string }): Promise<{ items: SerializedItem[] }> {
     const query = new URLSearchParams(params as any).toString();

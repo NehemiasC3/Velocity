@@ -2,7 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { 
   Building2, Store, Truck, Plus, Search, ShieldAlert, 
   Package, AlertCircle, RefreshCw, Layers, ArrowRight,
-  MapPin, Check, GitFork, X, ChevronRight, Info
+  MapPin, Check, GitFork, X, ChevronRight, Info,
+  Edit2, Trash2
 } from 'lucide-react';
 import { api } from '../services/api';
 import { Warehouse, SerializedItem, BulkItem, BulkStock, WarehouseType } from '../types';
@@ -10,6 +11,16 @@ import { useAuth } from '../context/AuthContext';
 
 export const WarehousesModule: React.FC = () => {
   const { currentUser } = useAuth();
+  
+  // Verificación de Rol Administrador / Supervisor
+  const isAdmin = 
+    currentUser?.role === 'SUPERADMIN' || 
+    currentUser?.role === 'ADMIN_BODEGA' || 
+    (currentUser?.role as any) === 'admin' || 
+    (currentUser?.role as any) === 'supervisor' ||
+    (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('Velocity_Role') === 'admin' || sessionStorage.getItem('Velocity_Role') === 'supervisor')) ||
+    (typeof localStorage !== 'undefined' && (localStorage.getItem('Velocity_Role') === 'admin' || localStorage.getItem('Velocity_Role') === 'supervisor'));
+
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('all');
   const [activeSubTab, setActiveSubTab] = useState<'serialized' | 'bulk'>('serialized');
@@ -23,6 +34,10 @@ export const WarehousesModule: React.FC = () => {
 
   // Modales
   const [showNewWarehouseModal, setShowNewWarehouseModal] = useState(false);
+  const [showEditWarehouseModal, setShowEditWarehouseModal] = useState(false);
+  const [editingWarehouse, setEditingWarehouse] = useState<Warehouse | null>(null);
+  const [isDeletingWhId, setIsDeletingWhId] = useState<string | null>(null);
+
   const [showAddOnuModal, setShowAddOnuModal] = useState(false);
   const [showAdjustBulkModal, setShowAdjustBulkModal] = useState(false);
   const [showRmaModal, setShowRmaModal] = useState(false);
@@ -31,6 +46,15 @@ export const WarehousesModule: React.FC = () => {
 
   // Form states
   const [newWhForm, setNewWhForm] = useState({
+    name: '',
+    code: '',
+    type: 'SUCURSAL' as WarehouseType,
+    parentId: '',
+    address: '',
+    vehiclePlate: ''
+  });
+
+  const [editWhForm, setEditWhForm] = useState({
     name: '',
     code: '',
     type: 'SUCURSAL' as WarehouseType,
@@ -119,6 +143,68 @@ export const WarehousesModule: React.FC = () => {
       alert(`Error al crear la bodega: ${err.message}`);
     } finally {
       setIsSubmittingWh(false);
+    }
+  };
+
+  // Abrir Modal de Edición
+  const handleOpenEditModal = (wh: Warehouse, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingWarehouse(wh);
+    setEditWhForm({
+      name: wh.name || '',
+      code: wh.code || '',
+      type: wh.type || 'SUCURSAL',
+      parentId: wh.parentId || wh.parent_id || '',
+      address: wh.address || wh.location || '',
+      vehiclePlate: wh.vehiclePlate || ''
+    });
+    setShowEditWarehouseModal(true);
+  };
+
+  // Actualizar Bodega Existente
+  const handleUpdateWarehouse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingWarehouse || !editWhForm.name.trim()) return;
+
+    try {
+      setIsSubmittingWh(true);
+      await api.updateWarehouse(editingWarehouse.id, {
+        name: editWhForm.name.trim(),
+        code: editWhForm.code.trim() || undefined,
+        type: editWhForm.type,
+        parentId: editWhForm.parentId || (null as any),
+        address: editWhForm.address.trim() || undefined,
+        vehiclePlate: editWhForm.type === 'VEHICULO' ? editWhForm.vehiclePlate.trim() : undefined
+      });
+
+      setShowEditWarehouseModal(false);
+      setEditingWarehouse(null);
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al actualizar la bodega: ${err.message}`);
+    } finally {
+      setIsSubmittingWh(false);
+    }
+  };
+
+  // Eliminar Bodega
+  const handleDeleteWarehouse = async (wh: Warehouse, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm(`¿Estás seguro de eliminar la bodega "${wh.name}"?\nEsta acción no se puede deshacer.`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingWhId(wh.id);
+      await api.deleteWarehouse(wh.id);
+      if (selectedWarehouseId === wh.id) {
+        setSelectedWarehouseId('all');
+      }
+      await loadData();
+    } catch (err: any) {
+      alert(`Error al eliminar la bodega: ${err.message}`);
+    } finally {
+      setIsDeletingWhId(null);
     }
   };
 
@@ -380,9 +466,37 @@ export const WarehousesModule: React.FC = () => {
                           {badge.label}
                         </span>
                       </div>
-                      <span className="font-mono text-[10px] font-bold text-slate-400">
-                        {wh.code}
-                      </span>
+                      
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-[10px] font-bold text-slate-400">
+                          {wh.code}
+                        </span>
+                        {isAdmin && (
+                          <div className="flex items-center gap-0.5 ml-1 border-l border-slate-200 dark:border-slate-800 pl-1">
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenEditModal(wh, e)}
+                              title="Editar bodega (Nombre, tipo, ubicación)"
+                              className="p-1 rounded-lg text-slate-400 hover:text-sky-600 hover:bg-sky-50 dark:hover:bg-sky-950/50 transition-colors"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteWarehouse(wh, e)}
+                              disabled={isDeletingWhId === wh.id}
+                              title="Eliminar bodega"
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors disabled:opacity-50"
+                            >
+                              {isDeletingWhId === wh.id ? (
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin text-rose-500" />
+                              ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {/* Nombre y Ubicación */}
@@ -763,6 +877,166 @@ export const WarehousesModule: React.FC = () => {
                 >
                   {isSubmittingWh && <RefreshCw className="w-4 h-4 animate-spin" />}
                   <span>Guardar Bodega</span>
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: EDITAR BODEGA (Administrador) ── */}
+      {showEditWarehouseModal && editingWarehouse && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300">
+                  <Edit2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-bold text-lg text-slate-900 dark:text-white">
+                    Editar Bodega / Punto de Red
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Modifica los datos de la bodega <span className="font-bold text-slate-700 dark:text-slate-300">"{editingWarehouse.name}"</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setShowEditWarehouseModal(false);
+                  setEditingWarehouse(null);
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateWarehouse} className="space-y-4 text-xs">
+              
+              {/* Nombre de la bodega */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  Nombre de la Bodega *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. Sucursal Metetí, Cuadrilla Móvil #3, Hub Central"
+                  value={editWhForm.name}
+                  onChange={(e) => setEditWhForm({ ...editWhForm, name: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white text-sm focus:ring-2 focus:ring-sky-500 outline-none"
+                />
+              </div>
+
+              {/* Tipo de Bodega y Código */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    Tipo de Bodega *
+                  </label>
+                  <select
+                    value={editWhForm.type}
+                    onChange={(e) => setEditWhForm({ ...editWhForm, type: e.target.value as WarehouseType })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-sky-500 outline-none"
+                  >
+                    <option value="PRINCIPAL">🏢 Hub Central (Principal)</option>
+                    <option value="SUCURSAL">🏪 Sucursal Regional (Sub-Hub)</option>
+                    <option value="VEHICULO">🚚 Móvil / Cuadrilla (Vehículo)</option>
+                    <option value="CUARENTENA_RMA">⚠️ Cuarentena RMA (Dañados)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                    Código Identificador
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ej. HUB-TOC, SUC-MET, MOV-04"
+                    value={editWhForm.code}
+                    onChange={(e) => setEditWhForm({ ...editWhForm, code: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white font-mono uppercase focus:ring-2 focus:ring-sky-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Bodega Padre (Depende de / Abastecida por) */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1 flex items-center justify-between">
+                  <span>Bodega Padre (Abastecida por)</span>
+                  <span className="text-[11px] text-slate-400 font-normal">Jerarquía Hub-and-Spoke</span>
+                </label>
+                <select
+                  value={editWhForm.parentId}
+                  onChange={(e) => setEditWhForm({ ...editWhForm, parentId: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2.5 text-slate-900 dark:text-white text-xs font-medium focus:ring-2 focus:ring-sky-500 outline-none"
+                >
+                  <option value="">-- Ninguna (Es un Hub Principal Raíz) --</option>
+                  {warehouses
+                    .filter(w => w.id !== editingWarehouse.id && (w.type === 'PRINCIPAL' || w.type === 'SUCURSAL' || w.type === 'HUB' || w.type === 'SPOKE'))
+                    .map(w => (
+                      <option key={w.id} value={w.id}>
+                        {w.name} ({w.code}) &bull; Tipo: {w.type}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              {/* Ubicación / Dirección */}
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                  Ubicación Física / Dirección
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ej. Tocumen, Vía Panamericana Km 140, Metetí"
+                  value={editWhForm.address}
+                  onChange={(e) => setEditWhForm({ ...editWhForm, address: e.target.value })}
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                />
+              </div>
+
+              {/* Placa (si es vehículo) */}
+              {editWhForm.type === 'VEHICULO' && (
+                <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60">
+                  <label className="block text-emerald-800 dark:text-emerald-300 font-bold mb-1">
+                    Placa del Vehículo *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej. AB-1234, 894321"
+                    value={editWhForm.vehiclePlate}
+                    onChange={(e) => setEditWhForm({ ...editWhForm, vehiclePlate: e.target.value })}
+                    className="w-full bg-white dark:bg-slate-800 border border-emerald-300 dark:border-emerald-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-mono uppercase focus:ring-2 focus:ring-emerald-500 outline-none"
+                  />
+                </div>
+              )}
+
+              {/* Acciones del Modal */}
+              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditWarehouseModal(false);
+                    setEditingWarehouse(null);
+                  }}
+                  className="px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingWh}
+                  className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold shadow-md active:scale-95 transition-all flex items-center gap-2"
+                >
+                  {isSubmittingWh && <RefreshCw className="w-4 h-4 animate-spin" />}
+                  <span>Actualizar Bodega</span>
                 </button>
               </div>
 

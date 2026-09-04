@@ -132,8 +132,8 @@ export class WisproService {
   }
 
   /**
-   * Recorre asíncronamente todas las páginas con per_page=100
-   * utilizando un bucle dinámico por lotes concurrentes (BATCH_SIZE = 5)
+   * Recorre asíncronamente los endpoints de Wispro (/clients y /contracts)
+   * cruzando clientes con contratos para mostrar nombres y números de serie reales.
    */
   private async fetchAllPages(): Promise<InventoryItem[]> {
     if (!this.apiToken) {
@@ -141,48 +141,80 @@ export class WisproService {
     }
 
     const perPage = 100;
-    let currentPage = 1;
-    let totalPages = 1;
-    const allRawItems: WisproRawItem[] = [];
+    const BATCH_SIZE = 6;
 
+    // 1. Obtener Directorio Completo de Clientes (/clients)
+    const clientsMap = new Map<string, any>();
+    try {
+      const firstClientsRes = await this.fetchPage('/clients', 1, perPage);
+      if (firstClientsRes.data && Array.isArray(firstClientsRes.data)) {
+        for (const c of firstClientsRes.data) {
+          if (c.id) clientsMap.set(String(c.id), c);
+        }
+      }
+
+      const totalClientPages = firstClientsRes.meta?.pagination?.total_pages || 1;
+      let clientPage = 2;
+
+      while (clientPage <= totalClientPages) {
+        const batchPromises: Promise<WisproPageResponse>[] = [];
+        const batchEnd = Math.min(clientPage + BATCH_SIZE - 1, totalClientPages);
+
+        for (let p = clientPage; p <= batchEnd; p++) {
+          batchPromises.push(this.fetchPage('/clients', p, perPage));
+        }
+
+        const batchResults = await Promise.all(batchPromises);
+        for (const res of batchResults) {
+          if (res.data && Array.isArray(res.data)) {
+            for (const c of res.data) {
+              if (c.id) clientsMap.set(String(c.id), c);
+            }
+          }
+        }
+        clientPage = batchEnd + 1;
+      }
+      console.log(`[WisproService 👥] ${clientsMap.size} clientes indexados desde Wispro Cloud.`);
+    } catch (err: any) {
+      console.warn('[WisproService] Error al indexar directorio /clients:', err.message);
+    }
+
+    // 2. Obtener Todos los Contratos (/contracts)
+    const allRawContracts: WisproRawItem[] = [];
     const endpoint = '/contracts';
 
-    // 1. Obtener la primera página para determinar el total de páginas
-    const firstPageResponse = await this.fetchPage(endpoint, 1, perPage);
-
-    if (firstPageResponse.data && Array.isArray(firstPageResponse.data)) {
-      allRawItems.push(...firstPageResponse.data);
+    const firstContractRes = await this.fetchPage(endpoint, 1, perPage);
+    if (firstContractRes.data && Array.isArray(firstContractRes.data)) {
+      allRawContracts.push(...firstContractRes.data);
     }
 
-    if (firstPageResponse.meta?.pagination?.total_pages) {
-      totalPages = firstPageResponse.meta.pagination.total_pages;
-    }
+    const totalContractPages = firstContractRes.meta?.pagination?.total_pages || 1;
+    let contractPage = 2;
 
-    // 2. Bucle dinámico por lotes
-    currentPage = 2;
-    const BATCH_SIZE = 5;
-
-    while (currentPage <= totalPages) {
+    while (contractPage <= totalContractPages) {
       const batchPromises: Promise<WisproPageResponse>[] = [];
-      const batchEnd = Math.min(currentPage + BATCH_SIZE - 1, totalPages);
+      const batchEnd = Math.min(contractPage + BATCH_SIZE - 1, totalContractPages);
 
-      for (let p = currentPage; p <= batchEnd; p++) {
+      for (let p = contractPage; p <= batchEnd; p++) {
         batchPromises.push(this.fetchPage(endpoint, p, perPage));
       }
 
       const batchResults = await Promise.all(batchPromises);
-
       for (const res of batchResults) {
         if (res.data && Array.isArray(res.data)) {
-          allRawItems.push(...res.data);
+          allRawContracts.push(...res.data);
         }
       }
-
-      currentPage = batchEnd + 1;
+      contractPage = batchEnd + 1;
     }
 
-    // 3. Mapear y sanear campos a la estructura limpia requerida
-    return allRawItems.map((item) => this.mapToInventoryItem(item));
+    console.log(`[WisproService 📦] ${allRawContracts.length} contratos cargados. Mapeando con directorio de clientes...`);
+
+    // 3. Mapear cruzando con los datos de clientes
+    return allRawContracts.map((contract) => {
+      const client = contract.client_id ? clientsMap.get(String(contract.client_id)) : contract.client;
+      return this.mapToInventoryItem(contract, client);
+    });
   }
 
   private async fetchPage(endpoint: string, page: number, perPage: number): Promise<WisproPageResponse> {
@@ -203,14 +235,19 @@ export class WisproService {
     }
   }
 
-  private mapToInventoryItem(raw: WisproRawItem): InventoryItem {
+  private mapToInventoryItem(raw: WisproRawItem, client?: any): InventoryItem {
     const id = String(raw.id || raw.client_id || Math.random().toString(36).slice(2, 10));
 
+    // Nombre real del cliente
     let clientName = 'Sin Nombre';
-    if (raw.client_name && typeof raw.client_name === 'string' && raw.client_name.trim()) {
+    if (client?.name && typeof client.name === 'string' && client.name.trim()) {
+      clientName = client.name.trim();
+    } else if (raw.client_name && typeof raw.client_name === 'string' && raw.client_name.trim()) {
       clientName = raw.client_name.trim();
     } else if (raw.client?.name && typeof raw.client.name === 'string' && raw.client.name.trim()) {
       clientName = raw.client.name.trim();
+    } else if (raw.pppoe_username && typeof raw.pppoe_username === 'string' && raw.pppoe_username.trim()) {
+      clientName = `Usuario ${raw.pppoe_username.trim()}`;
     } else if (raw.name && typeof raw.name === 'string' && raw.name.trim()) {
       clientName = raw.name.trim();
     }
@@ -224,14 +261,16 @@ export class WisproService {
     ).trim();
 
     const mac = (
-      raw.mac ||
       raw.mac_address ||
+      raw.mac ||
       raw.equipment_mac ||
       raw.device_mac ||
       'No registrada'
     ).trim();
 
+    // Serial de la ONT / ONU
     const serialNumber = (
+      raw.ont_serial_number ||
       raw.serial_number ||
       raw.serial ||
       raw.sn ||
@@ -240,18 +279,33 @@ export class WisproService {
       'S/N no disponible'
     ).trim();
 
-    const model = (
+    // Deducción o extracción del modelo de hardware
+    let model = (
       raw.model ||
       raw.equipment_model ||
       raw.model_name ||
       raw.hardware_model ||
       raw.device_model ||
-      'Genérico / Desconocido'
+      ''
     ).trim();
 
+    if (!model || model === 'Genérico / Desconocido') {
+      if (serialNumber.startsWith('XPON') || serialNumber.startsWith('ZTEG')) {
+        model = 'ZTE / XPON ONU';
+      } else if (serialNumber.startsWith('CMDC') || serialNumber.startsWith('CDAT')) {
+        model = 'C-Data GPON ONU';
+      } else if (serialNumber.startsWith('HWTC')) {
+        model = 'Huawei EchoLife ONT';
+      } else if (serialNumber.startsWith('VSOL')) {
+        model = 'V-SOL ONU';
+      } else {
+        model = 'ONU Óptica Estándar';
+      }
+    }
+
     let status = (
-      raw.status ||
       raw.state ||
+      raw.status ||
       raw.contract_state ||
       raw.service_state ||
       'unknown'
@@ -268,20 +322,18 @@ export class WisproService {
     }
 
     let address = '';
-    if (raw.address && typeof raw.address === 'string') {
+    if (client?.address && typeof client.address === 'string' && client.address.trim()) {
+      address = client.address.trim();
+    } else if (raw.address && typeof raw.address === 'string' && raw.address.trim()) {
       address = raw.address.trim();
-    } else if (raw.full_address && typeof raw.full_address === 'string') {
-      address = raw.full_address.trim();
-    } else if (raw.street || raw.address_street) {
-      const street = raw.street || raw.address_street || '';
+    } else if (raw.address_street) {
+      const street = raw.address_street || '';
       const num = raw.address_number || '';
       address = `${street} ${num}`.trim();
-    } else if (raw.client?.address) {
-      address = raw.client.address.trim();
     }
 
     if (!address) {
-      address = raw.zone_name || raw.city || 'Sin dirección registrada';
+      address = client?.zone_name || raw.nap_name || raw.zone_name || 'Sin dirección registrada';
     }
 
     return {

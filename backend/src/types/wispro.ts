@@ -44,10 +44,17 @@ export interface WisproRawItem {
   
   // Serial number fields
   serial_number?: string | null;
+  ont_serial_number?: string | null;
   serial?: string | null;
   sn?: string | null;
   onu_sn?: string | null;
   gpon_sn?: string | null;
+  
+  // PPPoE & Details
+  pppoe_username?: string | null;
+  public_id?: string | number | null;
+  details?: string | null;
+  nap_name?: string | null;
   
   // Model fields
   model?: string | null;

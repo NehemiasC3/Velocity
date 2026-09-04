@@ -105,44 +105,44 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-slate-900 text-white border-b border-slate-800 shadow-lg">
+    <header className="sticky top-0 z-40 bg-white text-slate-900 border-b border-slate-200 shadow-xs">
       {/* Top Banner */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center shadow-md shadow-blue-500/20">
               <Boxes className="w-6 h-6 text-white" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-heading font-extrabold text-xl tracking-tight bg-gradient-to-r from-sky-400 via-blue-200 to-indigo-300 bg-clip-text text-transparent">
+                <span className="font-heading font-extrabold text-xl tracking-tight text-slate-900">
                   ISP Fibra Inventory
                 </span>
-                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
                   {currentUser?.role || 'Hub & Spoke'}
                 </span>
               </div>
-              <p className="text-xs text-slate-400 hidden sm:block">Control de Stock Central a Móvil + Wispro API</p>
+              <p className="text-xs text-slate-500 hidden sm:block">Control de Stock Central a Móvil + Wispro API</p>
             </div>
           </div>
 
           {/* Universal Search Command Palette Trigger */}
           <button
             onClick={() => onOpenSearch ? onOpenSearch() : window.dispatchEvent(new CustomEvent('open-command-palette'))}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 border border-slate-700 hover:border-sky-500/50 text-slate-300 transition shadow-inner group max-w-xs w-full sm:w-auto"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-50 hover:bg-white border border-slate-300 hover:border-blue-500 text-slate-700 transition shadow-inner group max-w-xs w-full sm:w-auto cursor-pointer"
             title="Abrir Búsqueda Universal (Ctrl + K)"
           >
-            <Search className="w-4 h-4 text-sky-400 group-hover:scale-110 transition" />
-            <span className="text-xs text-slate-400 group-hover:text-slate-200 hidden md:inline truncate">
+            <Search className="w-4 h-4 text-blue-600 group-hover:scale-110 transition" />
+            <span className="text-xs text-slate-500 group-hover:text-slate-700 hidden md:inline truncate">
               Buscar MAC, ONU, Cliente...
             </span>
-            <span className="text-xs text-slate-400 group-hover:text-slate-200 md:hidden">
+            <span className="text-xs text-slate-500 group-hover:text-slate-700 md:hidden">
               Buscar...
             </span>
             <div className="hidden lg:flex items-center gap-1 ml-auto pl-2">
-              <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-slate-900 border border-slate-700 rounded text-slate-400">
+              <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-white border border-slate-300 rounded text-slate-500 shadow-xs">
                 Ctrl K
               </kbd>
             </div>
@@ -155,25 +155,25 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
             <button
               onClick={handleWisproSync}
               disabled={syncing}
-              className="hidden md:flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 border border-slate-700 transition"
+              className="hidden md:flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 transition cursor-pointer"
               title="Sincronizar base de clientes y contratos con Wispro Cloud"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-sky-300' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-600' : ''}`} />
               <span>Sync Wispro</span>
             </button>
 
             {/* Persona Switcher dropdown */}
-            <div className="flex items-center gap-2 bg-slate-800/90 border border-slate-700 rounded-xl px-2.5 py-1.5">
-              <UserCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">
+              <UserCheck className="w-4 h-4 text-emerald-600 shrink-0" />
               <div className="flex flex-col text-left">
-                <span className="text-[9px] uppercase text-slate-400 font-semibold tracking-wider">Usuario (RBAC)</span>
+                <span className="text-[9px] uppercase text-slate-400 font-bold tracking-wider">Usuario (RBAC)</span>
                 <select
                   value={currentUser?.id || ''}
                   onChange={(e) => switchUser(e.target.value)}
-                  className="bg-transparent text-xs font-medium text-white focus:outline-none cursor-pointer pr-2 max-w-[140px] sm:max-w-[180px] truncate"
+                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer pr-2 max-w-[140px] sm:max-w-[180px] truncate"
                 >
                   {allUsers.map((u) => (
-                    <option key={u.id} value={u.id} className="bg-slate-800 text-white">
+                    <option key={u.id} value={u.id} className="bg-white text-slate-900">
                       {u.name} ({u.role})
                     </option>
                   ))}
@@ -184,7 +184,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
             {/* Logout Button */}
             <button
               onClick={logout}
-              className="p-2 rounded-xl bg-slate-800/80 hover:bg-rose-950/60 hover:text-rose-400 border border-slate-700 transition text-slate-400"
+              className="p-2 rounded-xl bg-slate-50 hover:bg-rose-50 hover:text-rose-600 border border-slate-200 transition text-slate-500 cursor-pointer"
               title="Cerrar Sesión"
             >
               <LogOut className="w-4 h-4" />
@@ -194,7 +194,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex space-x-1 overflow-x-auto py-2 border-t border-slate-800/80 scrollbar-none">
+        <div className="flex space-x-1.5 overflow-x-auto py-2 border-t border-slate-100 scrollbar-none">
           {navTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -208,20 +208,20 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold whitespace-nowrap transition-all cursor-pointer ${
                   isActive
                     ? tab.highlight 
-                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/40'
-                      : 'bg-sky-600 text-white shadow-md shadow-sky-900/40'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-blue-600 text-white shadow-xs'
                     : tab.highlight
-                      ? 'bg-emerald-950/60 text-emerald-300 hover:bg-emerald-900/60 border border-emerald-700/50'
-                      : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${tab.highlight && !isActive ? 'text-emerald-400 animate-pulse' : ''}`} />
+                <Icon className={`w-4 h-4 ${tab.highlight && !isActive ? 'text-emerald-600' : ''}`} />
                 <span>{tab.label}</span>
                 {tab.highlight && (
-                  <span className="text-[10px] uppercase tracking-wider bg-emerald-400 text-slate-950 font-bold px-1.5 py-0.2 rounded-full">
+                  <span className="text-[10px] uppercase tracking-wider bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded-full">
                     Técnico
                   </span>
                 )}
@@ -233,7 +233,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
 
       {/* Sync Toast Notification */}
       {syncToast && (
-        <div className="bg-sky-600 text-white text-xs px-4 py-2 flex items-center justify-between">
+        <div className="bg-blue-600 text-white text-xs px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
             <Wifi className="w-4 h-4 shrink-0" />
             <span>{syncToast}</span>

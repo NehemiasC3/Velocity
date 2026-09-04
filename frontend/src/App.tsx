@@ -25,7 +25,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] text-slate-100 flex flex-col antialiased selection:bg-indigo-500 selection:text-white">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col antialiased selection:bg-blue-500 selection:text-white font-sans">
       {/* 1. Alerta de Estado Offline */}
       <OfflineBanner />
 
@@ -48,7 +48,7 @@ export const App: React.FC = () => {
       />
 
       {/* 6. Main View Area */}
-      <main className="flex-1">
+      <main className="flex-1 pb-10">
         {activeTab === 'inventory' && <InventorySearch />}
         {activeTab === 'overview' && <SystemOverview />}
         {activeTab === 'settings' && <NotificationPreferences />}
@@ -63,10 +63,10 @@ export const App: React.FC = () => {
       />
 
       {/* 8. Footer */}
-      <footer className="border-t border-slate-800/60 py-6 text-center text-xs text-slate-500 bg-slate-950/40">
+      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-500 bg-white">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p>Velocity ISP Suite &bull; PWA Offline &bull; TypeScript &bull; React 18 &bull; Express</p>
-          <p className="text-slate-600">Wispro Cloud REST Gateway &bull; Fuse.js Realtime Engine</p>
+          <p className="font-medium text-slate-600">Velocity ISP Suite &bull; PWA &bull; Integración Wispro Cloud</p>
+          <p className="text-slate-400">Wispro Cloud REST Gateway &bull; Motor de Búsqueda Instantánea</p>
         </div>
       </footer>
     </div>

@@ -54,8 +54,15 @@ function createApp() {
     // Master API Router
     app.use('/api', routes_1.default);
     // Servir archivos estáticos del Core y Módulo de Inventario
-    const publicDir = path_1.default.join(__dirname, '../../public');
-    const inventoryDir = path_1.default.join(__dirname, '../../public/inventory');
+    const possiblePublicDirs = [
+        process.env.PUBLIC_DIR,
+        path_1.default.join(__dirname, '../public'),
+        path_1.default.join(__dirname, '../../public'),
+        '/usr/src/app/public',
+        '/public'
+    ].filter(Boolean);
+    const publicDir = possiblePublicDirs.find(d => fs_1.default.existsSync(d)) || path_1.default.join(__dirname, '../../public');
+    const inventoryDir = path_1.default.join(publicDir, 'inventory');
     const inventoryAltDir = path_1.default.join(__dirname, '../../Inventario App/frontend/dist');
     if (fs_1.default.existsSync(inventoryDir)) {
         app.use('/inventory', express_1.default.static(inventoryDir));
@@ -66,7 +73,18 @@ function createApp() {
         app.use('/inventario', express_1.default.static(inventoryAltDir));
     }
     if (fs_1.default.existsSync(publicDir)) {
-        app.use(express_1.default.static(publicDir));
+        // Soporte para Pretty URLs en archivos estáticos (/pages/supervisor -> supervisor.html)
+        app.use(express_1.default.static(publicDir, { extensions: ['html', 'htm'] }));
+        // Accesos directos raíz limpios (Pretty URLs)
+        app.get('/supervisor', (_req, res) => {
+            res.sendFile(path_1.default.join(publicDir, 'pages/supervisor.html'));
+        });
+        app.get('/login', (_req, res) => {
+            res.sendFile(path_1.default.join(publicDir, 'pages/login.html'));
+        });
+        app.get('/technician', (_req, res) => {
+            res.sendFile(path_1.default.join(publicDir, 'pages/technician.html'));
+        });
     }
     // Manejador de 404
     app.use((_req, res) => {

@@ -90,7 +90,7 @@
                 <!-- Divider removed - only email login -->
 
                 <!-- Manual Form -->
-                <form onsubmit="handleLogin(event);" class="space-y-4">
+                <form id="login-form" onsubmit="handleLogin(event); return false;" class="space-y-4">
                     <div class="space-y-1">
                         <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Correo Electrónico</label>
                         <input type="email" id="login-email" required autocomplete="username email" class="w-full bg-surface-container-lowest border border-outline-variant/50 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-3 text-sm text-on-surface transition-colors" placeholder="tu@rappido.com">
@@ -113,7 +113,7 @@
                         <label for="remember-me" class="text-xs font-bold text-on-surface-variant cursor-pointer select-none">Recordar mis credenciales</label>
                     </div>
                     
-                    <button type="submit" class="w-full kinetic-gradient py-3.5 mt-2 rounded-xl text-white font-bold text-sm tracking-wide shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2">
+                    <button type="submit" id="btn-login-submit" class="w-full kinetic-gradient py-3.5 mt-2 rounded-xl text-white font-bold text-sm tracking-wide shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2">
                         Iniciar Sesión
                         <span class="material-symbols-outlined text-sm">arrow_forward</span>
                     </button>
@@ -140,14 +140,25 @@
                     if (document.getElementById('remember-me')) document.getElementById('remember-me').checked = true;
                 } catch {}
             }
+
+            // Si ya existe sesión activa válida, redirigir automáticamente
+            const token = sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token');
+            const role = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
+            const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
+            if (token && role && !window.location.search.includes('logout')) {
+                const destination = adminRoles.includes(role) ? '/supervisor' : '/technician';
+                console.log('[Velocity Auth] Sesión existente detectada, redirigiendo a:', destination);
+                window.location.replace(destination);
+            }
         });
 
         async function handleLogin(event) {
             if (event) {
                 event.preventDefault();
+                event.stopPropagation();
             }
             
-            const btn = (event && event.submitter) || (event && event.target && event.target.querySelector('button[type="submit"]')) || document.querySelector('button[type="submit"]') || document.querySelector('button');
+            const btn = document.getElementById('btn-login-submit') || (event && event.submitter) || document.querySelector('button[type="submit"]') || document.querySelector('button');
             const originalText = btn ? btn.innerHTML : 'Iniciar Sesión';
             
             if (btn) {
@@ -169,7 +180,7 @@
                     btn.innerHTML = originalText;
                     btn.disabled = false;
                 }
-                return;
+                return false;
             }
 
             // Guardar o limpiar credenciales según el checkbox
@@ -179,7 +190,7 @@
                 localStorage.removeItem('V_Remember');
             }
             
-            console.log('[Velocity] Intentando login remoto para:', email.toLowerCase());
+            console.log('[Velocity] Intentando login para:', email.toLowerCase());
             
             try {
                 const res = await fetch('/api/login', {
@@ -228,6 +239,7 @@
                     btn.disabled = false;
                 }
             }
+            return false;
         }
 
         function showLoginError(msg) {
@@ -255,7 +267,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('../sw.js?v=4.1.0').then(reg => {
+                navigator.serviceWorker.register('../sw.js?v=4.2.0').then(reg => {
                     console.log('[Velocity PWA] Login SW registrado');
                 }).catch(err => {
                     console.warn('[Velocity PWA] Error SW:', err);

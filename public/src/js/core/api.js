@@ -40,19 +40,19 @@ async function apiFetch(path, opts = {}, silent = false) {
                 throw err;
             });
 
-            // 1. Manejo inmediato de 401 (No reintentar)
+            // 1. Manejo de 401 solo si es la API principal de Velocity y no es una llamada secundaria/silenciosa
             if (res.status === 401) {
-                console.warn('[Velocity Auth] Sesión inválida o expirada (HTTP 401). Limpiando sesión...');
-                sessionStorage.removeItem('Velocity_Token');
-                sessionStorage.removeItem('Velocity_Role');
-                sessionStorage.removeItem('Velocity_Active_User');
-                sessionStorage.removeItem('Velocity_User_Name');
-                localStorage.removeItem('Velocity_Token');
-                localStorage.removeItem('Velocity_Role');
-
-                if (!isLoginPage) {
+                if (isLocalApi && !silent && !isLoginPage) {
+                    console.warn('[Velocity Auth] Sesión inválida en servidor Velocity (HTTP 401). Limpiando sesión...');
+                    sessionStorage.removeItem('Velocity_Token');
+                    sessionStorage.removeItem('Velocity_Role');
+                    sessionStorage.removeItem('Velocity_Active_User');
+                    sessionStorage.removeItem('Velocity_User_Name');
+                    localStorage.removeItem('Velocity_Token');
+                    localStorage.removeItem('Velocity_Role');
                     window.location.href = '/login';
                 }
+                if (silent) return null;
                 throw new Error('Sesión inválida o expirada.');
             }
 

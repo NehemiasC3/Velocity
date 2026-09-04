@@ -317,3 +317,14 @@ export interface AnalyticsKPIs {
   total_tickets_month: number;
 }
 
+export interface UniversalSearchResults {
+  query: string;
+  cleanMac: string;
+  totalResults: number;
+  serialized: Array<SerializedItem & { product?: ProductCatalog; currentWarehouse?: Warehouse }>;
+  bulk: Array<BulkStock & { product?: ProductCatalog; warehouse?: Warehouse }>;
+  clients: WisproClient[];
+  transfers: Array<TransferOrder & { sourceWarehouse?: Warehouse; destinationWarehouse?: Warehouse; createdByUser?: User }>;
+  audit: Array<AuditLog & { user?: User; fromWarehouse?: Warehouse; toWarehouse?: Warehouse }>;
+}
+

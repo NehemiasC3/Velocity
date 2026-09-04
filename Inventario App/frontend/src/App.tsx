@@ -12,6 +12,7 @@ import { PersonnelMetricsModule } from './components/PersonnelMetricsModule';
 import { TechnicianMobileApp } from './components/TechnicianMobileApp';
 import { WisproModule } from './components/WisproModule';
 import { InventorySearch } from './components/InventorySearch';
+import { GlobalCommandPalette } from './components/GlobalCommandPalette';
 import { Login } from './components/Login';
 import { RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react';
 import { api } from './services/api';
@@ -75,6 +76,7 @@ const AppContent: React.FC = () => {
 
   const [auditInitialQuery, setAuditInitialQuery] = useState<string | undefined>(undefined);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
   // Escuchar cambios de parámetros y mensajes postMessage desde el padre (supervisor.html)
   useEffect(() => {
@@ -98,12 +100,24 @@ const AppContent: React.FC = () => {
       }
     };
 
+    const handleTogglePalette = () => {
+      setIsCommandPaletteOpen(prev => !prev);
+    };
+
+    const handleOpenPalette = () => {
+      setIsCommandPaletteOpen(true);
+    };
+
     window.addEventListener('popstate', handleUrlChange);
     window.addEventListener('message', handleMessage);
+    window.addEventListener('toggle-command-palette', handleTogglePalette);
+    window.addEventListener('open-command-palette', handleOpenPalette);
 
     return () => {
       window.removeEventListener('popstate', handleUrlChange);
       window.removeEventListener('message', handleMessage);
+      window.removeEventListener('toggle-command-palette', handleTogglePalette);
+      window.removeEventListener('open-command-palette', handleOpenPalette);
     };
   }, []);
 
@@ -183,12 +197,20 @@ const AppContent: React.FC = () => {
   return (
     <div className={`min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans transition-colors ${isEmbedded ? 'p-0 bg-transparent' : ''}`}>
       
+      {/* Global Command Palette (Ctrl+K / Cmd+K & Universal Search) */}
+      <GlobalCommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onNavigateTab={handleNavigateTab}
+      />
+
       {/* Top Header & Navbar (Oculto en modo embebido iframe) */}
       {!isEmbedded && (
         <Header 
           activeTab={activeTab} 
           setActiveTab={setActiveTab} 
-          onRefreshAll={handleRefreshAll} 
+          onRefreshAll={handleRefreshAll}
+          onOpenSearch={() => setIsCommandPaletteOpen(true)}
         />
       )}
 

@@ -8,6 +8,7 @@ import { WarehouseController } from '../controllers/warehouse.controller';
 import { InventoryController } from '../controllers/inventory.controller';
 import { TransferController } from '../controllers/transfer.controller';
 import { LiquidationController } from '../controllers/liquidation.controller';
+import { SearchController } from '../controllers/search.controller';
 import catalogRoutes from './catalog.routes';
 import transferRoutes from './transfer.routes';
 import liquidationRoutes from './liquidation.routes';
@@ -17,6 +18,11 @@ import analyticsRoutes from './analytics.routes';
 import authRoutes from './auth.routes';
 
 const router = Router();
+
+// ==========================================
+// 0. BÚSQUEDA UNIVERSAL GLOBAL (COMMAND PALETTE)
+// ==========================================
+router.get('/search/universal', authMiddleware, SearchController.universalSearch);
 
 // ==========================================
 // 1. AUTENTICACIÓN & USUARIOS (RBAC)

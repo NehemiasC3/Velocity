@@ -3,7 +3,7 @@ import {
   Package, AlertTriangle, Truck, ShieldAlert, 
   Search, ArrowRight, CheckCircle2, TrendingUp, RefreshCw,
   Building2, Radio, CheckSquare, Zap, PlusCircle, Award,
-  Flame, BarChart3, Clock, User, ShieldCheck
+  Flame, BarChart3, Clock, User, ShieldCheck, Camera
 } from 'lucide-react';
 import { api } from '../services/api';
 import { DashboardKPIs, AuditLog, AnalyticsKPIs } from '../types';
@@ -105,20 +105,36 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
             <span>🔄 Retiro RMA</span>
           </button>
 
-          <form onSubmit={handleSearchSubmit} className="w-full sm:w-72 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 flex items-center shadow-xs transition-all">
-            <Search className="w-4 h-4 text-slate-400 ml-2 mr-2 shrink-0" />
+          <form 
+            onSubmit={handleSearchSubmit} 
+            className="w-full sm:w-80 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-1 flex items-center shadow-xs transition-all focus-within:border-sky-500"
+          >
+            <Search className="w-4 h-4 text-sky-500 ml-2 mr-1.5 shrink-0" />
             <input
               type="text"
-              placeholder="Buscar MAC o Serial..."
+              placeholder="Buscar MAC, ONU, Cliente..."
               value={quickMacSearch}
               onChange={(e) => setQuickMacSearch(e.target.value)}
+              onClick={() => {
+                if (!quickMacSearch) {
+                  window.dispatchEvent(new CustomEvent('open-command-palette'));
+                }
+              }}
               className="bg-transparent text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none w-full font-mono"
             />
             <button
-              type="submit"
-              className="bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0 shadow-xs"
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-sky-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition mr-1"
+              title="Abrir Escáner de Cámara / Búsqueda Global (Ctrl+K)"
             >
-              Auditar
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="submit"
+              className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0 shadow-xs"
+            >
+              Buscar
             </button>
           </form>
         </div>

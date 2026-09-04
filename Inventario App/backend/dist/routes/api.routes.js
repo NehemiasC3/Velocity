@@ -13,6 +13,7 @@ const warehouse_controller_1 = require("../controllers/warehouse.controller");
 const inventory_controller_1 = require("../controllers/inventory.controller");
 const transfer_controller_1 = require("../controllers/transfer.controller");
 const liquidation_controller_1 = require("../controllers/liquidation.controller");
+const search_controller_1 = require("../controllers/search.controller");
 const catalog_routes_1 = __importDefault(require("./catalog.routes"));
 const transfer_routes_1 = __importDefault(require("./transfer.routes"));
 const liquidation_routes_1 = __importDefault(require("./liquidation.routes"));
@@ -21,6 +22,10 @@ const wispro_routes_1 = __importDefault(require("./wispro.routes"));
 const analytics_routes_1 = __importDefault(require("./analytics.routes"));
 const auth_routes_1 = __importDefault(require("./auth.routes"));
 const router = (0, express_1.Router)();
+// ==========================================
+// 0. BÚSQUEDA UNIVERSAL GLOBAL (COMMAND PALETTE)
+// ==========================================
+router.get('/search/universal', auth_middleware_1.authMiddleware, search_controller_1.SearchController.universalSearch);
 // ==========================================
 // 1. AUTENTICACIÓN & USUARIOS (RBAC)
 // ==========================================

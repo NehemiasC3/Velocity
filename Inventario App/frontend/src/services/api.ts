@@ -1,7 +1,8 @@
 import { 
   User, Warehouse, SerializedItem, BulkItem, BulkStock, 
   TransferOrder, InstallationTicket, AuditLog, WisproClient, 
-  DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs 
+  DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
+  UniversalSearchResults
 } from '../types';
 
 const API_BASE_URL = 
@@ -461,6 +462,15 @@ class ApiService {
     return this.request('/system/reset', {
       method: 'POST'
     });
+  }
+
+  // Universal Search
+  public async universalSearch(query: string, category: string = 'ALL'): Promise<UniversalSearchResults> {
+    const params = new URLSearchParams({
+      q: query,
+      category
+    });
+    return this.request<UniversalSearchResults>(`/search/universal?${params.toString()}`);
   }
 
   // Inventory Search

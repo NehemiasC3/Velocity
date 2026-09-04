@@ -11,9 +11,10 @@ interface HeaderProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   onRefreshAll: () => void;
+  onOpenSearch?: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefreshAll }) => {
+export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefreshAll, onOpenSearch }) => {
   const { currentUser, allUsers, switchUser, logout } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
@@ -126,6 +127,26 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
               <p className="text-xs text-slate-400 hidden sm:block">Control de Stock Central a Móvil + Wispro API</p>
             </div>
           </div>
+
+          {/* Universal Search Command Palette Trigger */}
+          <button
+            onClick={() => onOpenSearch ? onOpenSearch() : window.dispatchEvent(new CustomEvent('open-command-palette'))}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-750 border border-slate-700 hover:border-sky-500/50 text-slate-300 transition shadow-inner group max-w-xs w-full sm:w-auto"
+            title="Abrir Búsqueda Universal (Ctrl + K)"
+          >
+            <Search className="w-4 h-4 text-sky-400 group-hover:scale-110 transition" />
+            <span className="text-xs text-slate-400 group-hover:text-slate-200 hidden md:inline truncate">
+              Buscar MAC, ONU, Cliente...
+            </span>
+            <span className="text-xs text-slate-400 group-hover:text-slate-200 md:hidden">
+              Buscar...
+            </span>
+            <div className="hidden lg:flex items-center gap-1 ml-auto pl-2">
+              <kbd className="px-1.5 py-0.5 text-[10px] font-mono bg-slate-900 border border-slate-700 rounded text-slate-400">
+                Ctrl K
+              </kbd>
+            </div>
+          </button>
 
           {/* Quick RBAC Switcher & Actions */}
           <div className="flex items-center gap-2.5">

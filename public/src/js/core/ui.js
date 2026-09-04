@@ -290,6 +290,14 @@ window.showLoadingOverlay = function(message = 'Cargando...', isUpdate = false) 
         overlay.offsetWidth;
         overlay.classList.remove('opacity-0', 'pointer-events-none');
         overlay.classList.add('opacity-100');
+
+        // Safety fallback: nunca quedarse congelado más de 800ms en transiciones de sección
+        if (!isUpdate) {
+            if (window._loadingOverlaySafetyTimer) clearTimeout(window._loadingOverlaySafetyTimer);
+            window._loadingOverlaySafetyTimer = setTimeout(() => {
+                window.hideLoadingOverlay();
+            }, 800);
+        }
     }
 };
 
@@ -411,9 +419,14 @@ window.switchTab = function(tab, subTab = 'dashboard') {
     // 5. Section loader overlay
     window.showLoadingOverlay('Abriendo sección...');
     setTimeout(() => {
-        renderTab(tab, subTab);
-        window.hideLoadingOverlay();
-    }, 150);
+        try {
+            renderTab(tab, subTab);
+        } catch (err) {
+            console.error('[Velocity UI] Error al renderizar sección:', err);
+        } finally {
+            window.hideLoadingOverlay();
+        }
+    }, 100);
 }
 
 /**
@@ -437,7 +450,7 @@ function renderTab(tab, subTab) {
     const el = document.getElementById('main-content');
     if (!el) return;
 
-    // ── INTEGRACIÓN DINÁMICA DE REACT (PUERTO 5173) PARA INVENTARIO ──
+    // ── INTEGRACIÓN DINÁMICA DE REACT PARA INVENTARIO (HUB & SPOKE) ──
     if (tab === 'inventory') {
         const sub = subTab || 'dashboard';
         const tabMap = {
@@ -455,10 +468,12 @@ function renderTab(tab, subTab) {
             'auditorias': 'audit',
             'audit': 'audit'
         };
+        const canonicalTab = tabMap[sub] || 'dashboard';
         const timestamp = Date.now();
-        // En producción o modo servido usamos la ruta relativa '/' servida por Nginx/Node; en dev local opcionalmente puerto 5173
+        
+        // En producción y desarrollo la app de inventario está montada en /inventory/
         const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
-        const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '';
+        const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '/inventory';
         const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&t=${timestamp}`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');

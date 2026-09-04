@@ -538,93 +538,7 @@
             </div>
         </div>
     </div>
-    <!-- New User Modal -->
-    <div id="new-user-modal" class="hidden fixed inset-0 z-[100] bg-on-surface/50 backdrop-blur-sm flex items-center justify-center p-4 opacity-0 transition-opacity duration-300 pointer-events-none">
-        <div class="bg-surface-container-lowest w-full max-w-md rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col scale-95 transition-transform duration-300 transform pointer-events-auto">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-surface-container-highest">
-                <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-secondary">person_add</span>
-                    <h3 class="font-bold text-on-surface text-lg Inter">Crear Nuevo Acceso</h3>
-                </div>
-                <button onclick="window.closeNewUserModal()" class="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-error-container/30 flex items-center justify-center active:scale-95">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
-            </div>
-            <form id="form-new-user" onsubmit="window.createNewUser(event)" class="p-6 space-y-4">
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Nombre Completo</label>
-                    <input type="text" id="nu-name" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors" placeholder="Ej. Juan Pérez">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Correo Electrónico (Login)</label>
-                    <input type="email" id="nu-email" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors" placeholder="juan@wispro.co">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Contraseña Temporal</label>
-                    <input type="password" id="nu-pass" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Jerarquía de Rol</label>
-                    <select id="nu-role" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface-variant transition-colors">
-                        <option value="technician">Técnico Operativo (Flota)</option>
-                        <option value="supervisor">Supervisor Administrativo</option>
-                    </select>
-                </div>
-                <div class="pt-2">
-                    <button type="submit" class="w-full kinetic-gradient py-3 rounded-xl text-white font-bold text-sm tracking-wide shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2">
-                        Autorizar Perfil
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
-    <!-- Edit User Modal -->
-    <div id="edit-user-modal" class="hidden fixed inset-0 z-[100] bg-on-surface/50 backdrop-blur-sm flex items-center justify-center p-4 opacity-0 transition-opacity duration-300 pointer-events-none">
-        <div class="bg-surface-container-lowest w-full max-w-md rounded-[1.5rem] shadow-2xl overflow-hidden flex flex-col scale-95 transition-transform duration-300 transform pointer-events-auto">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-surface-container-highest">
-                <div class="flex items-center gap-2">
-                    <span class="material-symbols-outlined text-secondary">edit_document</span>
-                    <h3 class="font-bold text-on-surface text-lg Inter">Editar Pre-Perfil</h3>
-                </div>
-                <button onclick="window.closeEditUserModal()" class="text-on-surface-variant hover:text-error transition-colors p-2 rounded-full hover:bg-error-container/30 flex items-center justify-center active:scale-95">
-                    <span class="material-symbols-outlined">close</span>
-                </button>
-            </div>
-            <form id="form-edit-user" onsubmit="window.saveEditedUser(event)" class="p-6 space-y-4">
-                <input type="hidden" id="eu-original-id">
-                <input type="hidden" id="eu-original-role">
-                
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Nombre Completo</label>
-                    <input type="text" id="eu-name" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors" placeholder="Ej. Juan Pérez">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Correo Electrónico (Login)</label>
-                    <input type="email" id="eu-email" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors" placeholder="juan@wispro.co">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Contraseña Temporal</label>
-                    <input type="text" id="eu-pass" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface transition-colors">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-on-surface-variant ml-1">Jerarquía de Rol</label>
-                    <select id="eu-role" required class="w-full bg-surface-container border border-outline-variant/30 focus:border-secondary focus:ring-1 focus:ring-secondary rounded-xl px-4 py-2 mt-1 text-sm text-on-surface-variant transition-colors">
-                        <option value="technician">Técnico Operativo (Flota)</option>
-                        <option value="supervisor">Supervisor Administrativo</option>
-                    </select>
-                </div>
-                <div class="pt-2 flex gap-2">
-                    <button type="submit" class="flex-1 kinetic-gradient py-3 rounded-xl text-white font-bold text-sm tracking-wide shadow-md transition-transform active:scale-95 flex items-center justify-center gap-2">
-                        Guardar Cambios
-                    </button>
-                    <button type="button" onclick="window.closeEditUserModal()" class="px-5 border border-outline-variant/30 py-3 rounded-xl text-on-surface font-bold text-sm tracking-wide transition-colors hover:bg-surface-container-low active:scale-95 flex items-center justify-center">
-                        Cancelar
-                    </button>
-                </div>
-            </form>
-        </div>
-    </div>
+
 
     <!-- NAP Assignment Modal -->
     <div id="nap-modal" class="hidden fixed inset-0 z-[110] bg-on-surface/50 backdrop-blur-sm flex items-center justify-center p-4 opacity-0 transition-opacity duration-300 pointer-events-none">
@@ -703,55 +617,222 @@
         </div>
     </div>
 
-    <!-- Modal Gestión de Usuarios (siempre en DOM) -->
-    <div id="user-modal" class="hidden fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4" onclick="if(event.target===this)window.closeUserModal()">
-        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
-            <div class="flex justify-between items-center px-6 py-4 border-b border-gray-100">
-                <h3 id="user-modal-title" class="font-black text-gray-900 text-lg">Nueva Cuenta</h3>
-                <button onclick="window.closeUserModal()" class="p-2 rounded-full hover:bg-gray-100 text-gray-400 transition-colors">
-                    <span class="material-symbols-outlined">close</span>
+    <!-- Modal Gestión de Usuarios (Diseño Wispro White) -->
+    <div id="user-modal" class="hidden fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onclick="if(event.target===this)window.closeUserModal()">
+        <div class="bg-white w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden border border-outline-variant/20 animate-scale-up">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-outline-variant/10 bg-surface-container-low/50">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary">
+                        <span class="material-symbols-outlined text-xl" id="user-modal-icon">person</span>
+                    </div>
+                    <div>
+                        <h3 id="user-modal-title" class="font-bold text-on-surface text-base">Nueva Cuenta</h3>
+                        <p class="text-[11px] text-on-surface-variant">Configura el perfil, rol y acceso en Velocity.</p>
+                    </div>
+                </div>
+                <button onclick="window.closeUserModal()" class="p-2 rounded-xl hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
-            <form id="user-form" onsubmit="window.saveUser(event)" class="p-6 space-y-4">
+
+            <form id="user-form" onsubmit="window.saveUser(event)" class="p-6 space-y-4 max-h-[78vh] overflow-y-auto">
                 <input type="hidden" id="u-id">
                 <input type="hidden" id="u-original-role">
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Nombre Completo</label>
-                    <input type="text" id="u-name" required placeholder="Ej. Luis David Pérez"
-                        class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors">
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <!-- Nombre Completo -->
+                    <div class="sm:col-span-2">
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Nombre Completo *</label>
+                        <div class="relative">
+                            <input type="text" id="u-name" required placeholder="Ej. Luis David Pérez"
+                                class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10">
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">badge</span>
+                        </div>
+                    </div>
+
+                    <!-- Correo Electrónico -->
+                    <div>
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Correo Electrónico (Login) *</label>
+                        <div class="relative">
+                            <input type="email" id="u-email" required placeholder="usuario@atg-rappido.com"
+                                class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10">
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">mail</span>
+                        </div>
+                    </div>
+
+                    <!-- Teléfono / WhatsApp -->
+                    <div>
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Teléfono / WhatsApp</label>
+                        <div class="relative">
+                            <input type="tel" id="u-phone" placeholder="Ej. +507 6890-1234"
+                                class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10">
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">call</span>
+                        </div>
+                    </div>
+
+                    <!-- Rol del Sistema (RBAC) -->
+                    <div>
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Rol y Nivel de Acceso *</label>
+                        <div class="relative">
+                            <select id="u-role" onchange="window.handleUserRoleChange()" required class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-bold text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10 appearance-none">
+                                <option value="technician">🔧 Técnico Operativo</option>
+                                <option value="supervisor">👔 Supervisor de Campo / NOC</option>
+                                <option value="bodeguero">📦 Bodeguero / Almacén</option>
+                                <option value="admin">👑 Administrador / Gerente</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">shield_person</span>
+                            <span class="material-symbols-outlined absolute right-3 top-2.5 text-on-surface-variant text-base pointer-events-none">expand_more</span>
+                        </div>
+                    </div>
+
+                    <!-- Bodega Vehicular Asignada -->
+                    <div id="u-warehouse-container">
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Bodega / Camioneta Móvil</label>
+                        <div class="relative">
+                            <select id="u-warehouse" class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-bold text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10 appearance-none">
+                                <option value="">-- Sin Bodega Asignada --</option>
+                                <option value="Bodega Central">🏢 Bodega Central (Platanilla)</option>
+                                <option value="Bodega Secundaria">🏢 Bodega Secundaria (Metetí)</option>
+                                <option value="Móvil 01">🚐 Camioneta #01</option>
+                                <option value="Móvil 02">🚐 Camioneta #02</option>
+                                <option value="Móvil 03">🚐 Camioneta #03</option>
+                                <option value="Móvil 04">🚐 Camioneta #04</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">local_shipping</span>
+                            <span class="material-symbols-outlined absolute right-3 top-2.5 text-on-surface-variant text-base pointer-events-none">expand_more</span>
+                        </div>
+                    </div>
+
+                    <!-- ID de Empleado en Wispro -->
+                    <div>
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">ID en Wispro Cloud (Opcional)</label>
+                        <div class="relative">
+                            <input type="text" id="u-wispro-id" placeholder="Ej. 18293"
+                                class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10">
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">cloud_sync</span>
+                        </div>
+                    </div>
+
+                    <!-- Estado de la Cuenta -->
+                    <div>
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant block mb-1">Estado de Acceso</label>
+                        <div class="relative">
+                            <select id="u-status" class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-bold text-on-surface focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-10 appearance-none">
+                                <option value="active">✅ Activo (Con Acceso)</option>
+                                <option value="disabled">🚫 Inactivo / Bloqueado</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">toggle_on</span>
+                            <span class="material-symbols-outlined absolute right-3 top-2.5 text-on-surface-variant text-base pointer-events-none">expand_more</span>
+                        </div>
+                    </div>
                 </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Correo Electrónico</label>
-                    <input type="email" id="u-email" required placeholder="usuario@empresa.com"
-                        class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors">
-                </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Contraseña</label>
-                    <div class="relative mt-1">
-                        <input type="password" id="u-pass" placeholder="Mínimo 6 caracteres"
-                            class="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors pr-10">
-                        <button type="button" onclick="window.togglePassVis('u-pass')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                            <span class="material-symbols-outlined text-[18px]">visibility</span>
+
+                <!-- Contraseña -->
+                <div class="p-4 rounded-xl bg-surface-container-low/60 border border-outline-variant/20 space-y-2">
+                    <div class="flex justify-between items-center">
+                        <label class="text-[10px] uppercase tracking-wider font-bold text-on-surface-variant">Contraseña de Acceso</label>
+                        <button type="button" onclick="window.generateRandomPassword()" class="text-[11px] font-bold text-secondary hover:underline flex items-center gap-1">
+                            <span class="material-symbols-outlined text-xs">key</span> Generar Segura
                         </button>
                     </div>
-                    <p id="u-pass-hint" class="text-[10px] text-gray-400 mt-1 ml-1">Mínimo 6 caracteres</p>
+                    <div class="relative">
+                        <input type="password" id="u-pass" placeholder="Mínimo 6 caracteres"
+                            class="w-full bg-white border border-outline-variant/30 rounded-xl px-4 py-2.5 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pr-10">
+                        <button type="button" onclick="window.togglePassVis('u-pass')" class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface">
+                            <span class="material-symbols-outlined text-base">visibility</span>
+                        </button>
+                    </div>
+                    <p id="u-pass-hint" class="text-[10px] text-on-surface-variant">Mínimo 6 caracteres</p>
                 </div>
-                <div>
-                    <label class="text-[10px] uppercase tracking-widest font-bold text-gray-500 ml-1">Rol</label>
-                    <select id="u-role" required class="w-full mt-1 border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors">
-                        <option value="technician">Técnico Operativo</option>
-                        <option value="supervisor">Supervisor</option>
-                    </select>
-                </div>
-                <div class="flex gap-3 pt-2">
-                    <button type="submit" class="flex-1 py-3 rounded-xl text-white font-bold text-sm active:scale-95 transition-transform" style="background:linear-gradient(135deg,#0059bb,#0070ea);">
-                        Guardar
+
+                <!-- Botones de Acción del Modal -->
+                <div class="flex items-center justify-between gap-3 pt-3 border-t border-outline-variant/10">
+                    <button type="button" id="u-btn-delete" onclick="window.triggerDeleteFromModal()" class="hidden px-4 py-2.5 rounded-xl border border-error/30 text-error hover:bg-error/5 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all">
+                        <span class="material-symbols-outlined text-sm">delete</span>
+                        <span>Eliminar</span>
                     </button>
-                    <button type="button" onclick="window.closeUserModal()" class="px-5 border border-gray-200 py-3 rounded-xl font-bold text-sm text-gray-600 hover:bg-gray-50 active:scale-95">
-                        Cancelar
-                    </button>
+                    <div class="flex items-center gap-2 ml-auto">
+                        <button type="button" onclick="window.closeUserModal()" class="px-5 py-2.5 border border-outline-variant/30 rounded-xl font-bold text-xs text-on-surface-variant hover:bg-surface-container-low active:scale-95 transition-all">
+                            Cancelar
+                        </button>
+                        <button type="submit" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                            <span class="material-symbols-outlined text-sm">save</span>
+                            <span>Guardar Cuenta</span>
+                        </button>
+                    </div>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Modal de Sincronización Inteligente de Wispro -->
+    <div id="wispro-sync-modal" class="hidden fixed inset-0 z-[200] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in" onclick="if(event.target===this)window.closeWisproSyncModal()">
+        <div class="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden border border-outline-variant/20 animate-scale-up flex flex-col max-h-[85vh]">
+            <div class="flex justify-between items-center px-6 py-4 border-b border-outline-variant/10 bg-surface-container-low/50">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-secondary/10 flex items-center justify-center text-secondary">
+                        <span class="material-symbols-outlined text-xl">cloud_sync</span>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-on-surface text-base">Importación Inteligente desde Wispro</h3>
+                        <p class="text-[11px] text-on-surface-variant">Selecciona exactamente qué técnicos o personal importar a Velocity.</p>
+                    </div>
+                </div>
+                <button onclick="window.closeWisproSyncModal()" class="p-2 rounded-xl hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <div class="p-4 bg-surface-container-lowest border-b border-outline-variant/10 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <input type="checkbox" id="sync-select-all" onchange="window.toggleAllWisproSync(this.checked)" checked class="w-4 h-4 accent-secondary rounded cursor-pointer">
+                    <label for="sync-select-all" class="text-xs font-bold text-on-surface cursor-pointer">Seleccionar Todos</label>
+                </div>
+                <span id="sync-selected-count" class="text-xs font-bold text-secondary bg-secondary/10 px-3 py-1 rounded-full">0 seleccionados</span>
+            </div>
+
+            <div class="p-4 overflow-y-auto flex-1 space-y-2" id="wispro-sync-list">
+                <!-- Se llena dinámicamente con las filas de técnicos de Wispro -->
+            </div>
+
+            <div class="p-4 border-t border-outline-variant/10 bg-surface-container-low/30 flex items-center justify-between gap-3">
+                <p class="text-[11px] text-on-surface-variant">Contraseña inicial por defecto: <code class="font-mono bg-surface-container px-1.5 py-0.5 rounded text-xs font-bold text-on-surface">Velocity2024</code></p>
+                <div class="flex items-center gap-2">
+                    <button onclick="window.closeWisproSyncModal()" class="px-5 py-2.5 border border-outline-variant/30 rounded-xl font-bold text-xs text-on-surface-variant hover:bg-surface-container-low active:scale-95 transition-all">
+                        Cancelar
+                    </button>
+                    <button onclick="window.executeWisproSync()" id="btn-execute-sync" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                        <span class="material-symbols-outlined text-sm">download</span>
+                        <span>Importar Seleccionados</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Confirmación de Eliminación -->
+    <div id="delete-user-modal" class="hidden fixed inset-0 z-[300] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-outline-variant/20 animate-scale-up">
+            <div class="p-6 text-center space-y-4">
+                <div class="w-14 h-14 rounded-full bg-error-container/30 flex items-center justify-center mx-auto text-error">
+                    <span class="material-symbols-outlined text-3xl">person_remove</span>
+                </div>
+                <div>
+                    <h3 class="font-bold text-on-surface text-base">¿Eliminar cuenta de usuario?</h3>
+                    <p class="text-xs text-on-surface-variant mt-1" id="delete-user-name">Esta acción eliminará el acceso de forma permanente.</p>
+                </div>
+                <div class="p-3 bg-red-50 rounded-xl border border-red-100 text-[11px] text-red-700 font-medium text-left">
+                    ⚠️ La cuenta ya no podrá iniciar sesión en Velocity Supervisor ni en la App de Técnicos.
+                </div>
+                <div class="flex gap-2 pt-2">
+                    <button onclick="document.getElementById('delete-user-modal').classList.add('hidden')" class="flex-1 py-2.5 border border-outline-variant/30 rounded-xl text-xs font-bold text-on-surface-variant hover:bg-surface-container-low transition-colors">
+                        Cancelar
+                    </button>
+                    <button onclick="window.confirmDeleteUser()" class="flex-1 py-2.5 bg-error text-white rounded-xl text-xs font-bold hover:bg-error/90 active:scale-95 transition-transform shadow-2xs">
+                        Sí, Eliminar
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -885,12 +966,12 @@
 
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="../src/js/config.js?v=2.1.0"></script>
-    <script src="../src/js/core/state.js?v=2.1.0"></script>
-    <script src="../src/js/core/api.js?v=2.1.0"></script>
-    <script src="../src/js/core/ui.js?v=2.1.0"></script>
-    <script src="../src/js/core/universalSearch.js?v=2.1.0"></script>
-    <script src="../src/js/supervisor.js?v=2.1.0"></script>
+    <script src="../src/js/config.js?v=2.2.0"></script>
+    <script src="../src/js/core/state.js?v=2.2.0"></script>
+    <script src="../src/js/core/api.js?v=2.2.0"></script>
+    <script src="../src/js/core/ui.js?v=2.2.0"></script>
+    <script src="../src/js/core/universalSearch.js?v=2.2.0"></script>
+    <script src="../src/js/supervisor.js?v=2.2.0"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {

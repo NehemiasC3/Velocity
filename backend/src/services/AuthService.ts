@@ -22,12 +22,12 @@ export class AuthService {
 
     // 1. Buscar en supervisores
     let user: any = db.supervisors.find((u) => u.email.toLowerCase() === cleanEmail);
-    let role: 'supervisor' | 'technician' = 'supervisor';
+    let role: any = user?.role || 'supervisor';
 
     // 2. Buscar en técnicos
     if (!user) {
       user = db.technicians.find((u) => u.email.toLowerCase() === cleanEmail);
-      role = 'technician';
+      role = user?.role || 'technician';
     }
 
     if (!user || !user.password) {
@@ -42,6 +42,10 @@ export class AuthService {
     if (user.disabled) {
       throw new Error('Cuenta desactivada. Contacte a su supervisor.');
     }
+
+    // Registrar último inicio de sesión
+    user.lastLogin = new Date().toISOString();
+    dbService.persistDB();
 
     const tokenPayload: TokenPayload = {
       userId: user.id,

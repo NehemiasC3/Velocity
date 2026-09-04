@@ -1,19 +1,26 @@
-export interface SupervisorUser {
+export type UserRole = 'admin' | 'supervisor' | 'bodeguero' | 'technician';
+
+export interface BaseUser {
   id: string;
   name: string;
   email: string;
   password?: string;
-  role: 'supervisor';
+  role: UserRole;
+  phone?: string;
+  warehouseId?: string;
+  warehouseName?: string;
+  wisproId?: string;
+  lastLogin?: string;
   disabled?: boolean;
 }
 
-export interface TechnicianUser {
-  id: string;
-  name: string;
-  email: string;
-  password?: string;
-  role: 'technician';
-  disabled?: boolean;
+export interface SupervisorUser extends BaseUser {
+  role: 'admin' | 'supervisor';
+}
+
+export interface TechnicianUser extends BaseUser {
+  role: 'technician' | 'bodeguero';
+  status?: string;
 }
 
 export interface NapOverride {

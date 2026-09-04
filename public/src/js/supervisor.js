@@ -5662,97 +5662,296 @@ window.viewNapClients = async function(localId, napName) {
 
 
 
-// ── CUENTAS ───────────────────────────────────────────────────────────────
+// ── CUENTAS (RBAC, CUADRILLAS & VINCULACIÓN WISPRO) ─────────────────────────
 Views.users = () => {
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    const supervisors = db.supervisors || [];
-    const technicians = db.technicians || [];
+    const supervisors = (db.supervisors || []).map(s => ({ ...s, role: s.role || 'supervisor' }));
+    const technicians = (db.technicians || []).map(t => ({ ...t, role: t.role || 'technician' }));
+    
+    // Lista unificada
+    const allUsers = [...supervisors, ...technicians];
+    
+    // Sub-pestaña y búsqueda activa
+    const activeSubTab = state.userTab || 'all';
+    const searchQuery = (state.userSearch || '').toLowerCase().trim();
 
-    const supRows = supervisors.map(s => `
-        <div class="flex items-center justify-between p-4 bg-surface-container rounded-xl">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-secondary/10 flex items-center justify-center">
-                    <span class="material-symbols-outlined text-secondary text-xl" style="font-variation-settings:'FILL' 1;">admin_panel_settings</span>
-                </div>
-                <div>
-                    <p class="font-bold text-on-surface text-sm">${s.name}</p>
-                    <p class="text-xs text-on-surface-variant">${s.email}</p>
-                </div>
-            </div>
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold px-2 py-1 rounded-full ${s.disabled ? 'bg-error-container text-error' : 'bg-tertiary-fixed-dim/30 text-on-tertiary-container'}">
-                    ${s.disabled ? 'Inactivo' : 'Activo'}
-                </span>
-                <button onclick="window.openEditUser('${s.id}','supervisor')" class="p-2 rounded-lg hover:bg-surface-container-high text-secondary transition-colors" title="Editar">
-                    <span class="material-symbols-outlined text-sm">edit</span>
-                </button>
-                <button onclick="window.toggleUserStatus('${s.id}','supervisor')" class="p-2 rounded-lg hover:bg-surface-container-high transition-colors ${s.disabled ? 'text-on-tertiary-container' : 'text-error'}" title="${s.disabled ? 'Activar' : 'Desactivar'}">
-                    <span class="material-symbols-outlined text-sm">${s.disabled ? 'toggle_off' : 'toggle_on'}</span>
-                </button>
-            </div>
-        </div>`).join('');
+    // Métricas para los KPIs
+    const totalUsers = allUsers.length;
+    const adminSupCount = allUsers.filter(u => u.role === 'admin' || u.role === 'supervisor').length;
+    const techCount = allUsers.filter(u => u.role === 'technician').length;
+    const bodegueroCount = allUsers.filter(u => u.role === 'bodeguero').length;
+    const disabledCount = allUsers.filter(u => u.disabled).length;
+    
+    // Técnicos online
+    const onlineTechsCount = technicians.filter(t => isTechOnline(t.id) || isTechOnline(t.name)).length;
 
-    const techRows = technicians.map(t => {
-        const online = isTechOnline(t.id);
+    // Filtrar por sub-pestaña
+    let filtered = allUsers.filter(u => {
+        if (activeSubTab === 'admins_supervisors') return u.role === 'admin' || u.role === 'supervisor';
+        if (activeSubTab === 'technicians') return u.role === 'technician';
+        if (activeSubTab === 'bodegueros') return u.role === 'bodeguero';
+        if (activeSubTab === 'inactive') return !!u.disabled;
+        return true;
+    });
+
+    // Filtrar por término de búsqueda
+    if (searchQuery) {
+        filtered = filtered.filter(u => {
+            const nameMatch = (u.name || '').toLowerCase().includes(searchQuery);
+            const emailMatch = (u.email || '').toLowerCase().includes(searchQuery);
+            const phoneMatch = (u.phone || '').toLowerCase().includes(searchQuery);
+            const whMatch = (u.warehouseName || u.warehouseId || '').toLowerCase().includes(searchQuery);
+            const wisMatch = (String(u.wisproId || '')).toLowerCase().includes(searchQuery);
+            return nameMatch || emailMatch || phoneMatch || whMatch || wisMatch;
+        });
+    }
+
+    // Generador de Tarjetas de Usuario
+    const userCards = filtered.map(u => {
+        const isSupervisorOrAdmin = u.role === 'admin' || u.role === 'supervisor';
+        const isBodeguero = u.role === 'bodeguero';
+        const isTech = u.role === 'technician';
+        
+        // Estado de Conexión
+        const online = isTechOnline(u.id) || isTechOnline(u.name);
+        const hasActiveOrder = state.activeTracking && (state.activeTracking[u.id] || Object.values(state.activeTracking).some(t => String(t.empId) === String(u.id)));
+
+        // Colores y Badges de Rol
+        let roleBadge = '';
+        let roleIcon = 'person';
+        let avatarBg = '#0059bb';
+
+        if (u.role === 'admin') {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80 flex items-center gap-1">👑 Administrador</span>';
+            roleIcon = 'admin_panel_settings';
+            avatarBg = '#7c3aed';
+        } else if (u.role === 'supervisor') {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 flex items-center gap-1">👔 Supervisor</span>';
+            roleIcon = 'shield_person';
+            avatarBg = '#0059bb';
+        } else if (u.role === 'bodeguero') {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/80 flex items-center gap-1">📦 Bodeguero</span>';
+            roleIcon = 'inventory_2';
+            avatarBg = '#d97706';
+        } else {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/80 flex items-center gap-1">🔧 Técnico</span>';
+            roleIcon = 'engineering';
+            avatarBg = techColor(u.name);
+        }
+
+        // Estado Operativo
+        let statusPill = '';
+        if (u.disabled) {
+            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Inactivo</span>';
+        } else if (isTech) {
+            if (hasActiveOrder) {
+                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>En Ruta</span>';
+            } else if (online) {
+                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]"></span>Online (App)</span>';
+            } else {
+                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant border border-outline-variant/20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>Desconectado</span>';
+            }
+        } else {
+            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Habilitado</span>';
+        }
+
+        const safeName = (u.name || '').replace(/'/g, "\\'");
+        const safeId = String(u.id || u.email);
+        const warehouseLabel = u.warehouseName || u.warehouseId || (isTech ? 'Sin camioneta asignada' : '');
+
         return `
-        <div class="flex items-center justify-between p-4 bg-surface-container rounded-xl">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-white text-sm font-black" style="background:${techColor(t.name)};">
-                    ${techInitials(t.name)}
-                </div>
-                <div>
-                    <div class="flex items-center gap-2">
-                        <p class="font-bold text-on-surface text-sm">${t.name}</p>
-                        <span class="w-2 h-2 rounded-full ${online ? 'bg-emerald-500 shadow-[0_0_5px_#10b981]' : 'bg-outline-variant'}"></span>
+        <div class="bg-white rounded-2xl border border-outline-variant/20 p-5 shadow-2xs hover:shadow-xs transition-all flex flex-col justify-between gap-4 group">
+            <!-- Header Card: Avatar, Nombres, Rol -->
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                    <div class="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-black shrink-0 shadow-2xs relative" style="background: ${avatarBg};">
+                        ${techInitials(u.name)}
+                        ${online && isTech ? '<span class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-[0_0_6px_#10b981]"></span>' : ''}
                     </div>
-                    <p class="text-xs text-on-surface-variant">${t.email}</p>
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h4 class="font-bold text-on-surface text-sm truncate">${u.name}</h4>
+                            ${roleBadge}
+                        </div>
+                        <p class="text-xs text-on-surface-variant truncate mt-0.5">${u.email}</p>
+                    </div>
+                </div>
+                <div class="shrink-0">
+                    ${statusPill}
                 </div>
             </div>
-            <div class="flex items-center gap-2">
-                <span class="text-[10px] font-bold px-2 py-1 rounded-full ${t.disabled ? 'bg-error-container text-error' : 'bg-tertiary-fixed-dim/30 text-on-tertiary-container'}">
-                    ${t.disabled ? 'Inactivo' : 'Activo'}
-                </span>
-                <button onclick="window.openEditUser('${t.id}','technician')" class="p-2 rounded-lg hover:bg-surface-container-high text-secondary transition-colors" title="Editar">
-                    <span class="material-symbols-outlined text-sm">edit</span>
-                </button>
-                <button onclick="window.toggleUserStatus('${t.id}','technician')" class="p-2 rounded-lg hover:bg-surface-container-high transition-colors ${t.disabled ? 'text-on-tertiary-container' : 'text-error'}" title="${t.disabled ? 'Activar' : 'Desactivar'}">
-                    <span class="material-symbols-outlined text-sm">${t.disabled ? 'toggle_off' : 'toggle_on'}</span>
+
+            <!-- Detalles: Bodega Vehicular, Wispro ID, Teléfono -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-outline-variant/10 text-[11px]">
+                <div class="flex items-center gap-1.5 text-on-surface-variant">
+                    <span class="material-symbols-outlined text-[15px] text-secondary">local_shipping</span>
+                    <span class="truncate font-semibold">${warehouseLabel ? warehouseLabel : 'Acceso administrativo'}</span>
+                </div>
+                ${u.phone ? `
+                <a href="tel:${u.phone}" class="flex items-center gap-1.5 text-on-surface-variant hover:text-secondary transition-colors">
+                    <span class="material-symbols-outlined text-[15px] text-emerald-600">call</span>
+                    <span class="font-semibold">${u.phone}</span>
+                </a>` : `
+                <div class="flex items-center gap-1.5 text-on-surface-variant/60">
+                    <span class="material-symbols-outlined text-[15px]">call</span>
+                    <span>Sin teléfono</span>
+                </div>`}
+                ${u.wisproId ? `
+                <div class="flex items-center gap-1.5 text-on-surface-variant">
+                    <span class="material-symbols-outlined text-[15px] text-blue-600">cloud_done</span>
+                    <span>Wispro ID: <strong class="text-on-surface">${u.wisproId}</strong></span>
+                </div>` : ''}
+                ${u.lastLogin ? `
+                <div class="flex items-center gap-1.5 text-on-surface-variant">
+                    <span class="material-symbols-outlined text-[15px] text-on-surface-variant">schedule</span>
+                    <span>Último: ${new Date(u.lastLogin).toLocaleDateString('es-PA', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</span>
+                </div>` : ''}
+            </div>
+
+            <!-- Acciones Rápidas -->
+            <div class="flex items-center justify-between pt-2 border-t border-outline-variant/10">
+                <div class="flex items-center gap-1">
+                    <button onclick="window.openEditUser('${safeId}','${u.role}')" class="px-3 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container text-secondary font-bold text-xs flex items-center gap-1 transition-colors" title="Editar Perfil y Rol">
+                        <span class="material-symbols-outlined text-[14px]">edit</span>
+                        <span>Editar</span>
+                    </button>
+                    <button onclick="window.resetUserPassword('${safeId}','${u.role}','${safeName}')" class="px-2.5 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface-variant hover:text-secondary text-xs flex items-center gap-1 transition-colors" title="Restablecer Contraseña">
+                        <span class="material-symbols-outlined text-[14px]">key</span>
+                    </button>
+                    <button onclick="window.toggleUserStatus('${safeId}','${u.role}')" class="px-2.5 py-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container ${u.disabled ? 'text-emerald-600' : 'text-amber-600'} text-xs flex items-center gap-1 transition-colors" title="${u.disabled ? 'Habilitar Cuenta' : 'Suspender Acceso'}">
+                        <span class="material-symbols-outlined text-[14px]">${u.disabled ? 'check_circle' : 'block'}</span>
+                    </button>
+                </div>
+
+                <button onclick="window.deleteUser('${safeId}','${u.role}','${safeName}')" class="p-1.5 rounded-lg text-outline-variant hover:text-error hover:bg-error/5 transition-colors" title="Eliminar Cuenta Definitivamente">
+                    <span class="material-symbols-outlined text-base">delete</span>
                 </button>
             </div>
         </div>`;
     }).join('');
 
     return `
-    <div class="space-y-6 max-w-2xl">
-        <div class="flex items-center justify-between">
-            <h2 class="text-2xl font-extrabold text-on-surface">Gestión de Cuentas</h2>
-            <div class="flex items-center gap-3">
-                <button onclick="window.deleteInactiveUsers()" class="border border-error/50 text-error hover:bg-error/5 px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-colors">
-                    <span class="material-symbols-outlined text-sm">person_remove</span> Eliminar Inactivos
+    <div class="space-y-6 max-w-6xl pb-12 animate-fade-in">
+        <!-- HEADER PRINCIPAL -->
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+                <h2 class="text-xl font-bold text-on-surface tracking-tight flex items-center gap-2">
+                    <span class="material-symbols-outlined text-secondary text-2xl">manage_accounts</span>
+                    <span>Gestión de Cuentas y Personal</span>
+                </h2>
+                <p class="text-xs text-on-surface-variant mt-0.5">Control de accesos RBAC, cuadrillas operativas, bodegas vehiculares y sincronización con Wispro.</p>
+            </div>
+
+            <!-- Botones de Acción Global -->
+            <div class="flex flex-wrap items-center gap-2.5">
+                <button onclick="window.deleteInactiveUsers()" class="px-3.5 py-2 rounded-xl border border-error/30 text-error hover:bg-error/5 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Eliminar cuentas inactivas o fuera de la flota">
+                    <span class="material-symbols-outlined text-sm">person_remove</span>
+                    <span>Limpiar Inactivos</span>
                 </button>
-                <button onclick="window.autoSyncTechs()" class="border border-outline-variant/50 text-secondary hover:bg-surface-container-low px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-colors">
-                    <span class="material-symbols-outlined text-sm">cloud_sync</span> Importar Wispro
+                <button onclick="window.openWisproSyncModal()" class="px-3.5 py-2 rounded-xl border border-secondary/30 bg-secondary/5 text-secondary hover:bg-secondary/10 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Sincronizar técnicos seleccionados desde Wispro">
+                    <span class="material-symbols-outlined text-sm">cloud_sync</span>
+                    <span>Sincronizar Wispro</span>
                 </button>
-                <button onclick="window.openNewUser()" class="kinetic-gradient text-white px-4 py-2.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-transform shadow-sm">
-                    <span class="material-symbols-outlined text-sm">person_add</span> Nueva Cuenta
+                <button onclick="window.openNewUser()" class="bg-secondary text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                    <span class="material-symbols-outlined text-sm">person_add</span>
+                    <span>Nueva Cuenta</span>
                 </button>
             </div>
         </div>
 
-        <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 space-y-3">
-            <p class="text-[10px] font-bold uppercase tracking-widest text-secondary flex items-center gap-1.5">
-                <span class="material-symbols-outlined text-[14px]">admin_panel_settings</span> Supervisores
-            </p>
-            ${supRows || '<p class="text-sm text-on-surface-variant py-2">Sin supervisores registrados</p>'}
+        <!-- KPI SUMMARY CARDS -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+            <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-xl">admin_panel_settings</span>
+                </div>
+                <div>
+                    <span class="text-lg font-black text-on-surface leading-none">${adminSupCount}</span>
+                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">NOC / Supervisores</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-xl">engineering</span>
+                </div>
+                <div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-lg font-black text-on-surface leading-none">${techCount}</span>
+                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded-full">${onlineTechsCount} online</span>
+                    </div>
+                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Técnicos Campo</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-xl">inventory_2</span>
+                </div>
+                <div>
+                    <span class="text-lg font-black text-on-surface leading-none">${bodegueroCount}</span>
+                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Bodegueros</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                    <span class="material-symbols-outlined text-xl">block</span>
+                </div>
+                <div>
+                    <span class="text-lg font-black text-on-surface leading-none">${disabledCount}</span>
+                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Inactivos</p>
+                </div>
+            </div>
         </div>
 
-        <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 space-y-3">
-            <p class="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant flex items-center gap-1.5">
-                <span class="material-symbols-outlined text-[14px]">engineering</span> Técnicos Operativos
-            </p>
-            ${techRows || '<p class="text-sm text-on-surface-variant py-2">Sin técnicos registrados</p>'}
+        <!-- BARRA DE FILTROS & BÚSQUEDA -->
+        <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3">
+            <!-- Tabs por Rol -->
+            <div class="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
+                <button onclick="window.setUserTab('all')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'all' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
+                    Todos (${totalUsers})
+                </button>
+                <button onclick="window.setUserTab('admins_supervisors')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'admins_supervisors' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
+                    👑 NOC / Supervisores (${adminSupCount})
+                </button>
+                <button onclick="window.setUserTab('technicians')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'technicians' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
+                    🔧 Técnicos (${techCount})
+                </button>
+                <button onclick="window.setUserTab('bodegueros')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'bodegueros' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
+                    📦 Bodega (${bodegueroCount})
+                </button>
+                <button onclick="window.setUserTab('inactive')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'inactive' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
+                    🚫 Inactivos (${disabledCount})
+                </button>
+            </div>
+
+            <!-- Buscador Rápido -->
+            <div class="relative w-full md:w-72">
+                <input type="text" value="${state.userSearch || ''}" oninput="window.setUserSearch(this.value)" placeholder="Buscar por nombre, correo, móvil..." class="w-full bg-surface-container-low/70 border border-outline-variant/30 rounded-xl px-4 py-2 text-xs font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all pl-9">
+                <span class="material-symbols-outlined absolute left-2.5 top-2 text-on-surface-variant text-base">search</span>
+                ${state.userSearch ? `
+                <button onclick="window.setUserSearch('')" class="absolute right-2.5 top-2 text-on-surface-variant hover:text-on-surface">
+                    <span class="material-symbols-outlined text-sm">close</span>
+                </button>` : ''}
+            </div>
         </div>
 
+        <!-- GRILLA DE USUARIOS -->
+        ${userCards ? `
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${userCards}
+        </div>` : `
+        <div class="bg-white p-12 rounded-2xl border border-outline-variant/20 text-center space-y-3">
+            <div class="w-16 h-16 rounded-full bg-surface-container-low flex items-center justify-center mx-auto text-on-surface-variant">
+                <span class="material-symbols-outlined text-3xl">group_off</span>
+            </div>
+            <h3 class="font-bold text-on-surface text-base">No se encontraron cuentas</h3>
+            <p class="text-xs text-on-surface-variant max-w-sm mx-auto">No hay usuarios que coincidan con los filtros aplicados o el término de búsqueda.</p>
+            <button onclick="window.setUserSearch(''); window.setUserTab('all');" class="mt-2 px-4 py-2 rounded-xl bg-secondary/10 text-secondary font-bold text-xs hover:bg-secondary/20 transition-colors">
+                Restablecer Filtros
+            </button>
+        </div>`}
     </div>`;
 };
 
@@ -6747,41 +6946,114 @@ window.logout = function() {
     document.getElementById('logout-modal')?.classList.remove('hidden');
 };
 
-// ── GESTIÓN DE USUARIOS ───────────────────────────────────────────────────
-window.openNewUserModal = function() { window.openNewUser(); };
-window.toggleUser = function(id, role) { window.toggleUserStatus(String(id), role); };
+// ── GESTIÓN DE USUARIOS (RBAC, CUADRILLAS & VINCULACIÓN WISPRO) ─────────────
+window.setUserTab = function(tab) {
+    state.userTab = tab;
+    renderTab('users');
+};
+
+window.setUserSearch = function(val) {
+    state.userSearch = val;
+    renderTab('users');
+};
+
+window.handleUserRoleChange = function() {
+    const role = document.getElementById('u-role')?.value;
+    const whContainer = document.getElementById('u-warehouse-container');
+    const modalIcon = document.getElementById('user-modal-icon');
+    
+    if (whContainer) {
+        if (role === 'technician') {
+            whContainer.classList.remove('opacity-50');
+            whContainer.querySelector('label').textContent = 'Camioneta / Bodega Móvil Asignada';
+        } else if (role === 'bodeguero') {
+            whContainer.classList.remove('opacity-50');
+            whContainer.querySelector('label').textContent = 'Bodega de Almacén Principal';
+        } else {
+            whContainer.querySelector('label').textContent = 'Bodega Asignada (Opcional)';
+        }
+    }
+
+    if (modalIcon) {
+        if (role === 'admin') modalIcon.textContent = 'admin_panel_settings';
+        else if (role === 'supervisor') modalIcon.textContent = 'shield_person';
+        else if (role === 'bodeguero') modalIcon.textContent = 'inventory_2';
+        else modalIcon.textContent = 'engineering';
+    }
+};
+
+window.generateRandomPassword = function() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+    let pass = '';
+    for (let i = 0; i < 8; i++) {
+        pass += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    const input = document.getElementById('u-pass');
+    if (input) {
+        input.value = pass;
+        input.type = 'text';
+        const icon = input.parentElement?.querySelector('.material-symbols-outlined');
+        if (icon) icon.textContent = 'visibility';
+    }
+};
 
 window.openNewUser = function() {
     const modal = document.getElementById('user-modal');
     if (!modal) return;
-    document.getElementById('user-modal-title').textContent  = 'Nueva Cuenta';
-    document.getElementById('u-id').value            = '';
+    document.getElementById('user-modal-title').textContent = 'Nueva Cuenta de Personal';
+    document.getElementById('u-id').value = '';
     document.getElementById('u-original-role').value = '';
-    document.getElementById('u-name').value          = '';
-    document.getElementById('u-email').value         = '';
-    document.getElementById('u-pass').value          = '';
-    document.getElementById('u-role').value          = 'technician';
-    document.getElementById('u-pass-hint').textContent = 'Mínimo 6 caracteres';
+    document.getElementById('u-name').value = '';
+    document.getElementById('u-email').value = '';
+    document.getElementById('u-phone').value = '';
+    document.getElementById('u-warehouse').value = '';
+    document.getElementById('u-wispro-id').value = '';
+    document.getElementById('u-pass').value = '';
+    document.getElementById('u-role').value = 'technician';
+    document.getElementById('u-status').value = 'active';
+    document.getElementById('u-pass-hint').textContent = 'Mínimo 6 caracteres para inicio de sesión';
     document.getElementById('u-pass').required = true;
+    
+    // Ocultar botón eliminar al crear
+    const delBtn = document.getElementById('u-btn-delete');
+    if (delBtn) delBtn.classList.add('hidden');
+
+    window.handleUserRoleChange();
     modal.classList.remove('hidden');
 };
 
 window.openEditUser = function(id, role) {
-    const db   = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    const list = role === 'supervisor' ? (db.supervisors || []) : (db.technicians || []);
-    const user = list.find(u => String(u.id || u.email) === String(id));
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const isSup = role === 'admin' || role === 'supervisor';
+    const list = isSup ? (db.supervisors || []) : (db.technicians || []);
+    const user = list.find(u => String(u.id || u.email) === String(id)) || 
+                 (db.supervisors || []).find(u => String(u.id || u.email) === String(id)) ||
+                 (db.technicians || []).find(u => String(u.id || u.email) === String(id));
+                 
     if (!user) return;
+
     const modal = document.getElementById('user-modal');
     if (!modal) return;
-    document.getElementById('user-modal-title').textContent  = 'Editar Cuenta';
-    document.getElementById('u-id').value            = id;
-    document.getElementById('u-original-role').value = role;
-    document.getElementById('u-name').value          = user.name || '';
-    document.getElementById('u-email').value         = user.email || '';
-    document.getElementById('u-pass').value          = '';
-    document.getElementById('u-role').value          = role;
-    document.getElementById('u-pass-hint').textContent = 'Deja vacío para no cambiar la contraseña';
+
+    document.getElementById('user-modal-title').textContent = `Editar Cuenta: ${user.name}`;
+    document.getElementById('u-id').value = user.id || id;
+    document.getElementById('u-original-role').value = user.role || role;
+    document.getElementById('u-name').value = user.name || '';
+    document.getElementById('u-email').value = user.email || '';
+    document.getElementById('u-phone').value = user.phone || '';
+    document.getElementById('u-warehouse').value = user.warehouseName || user.warehouseId || '';
+    document.getElementById('u-wispro-id').value = user.wisproId || '';
+    document.getElementById('u-pass').value = '';
+    document.getElementById('u-role').value = user.role || role;
+    document.getElementById('u-status').value = user.disabled ? 'disabled' : 'active';
+    document.getElementById('u-pass-hint').textContent = 'Deja vacío para conservar la contraseña actual';
     document.getElementById('u-pass').required = false;
+
+    // Mostrar botón eliminar
+    const delBtn = document.getElementById('u-btn-delete');
+    if (delBtn) delBtn.classList.remove('hidden');
+
+    window.handleUserRoleChange();
     modal.classList.remove('hidden');
 };
 
@@ -6791,12 +7063,17 @@ window.closeUserModal = function() {
 
 window.saveUser = function(event) {
     event.preventDefault();
-    const id       = document.getElementById('u-id').value;
+    const id = document.getElementById('u-id').value;
     const origRole = document.getElementById('u-original-role').value;
-    const name     = document.getElementById('u-name').value.trim();
-    const email    = document.getElementById('u-email').value.trim().toLowerCase();
-    const pass     = document.getElementById('u-pass').value;
-    const role     = document.getElementById('u-role').value;
+    const name = document.getElementById('u-name').value.trim();
+    const email = document.getElementById('u-email').value.trim().toLowerCase();
+    const phone = document.getElementById('u-phone').value.trim();
+    const warehouse = document.getElementById('u-warehouse').value;
+    const wisproId = document.getElementById('u-wispro-id').value.trim();
+    const pass = document.getElementById('u-pass').value;
+    const role = document.getElementById('u-role').value;
+    const status = document.getElementById('u-status').value;
+    const disabled = status === 'disabled';
 
     if (pass && pass.length < 6) {
         alert('❌ La contraseña debe tener al menos 6 caracteres');
@@ -6807,46 +7084,77 @@ window.saveUser = function(event) {
     if (!db.supervisors) db.supervisors = [];
     if (!db.technicians) db.technicians = [];
 
+    const isNewRoleSup = role === 'admin' || role === 'supervisor';
+    const isOrigRoleSup = origRole === 'admin' || origRole === 'supervisor';
+
     if (id) {
         // Editar existente
-        const list = origRole === 'supervisor' ? db.supervisors : db.technicians;
-        const idx  = list.findIndex(u => String(u.id || u.email) === String(id));
+        let user = null;
+        let origList = isOrigRoleSup ? db.supervisors : db.technicians;
+        let idx = origList.findIndex(u => String(u.id || u.email) === String(id));
+
+        if (idx < 0) {
+            // Buscar en la otra lista por si acaso
+            origList = isOrigRoleSup ? db.technicians : db.supervisors;
+            idx = origList.findIndex(u => String(u.id || u.email) === String(id));
+        }
+
         if (idx >= 0) {
-            list[idx].name  = name;
-            list[idx].email = email;
-            if (pass && pass.length >= 6) list[idx].password = pass;
-            // Si cambió de rol, mover
-            if (role !== origRole) {
-                const user = list.splice(idx, 1)[0];
-                const ts = Date.now().toString().slice(-6);
-                const rnd = Math.random().toString(36).substr(2, 4);
-                if (role === 'supervisor') {
-                    user.id = `S-${ts}-${rnd}`;
+            user = origList[idx];
+            user.name = name;
+            user.email = email;
+            user.phone = phone;
+            user.warehouseName = warehouse;
+            user.warehouseId = warehouse;
+            user.wisproId = wisproId;
+            user.role = role;
+            user.disabled = disabled;
+            if (pass && pass.length >= 6) user.password = pass;
+
+            // Si cambió entre supervisor/admin y técnico/bodeguero, mover de lista
+            if (isNewRoleSup !== isOrigRoleSup) {
+                origList.splice(idx, 1);
+                if (isNewRoleSup) {
                     db.supervisors.push(user);
                 } else {
-                    user.id = `T-${ts}-${rnd}`;
+                    user.status = 'offline';
                     db.technicians.push(user);
                 }
             }
         }
     } else {
-        // Nueva cuenta — verificar email único
+        // Nueva cuenta — validar unicidad de correo
         const allUsers = [...db.supervisors, ...db.technicians];
         if (allUsers.find(u => u.email?.toLowerCase() === email)) {
-            alert('❌ Ya existe una cuenta con ese correo'); return;
+            alert('❌ Ya existe una cuenta registrada con este correo electrónico.');
+            return;
         }
         if (!pass || pass.length < 6) {
-            alert('❌ La contraseña debe tener al menos 6 caracteres'); return;
+            alert('❌ La contraseña debe tener al menos 6 caracteres.');
+            return;
         }
-        const newUser = { name, email, password: pass, disabled: false };
+
         const ts = Date.now().toString().slice(-6);
         const rnd = Math.random().toString(36).substr(2, 4);
+        const prefix = isNewRoleSup ? 'S' : 'T';
         
-        if (role === 'supervisor') {
-            newUser.id = `S-${ts}-${rnd}`;
+        const newUser = {
+            id: `${prefix}-${ts}-${rnd}`,
+            name,
+            email,
+            password: pass,
+            phone,
+            warehouseName: warehouse,
+            warehouseId: warehouse,
+            wisproId,
+            role,
+            disabled,
+            createdAt: new Date().toISOString()
+        };
+
+        if (isNewRoleSup) {
             db.supervisors.push(newUser);
         } else {
-            newUser.id     = `T-${ts}-${rnd}`;
             newUser.status = 'offline';
             db.technicians.push(newUser);
         }
@@ -6857,18 +7165,93 @@ window.saveUser = function(event) {
     if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
     window.closeUserModal();
     renderTab('users');
+    showNotification('Cuenta Guardada', `El usuario ${name} se guardó exitosamente.`, 'success');
+};
+
+// ── ELIMINACIÓN DE USUARIOS INDIVIDUAL ──────────────────────────────────────
+window._pendingDeleteUser = null;
+
+window.deleteUser = function(id, role, name) {
+    window._pendingDeleteUser = { id, role, name };
+    const nameEl = document.getElementById('delete-user-name');
+    if (nameEl) {
+        nameEl.textContent = `¿Confirmas la eliminación permanente de la cuenta de ${name}?`;
+    }
+    document.getElementById('delete-user-modal')?.classList.remove('hidden');
+};
+
+window.triggerDeleteFromModal = function() {
+    const id = document.getElementById('u-id')?.value;
+    const role = document.getElementById('u-role')?.value;
+    const name = document.getElementById('u-name')?.value;
+    if (id) {
+        window.deleteUser(id, role, name);
+    }
+};
+
+window.confirmDeleteUser = function() {
+    if (!window._pendingDeleteUser) return;
+    const { id, role, name } = window._pendingDeleteUser;
+
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.supervisors) db.supervisors = [];
+    if (!db.technicians) db.technicians = [];
+
+    // Eliminar de ambas listas para asegurar
+    db.supervisors = db.supervisors.filter(u => String(u.id || u.email) !== String(id));
+    db.technicians = db.technicians.filter(u => String(u.id || u.email) !== String(id));
+
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
+
+    document.getElementById('delete-user-modal')?.classList.add('hidden');
+    window.closeUserModal();
+    window._pendingDeleteUser = null;
+
+    showNotification('Cuenta Eliminada', `La cuenta de ${name} ha sido eliminada permanentemente.`, 'success');
+    renderTab('users');
+};
+
+// ── RESTABLECER CONTRASEÑA RÁPIDO ───────────────────────────────────────────
+window.resetUserPassword = function(id, role, name) {
+    const newPass = prompt(`🔑 Restablecer contraseña para ${name}:\nIngresa la nueva contraseña (mínimo 6 caracteres):`, 'Velocity2026');
+    if (!newPass) return;
+    if (newPass.length < 6) {
+        alert('❌ La contraseña debe tener al menos 6 caracteres.');
+        return;
+    }
+
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const isSup = role === 'admin' || role === 'supervisor';
+    const list = isSup ? (db.supervisors || []) : (db.technicians || []);
+    const user = list.find(u => String(u.id || u.email) === String(id));
+
+    if (user) {
+        user.password = newPass;
+        localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+        serverPush(db);
+        showNotification('Contraseña Actualizada', `Se asignó la nueva contraseña para ${name}.`, 'success');
+    }
 };
 
 window.toggleUserStatus = function(id, role) {
-    const db   = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    const list = role === 'supervisor' ? (db.supervisors || []) : (db.technicians || []);
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const isSup = role === 'admin' || role === 'supervisor';
+    const list = isSup ? (db.supervisors || []) : (db.technicians || []);
     const user = list.find(u => String(u.id || u.email) === String(id));
     if (!user) return;
+    
     user.disabled = !user.disabled;
     localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
     serverPush(db);
     if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
     renderTab('users');
+    showNotification(
+        user.disabled ? 'Cuenta Deshabilitada' : 'Cuenta Habilitada',
+        `El acceso para ${user.name} ha sido ${user.disabled ? 'suspendido' : 'reactivado'}.`,
+        user.disabled ? 'issue' : 'success'
+    );
 };
 
 window.togglePassVis = function(inputId) {
@@ -6879,77 +7262,189 @@ window.togglePassVis = function(inputId) {
     if (icon) icon.textContent = input.type === 'password' ? 'visibility' : 'visibility_off';
 };
 
-// ── AUTO SYNC TÉCNICOS DESDE WISPRO ─────────────────────────────────────────
-window.autoSyncTechs = async function() {
-    if(!confirm('¿Importar automáticamente los técnicos activos desde Wispro? Esto generará cuentas provisionales para quienes no tengan una.')) return;
+// ── IMPORTACIÓN INTELIGENTE CON SELECCIÓN DE TÉCNICOS DESDE WISPRO ───────────
+window.openWisproSyncModal = async function() {
+    const modal = document.getElementById('wispro-sync-modal');
+    const listContainer = document.getElementById('wispro-sync-list');
+    if (!modal || !listContainer) return;
+
+    listContainer.innerHTML = `
+        <div class="py-12 text-center text-on-surface-variant space-y-3">
+            <span class="material-symbols-outlined text-3xl animate-spin text-secondary">sync</span>
+            <p class="text-xs font-bold">Consultando empleados y técnicos en Wispro Cloud...</p>
+        </div>`;
+    modal.classList.remove('hidden');
+
     try {
-        const btn = event.currentTarget;
-        const origIcon = btn.innerHTML;
-        btn.innerHTML = `<span class="material-symbols-outlined text-sm animate-spin">sync</span> Importando...`;
-        
-        await loadStaticData(true); // force fetch
-        
+        await loadStaticData(true); // Refrescar datos desde Wispro
         const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        if(!db.technicians) db.technicians = [];
-        
-        let addedCount = 0;
-        
-        Object.entries(state.techs).forEach(([id, name]) => {
-            // Verificar si ya existe por ID o por nombre
-            const exists = db.technicians.find(t => t.wisproId === id || t.name.toLowerCase() === name.toLowerCase());
-            if(!exists) {
-                const wisproEmail = (state.techEmails && state.techEmails[id]) || '';
-                const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
-                const defaultEmail = `${sanitized}@atg-rappido.com`;
-                const ts = Date.now().toString().slice(-6);
-                const rnd = Math.random().toString(36).substr(2, 4);
-                
-                db.technicians.push({
-                    id: `T-${ts}-${rnd}`,
-                    name: name,
-                    email: wisproEmail || defaultEmail,
-                    password: 'Velocity2024',
-                    disabled: false,
-                    wisproId: id
-                });
-                addedCount++;
-            }
-        });
-        
-        localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
-        serverPush(db);
-        renderTab('users');
-        
-        alert(`Sincronización completada. Se importaron ${addedCount} técnicos nuevos. Contraseña por defecto: Velocity2024`);
-        btn.innerHTML = origIcon;
-    } catch(e) {
-        console.error('Error sincronizando técnicos:', e);
-        alert('Hubo un error al intentar sincronizar los técnicos.');
+        const existingTechs = db.technicians || [];
+        const existingSups = db.supervisors || [];
+        const allExisting = [...existingTechs, ...existingSups];
+
+        const wisproTechEntries = Object.entries(state.techs || {});
+
+        if (wisproTechEntries.length === 0) {
+            listContainer.innerHTML = `
+                <div class="py-8 text-center text-on-surface-variant space-y-2">
+                    <span class="material-symbols-outlined text-3xl text-amber-500">warning</span>
+                    <p class="text-xs font-bold text-on-surface">No se encontraron empleados registrados en Wispro.</p>
+                </div>`;
+            return;
+        }
+
+        const rowsHtml = wisproTechEntries.map(([id, name]) => {
+            const exists = allExisting.find(u => String(u.wisproId) === String(id) || u.name.toLowerCase() === name.toLowerCase());
+            const wisproEmail = (state.techEmails && state.techEmails[id]) || '';
+            const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
+            const defaultEmail = wisproEmail || `${sanitized}@atg-rappido.com`;
+
+            return `
+            <div class="p-3.5 rounded-xl border ${exists ? 'bg-surface-container-low/40 border-outline-variant/15 opacity-75' : 'bg-white border-outline-variant/20 shadow-2xs'} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div class="flex items-center gap-3">
+                    <input type="checkbox" name="wispro-tech-sync" value="${id}" data-name="${name.replace(/"/g, '&quot;')}" data-email="${defaultEmail}" ${exists ? '' : 'checked'} onchange="window.updateWisproSyncCount()" class="w-4 h-4 accent-secondary rounded cursor-pointer">
+                    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" style="background:${techColor(name)}">
+                        ${techInitials(name)}
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <span class="font-bold text-xs text-on-surface">${name}</span>
+                            <span class="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded font-mono">ID: ${id}</span>
+                        </div>
+                        <p class="text-[11px] text-on-surface-variant">${defaultEmail}</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 self-end sm:self-auto">
+                    ${exists ? `
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant border border-outline-variant/20 flex items-center gap-1">
+                        <span class="material-symbols-outlined text-xs text-emerald-600">check</span> Ya en Velocity
+                    </span>` : `
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                        Nuevo por importar
+                    </span>`}
+                    <select id="role-select-${id}" class="bg-surface-container-low border border-outline-variant/30 rounded-lg px-2.5 py-1 text-[11px] font-bold text-on-surface outline-none">
+                        <option value="technician" selected>🔧 Técnico</option>
+                        <option value="bodeguero">📦 Bodeguero</option>
+                        <option value="supervisor">👔 Supervisor</option>
+                    </select>
+                </div>
+            </div>`;
+        }).join('');
+
+        listContainer.innerHTML = rowsHtml;
+        window.updateWisproSyncCount();
+    } catch (e) {
+        console.error('Error cargando técnicos de Wispro:', e);
+        listContainer.innerHTML = `
+            <div class="p-4 bg-red-50 text-red-700 rounded-xl border border-red-200 text-xs">
+                ❌ Error conectando con Wispro Cloud. Revisa la conexión en la pestaña Ajustes.
+            </div>`;
     }
 };
 
-// ── ELIMINAR TÉCNICOS INACTIVOS ─────────────────────────────────────────────
+window.closeWisproSyncModal = function() {
+    document.getElementById('wispro-sync-modal')?.classList.add('hidden');
+};
+
+window.toggleAllWisproSync = function(checked) {
+    const checkboxes = document.querySelectorAll('input[name="wispro-tech-sync"]');
+    checkboxes.forEach(cb => cb.checked = checked);
+    window.updateWisproSyncCount();
+};
+
+window.updateWisproSyncCount = function() {
+    const checkboxes = document.querySelectorAll('input[name="wispro-tech-sync"]:checked');
+    const badge = document.getElementById('sync-selected-count');
+    if (badge) {
+        badge.textContent = `${checkboxes.length} seleccionados`;
+    }
+};
+
+window.executeWisproSync = function() {
+    const checkboxes = document.querySelectorAll('input[name="wispro-tech-sync"]:checked');
+    if (checkboxes.length === 0) {
+        alert('Debes seleccionar al menos un empleado para importar.');
+        return;
+    }
+
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    if (!db.technicians) db.technicians = [];
+    if (!db.supervisors) db.supervisors = [];
+
+    let importedCount = 0;
+
+    checkboxes.forEach(cb => {
+        const wisproId = cb.value;
+        const name = cb.getAttribute('data-name');
+        const email = cb.getAttribute('data-email');
+        const roleSelect = document.getElementById(`role-select-${wisproId}`);
+        const role = roleSelect ? roleSelect.value : 'technician';
+
+        // Verificar si ya existe
+        const existing = [...db.technicians, ...db.supervisors].find(
+            u => String(u.wisproId) === String(wisproId) || u.name.toLowerCase() === name.toLowerCase()
+        );
+
+        if (!existing) {
+            const ts = Date.now().toString().slice(-6);
+            const rnd = Math.random().toString(36).substr(2, 4);
+
+            const newUser = {
+                id: (role === 'admin' || role === 'supervisor') ? `S-${ts}-${rnd}` : `T-${ts}-${rnd}`,
+                name,
+                email,
+                password: 'Velocity2024',
+                role,
+                wisproId,
+                disabled: false,
+                status: 'offline',
+                createdAt: new Date().toISOString()
+            };
+
+            if (role === 'admin' || role === 'supervisor') {
+                db.supervisors.push(newUser);
+            } else {
+                db.technicians.push(newUser);
+            }
+            importedCount++;
+        }
+    });
+
+    localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    serverPush(db);
+    if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
+
+    window.closeWisproSyncModal();
+    showNotification('Sincronización Exitosa', `Se importaron ${importedCount} cuentas nuevas de Wispro. Contraseña por defecto: Velocity2024`, 'success');
+    renderTab('users');
+};
+
+// ── ELIMINAR TÉCNICOS INACTIVOS / LIMPIEZA DE FLOTA ───────────────────────────
 window.deleteInactiveUsers = function() {
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    if (!db.technicians || db.technicians.length === 0) {
+    const technicians = db.technicians || [];
+
+    if (technicians.length === 0) {
         alert('No hay técnicos registrados para limpiar.');
         return;
     }
 
-    const inactiveTechs = db.technicians.filter(t => !isActiveTech(t.name));
+    const inactiveTechs = technicians.filter(t => !isActiveTech(t.name) || t.disabled);
     const removedCount = inactiveTechs.length;
 
     if (removedCount === 0) {
-        alert('Todos los técnicos actuales están en la flota activa.');
+        alert('✅ Todas las cuentas de técnicos actuales pertenecen a la flota activa.');
         return;
     }
 
-    if (confirm(`Se han detectado ${removedCount} técnicos que no pertenecen a la flota activa definida. ¿Deseas eliminarlos permanentemente?`)) {
-        db.technicians = db.technicians.filter(t => isActiveTech(t.name));
+    if (confirm(`Se han detectado ${removedCount} cuentas de técnicos inactivas o deshabilitadas. ¿Deseas eliminarlas permanentemente del sistema?`)) {
+        db.technicians = technicians.filter(t => isActiveTech(t.name) && !t.disabled);
         localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
         serverPush(db);
+        if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
         
-        showNotification('Limpieza Completada', `Se eliminaron ${removedCount} técnicos inactivos.`, 'success');
+        showNotification('Limpieza Completada', `Se eliminaron ${removedCount} cuentas inactivas.`, 'success');
         renderTab('users');
     }
 };

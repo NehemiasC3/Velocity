@@ -1,6 +1,8 @@
+export type AuthRole = 'admin' | 'supervisor' | 'bodeguero' | 'technician';
+
 export interface TokenPayload {
   userId: string;
-  role: 'supervisor' | 'technician';
+  role: AuthRole;
   name: string;
   email: string;
 }
@@ -8,7 +10,7 @@ export interface TokenPayload {
 export interface LoginResponse {
   success: boolean;
   token: string;
-  role: 'supervisor' | 'technician';
+  role: AuthRole;
   userId: string;
   name: string;
 }

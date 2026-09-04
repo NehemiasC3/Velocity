@@ -22,11 +22,11 @@ class AuthService {
         const cleanEmail = email.toLowerCase().trim();
         // 1. Buscar en supervisores
         let user = db.supervisors.find((u) => u.email.toLowerCase() === cleanEmail);
-        let role = 'supervisor';
+        let role = user?.role || 'supervisor';
         // 2. Buscar en técnicos
         if (!user) {
             user = db.technicians.find((u) => u.email.toLowerCase() === cleanEmail);
-            role = 'technician';
+            role = user?.role || 'technician';
         }
         if (!user || !user.password) {
             throw new Error('Credenciales incorrectas');
@@ -38,6 +38,9 @@ class AuthService {
         if (user.disabled) {
             throw new Error('Cuenta desactivada. Contacte a su supervisor.');
         }
+        // Registrar último inicio de sesión
+        user.lastLogin = new Date().toISOString();
+        DbService_1.dbService.persistDB();
         const tokenPayload = {
             userId: user.id,
             role,

@@ -7295,15 +7295,17 @@ window.openWisproSyncModal = async function() {
 
         const rowsHtml = wisproTechEntries.map(([id, name]) => {
             const exists = allExisting.find(u => String(u.wisproId) === String(id) || u.name.toLowerCase() === name.toLowerCase());
-            const wisproEmail = (state.techEmails && state.techEmails[id]) || (exists ? exists.email : '');
-            const phone = (state.techPhones && state.techPhones[id]) || (exists ? exists.phone : '');
+            const dirEntry = typeof window.getWisproDirectoryEntry === 'function' ? window.getWisproDirectoryEntry(name, id) : null;
+            const wisproEmail = (dirEntry && dirEntry.email) || (state.techEmails && state.techEmails[id]) || (exists ? exists.email : '');
+            const phone = (dirEntry && dirEntry.phone) || (state.techPhones && state.techPhones[id]) || (exists ? exists.phone : '');
             const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
             const defaultEmail = wisproEmail || `${sanitized}@atg-rappido.com`;
+            const isDirInactive = dirEntry && dirEntry.status === 'Inactivo';
 
             return `
             <div class="p-3.5 rounded-xl border ${exists ? 'bg-surface-container-low/40 border-outline-variant/15' : 'bg-white border-outline-variant/20 shadow-2xs'} flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div class="flex items-start sm:items-center gap-3 flex-1 min-w-0">
-                    <input type="checkbox" name="wispro-tech-sync" value="${id}" data-name="${name.replace(/"/g, '&quot;')}" data-phone="${phone}" ${exists ? '' : 'checked'} onchange="window.updateWisproSyncCount()" class="w-4 h-4 accent-secondary rounded cursor-pointer mt-1 sm:mt-0 shrink-0">
+                    <input type="checkbox" name="wispro-tech-sync" value="${id}" data-name="${name.replace(/"/g, '&quot;')}" data-phone="${phone}" ${exists ? '' : (isDirInactive ? '' : 'checked')} onchange="window.updateWisproSyncCount()" class="w-4 h-4 accent-secondary rounded cursor-pointer mt-1 sm:mt-0 shrink-0">
                     <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-2xs" style="background:${techColor(name)}">
                         ${techInitials(name)}
                     </div>
@@ -7311,6 +7313,7 @@ window.openWisproSyncModal = async function() {
                         <div class="flex items-center gap-2 flex-wrap">
                             <span class="font-bold text-xs text-on-surface truncate">${name}</span>
                             <span class="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.2 rounded font-mono shrink-0">ID: ${id}</span>
+                            ${isDirInactive ? `<span class="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 px-1.5 py-0.2 rounded">Inactivo Wispro</span>` : ''}
                             ${phone ? `<span class="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">call</span>${phone}</span>` : ''}
                         </div>
                         <div class="mt-1 flex items-center gap-2">

@@ -7,6 +7,7 @@ export const generalLimiter = rateLimit({
   max: 100000, // 100,000 peticiones por ventana de 15 min (evita bloqueos en dashboards 24/7)
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
   skip: (req: Request) => {
     // No limitar peticiones de lectura GET / HEAD / OPTIONS o endpoints de salud / sync
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return true;
@@ -22,6 +23,7 @@ export const loginLimiter = rateLimit({
   max: 60, // 60 intentos cada 15 min
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { trustProxy: false },
   message: { error: 'Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos.' }
 });
 

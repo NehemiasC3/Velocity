@@ -33,6 +33,7 @@ const generalLimiter = rateLimit({
     max: 100000,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     skip: (req) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path.startsWith('/health') || req.path.startsWith('/sync'),
     message: { error: 'Demasiadas peticiones desde esta IP. Por favor intenta más tarde.' }
 });
@@ -42,6 +43,7 @@ const loginLimiter = rateLimit({
     max: 60,
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     message: { error: 'Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos.' }
 });
 

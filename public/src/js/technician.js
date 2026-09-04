@@ -102,23 +102,31 @@ const TYPE_CFG_T = {
 
 // ── CARGA DE DATOS ────────────────────────────────────────────────────────
 async function loadTechData() {
-    // Obtener perfil del técnico desde localStorage
+    // Obtener datos guardados de sesión
+    const storedName  = sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name');
+    const storedEmail = sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email');
+    const storedId    = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
+
+    // Obtener perfil del técnico desde localStorage / db
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
     const techs = db.technicians || [];
-    techState.profile = techs.find(t => String(t.id) === String(SESSION_ID));
+    techState.profile = techs.find(t => String(t.id) === String(storedId) || (storedEmail && t.email?.toLowerCase() === storedEmail.toLowerCase()));
 
     if (!techState.profile) {
-        // Fallback usando datos de sesión
-        const storedName = sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name') || 'Técnico de Campo';
         techState.profile = {
-            id: SESSION_ID,
-            name: storedName,
-            email: 'tecnico@velocity.com'
+            id: storedId || SESSION_ID,
+            name: storedName || 'Capacitaciones ATG (Christofer)',
+            email: storedEmail || 'capacitaciones@atg-rappido.com'
         };
+    } else if (storedName && (!techState.profile.name || techState.profile.name === 'Técnico')) {
+        techState.profile.name = storedName;
     }
 
+    // Actualizar saludo de inmediato
+    updateGreeting();
+
     // Cargar inventario guardado / fallback
-    const savedInv = localStorage.getItem(`V_Inventory_${SESSION_ID}`);
+    const savedInv = localStorage.getItem(`V_Inventory_${techState.profile.id}`);
     techState.inventory = savedInv ? JSON.parse(savedInv) : defaultInventory();
 
     // Cargar bodega móvil real desde PostgreSQL y órdenes de Wispro en paralelo
@@ -309,12 +317,13 @@ function renderApp() {
 function updateGreeting() {
     const hour = new Date().getHours();
     const greet = hour < 12 ? 'Buenos días' : hour < 18 ? 'Buenas tardes' : 'Buenas noches';
+    const fullName = techState.profile?.name || sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name') || 'Técnico';
     const el = document.getElementById('hero-greeting');
-    if (el) el.textContent = `${greet}, ${techState.profile?.name?.split(' ')[0] || 'Técnico'}`;
+    if (el) el.textContent = `${greet}, ${fullName}`;
     
     // Navbar name display
     const nameEl = document.getElementById('active-user-name');
-    if (nameEl) nameEl.textContent = techState.profile?.name || 'Técnico';
+    if (nameEl) nameEl.textContent = fullName;
 }
 
 function renderProgress() {
@@ -1213,6 +1222,7 @@ window.navigateAddress = function(address, platform) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
+    updateGreeting();
     const container = document.getElementById('tickets-container');
     if (container) container.innerHTML = `
         <div class="flex flex-col items-center py-16 text-on-surface-variant">
@@ -1222,7 +1232,7 @@ window.addEventListener('DOMContentLoaded', async () => {
 
     await loadTechData();
     startHeartbeat();
-    renderAgenda();
+    renderApp();
 
     // Auto-recarga periódica cada 60s
     setInterval(async () => {

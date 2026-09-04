@@ -296,7 +296,7 @@
     </nav>
 
     <script src="../src/js/config.js"></script>
-    <script src="../src/js/technician.js"></script>
+    <script src="../src/js/technician.js?v=3.8.0"></script>
     <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
@@ -308,56 +308,29 @@
             });
         }
     </script>
-
     <!-- Modal Confirmación Logout -->
     <div id="logout-modal" class="hidden fixed inset-0 z-[500] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden">
+        <div class="bg-surface-container-lowest w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden border border-outline-variant/30">
             <div class="p-6 text-center">
-                <div class="w-14 h-14 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-4">
-                    <span class="material-symbols-outlined text-red-500 text-3xl">logout</span>
+                <div class="w-14 h-14 rounded-full bg-error-container/40 text-error flex items-center justify-center mx-auto mb-4">
+                    <span class="material-symbols-outlined text-3xl">logout</span>
                 </div>
-                <h3 class="font-black text-gray-900 text-lg mb-1">¿Cerrar sesión?</h3>
-                <p class="text-sm text-gray-500">Serás redirigido al inicio de sesión.</p>
+                <h3 class="font-black text-on-surface text-lg mb-1">¿Cerrar sesión?</h3>
+                <p class="text-sm text-on-surface-variant">Serás redirigido al inicio de sesión.</p>
             </div>
-            <div class="flex border-t border-gray-100">
+            <div class="flex border-t border-outline-variant/30">
                 <button onclick="document.getElementById('logout-modal').classList.add('hidden')"
-                    class="flex-1 py-4 text-sm font-bold text-gray-500 hover:bg-gray-50 transition-colors">
+                    class="flex-1 py-4 text-sm font-bold text-on-surface-variant hover:bg-surface-container transition-colors">
                     Cancelar
                 </button>
-                <div class="w-px bg-gray-100"></div>
+                <div class="w-px bg-outline-variant/30"></div>
                 <button onclick="sessionStorage.clear(); localStorage.clear(); window.location.href='/login';"
-                    class="flex-1 py-4 text-sm font-bold text-red-500 hover:bg-red-50 transition-colors">
+                    class="flex-1 py-4 text-sm font-bold text-error hover:bg-error-container/20 transition-colors">
                     Cerrar sesión
                 </button>
             </div>
         </div>
     </div>
-
-    <!-- Elegant Loading Screen Overlay with Hamster -->
-    <div id="loading-overlay" class="hidden fixed inset-0 bg-background/90 backdrop-blur-md z-[500] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none">
-        <div class="flex flex-col items-center gap-4">
-                        <div id="loader-graphic" class="flex flex-col items-center justify-center">
-                <!-- Original brand logo with pulse animation -->
-                <div class="relative w-20 h-20 rounded-2xl bg-white p-3 shadow-[0_12px_40px_rgba(0,89,187,0.15)] flex items-center justify-center overflow-hidden border border-outline-variant/30">
-                    <img src="../logo-velocity.svg" class="w-full h-full object-contain animate-pulse" alt="Velocity Logo">
-                    <div class="shimmer-bar animate-shimmer"></div>
-                </div>
-                <!-- Elegant Spinner Bounces -->
-                <div class="flex items-center gap-2 mt-4">
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0s;"></span>
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.15s;"></span>
-                    <span class="w-2.5 h-2.5 rounded-full bg-secondary animate-bounce" style="animation-delay: 0.3s;"></span>
-                </div>
-            </div>
-            <p class="text-sm font-extrabold text-secondary tracking-widest uppercase mt-4 animate-pulse" id="loading-overlay-text">Cargando...</p>
-        </div>
-    </div>
-
-    <script src="../src/js/config.js"></script>
-    <script src="../src/js/core/state.js"></script>
-    <script src="../src/js/core/api.js?v=2.0.3"></script>
-    <script src="../src/js/core/ui.js"></script>
-    <script src="../src/js/core/universalSearch.js?v=2.0.1"></script>
-    <script src="../src/js/technician.js?v=2.0.4"></script>
 </body>
 </html>
+

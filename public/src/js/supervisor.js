@@ -7295,35 +7295,39 @@ window.openWisproSyncModal = async function() {
 
         const rowsHtml = wisproTechEntries.map(([id, name]) => {
             const exists = allExisting.find(u => String(u.wisproId) === String(id) || u.name.toLowerCase() === name.toLowerCase());
-            const wisproEmail = (state.techEmails && state.techEmails[id]) || '';
+            const wisproEmail = (state.techEmails && state.techEmails[id]) || (exists ? exists.email : '');
+            const phone = (state.techPhones && state.techPhones[id]) || (exists ? exists.phone : '');
             const sanitized = name.toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '');
             const defaultEmail = wisproEmail || `${sanitized}@atg-rappido.com`;
 
             return `
-            <div class="p-3.5 rounded-xl border ${exists ? 'bg-surface-container-low/40 border-outline-variant/15 opacity-75' : 'bg-white border-outline-variant/20 shadow-2xs'} flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div class="flex items-center gap-3">
-                    <input type="checkbox" name="wispro-tech-sync" value="${id}" data-name="${name.replace(/"/g, '&quot;')}" data-email="${defaultEmail}" ${exists ? '' : 'checked'} onchange="window.updateWisproSyncCount()" class="w-4 h-4 accent-secondary rounded cursor-pointer">
-                    <div class="w-8 h-8 rounded-lg flex items-center justify-center text-white text-xs font-bold" style="background:${techColor(name)}">
+            <div class="p-3.5 rounded-xl border ${exists ? 'bg-surface-container-low/40 border-outline-variant/15' : 'bg-white border-outline-variant/20 shadow-2xs'} flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div class="flex items-start sm:items-center gap-3 flex-1 min-w-0">
+                    <input type="checkbox" name="wispro-tech-sync" value="${id}" data-name="${name.replace(/"/g, '&quot;')}" data-phone="${phone}" ${exists ? '' : 'checked'} onchange="window.updateWisproSyncCount()" class="w-4 h-4 accent-secondary rounded cursor-pointer mt-1 sm:mt-0 shrink-0">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-2xs" style="background:${techColor(name)}">
                         ${techInitials(name)}
                     </div>
-                    <div>
-                        <div class="flex items-center gap-2">
-                            <span class="font-bold text-xs text-on-surface">${name}</span>
-                            <span class="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded font-mono">ID: ${id}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <span class="font-bold text-xs text-on-surface truncate">${name}</span>
+                            <span class="text-[10px] text-on-surface-variant bg-surface-container px-1.5 py-0.2 rounded font-mono shrink-0">ID: ${id}</span>
+                            ${phone ? `<span class="text-[10px] text-emerald-700 font-semibold flex items-center gap-0.5"><span class="material-symbols-outlined text-[12px]">call</span>${phone}</span>` : ''}
                         </div>
-                        <p class="text-[11px] text-on-surface-variant">${defaultEmail}</p>
+                        <div class="mt-1 flex items-center gap-2">
+                            <input type="email" id="sync-email-${id}" value="${defaultEmail}" placeholder="correo@ejemplo.com" class="w-full sm:w-64 bg-white border border-outline-variant/30 rounded-lg px-2.5 py-1 text-xs text-on-surface font-semibold focus:border-secondary focus:ring-1 focus:ring-secondary outline-none transition-all" title="Ingresa el correo real del técnico para su inicio de sesión">
+                        </div>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2 self-end sm:self-auto">
+                <div class="flex items-center gap-2 self-end md:self-auto shrink-0">
                     ${exists ? `
                     <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant border border-outline-variant/20 flex items-center gap-1">
-                        <span class="material-symbols-outlined text-xs text-emerald-600">check</span> Ya en Velocity
+                        <span class="material-symbols-outlined text-xs text-emerald-600">check</span> Registrado
                     </span>` : `
                     <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
-                        Nuevo por importar
+                        Nuevo
                     </span>`}
-                    <select id="role-select-${id}" class="bg-surface-container-low border border-outline-variant/30 rounded-lg px-2.5 py-1 text-[11px] font-bold text-on-surface outline-none">
+                    <select id="role-select-${id}" class="bg-surface-container-low border border-outline-variant/30 rounded-lg px-2.5 py-1.5 text-[11px] font-bold text-on-surface outline-none">
                         <option value="technician" selected>🔧 Técnico</option>
                         <option value="bodeguero">📦 Bodeguero</option>
                         <option value="supervisor">👔 Supervisor</option>
@@ -7373,15 +7377,18 @@ window.executeWisproSync = function() {
     if (!db.supervisors) db.supervisors = [];
 
     let importedCount = 0;
+    let updatedCount = 0;
 
     checkboxes.forEach(cb => {
         const wisproId = cb.value;
         const name = cb.getAttribute('data-name');
-        const email = cb.getAttribute('data-email');
+        const phone = cb.getAttribute('data-phone') || '';
+        const emailInput = document.getElementById(`sync-email-${wisproId}`);
+        const email = (emailInput ? emailInput.value.trim().toLowerCase() : '') || `${name.toLowerCase().replace(/\s+/g, '.')}@atg-rappido.com`;
         const roleSelect = document.getElementById(`role-select-${wisproId}`);
         const role = roleSelect ? roleSelect.value : 'technician';
 
-        // Verificar si ya existe
+        // Verificar si ya existe en Velocity
         const existing = [...db.technicians, ...db.supervisors].find(
             u => String(u.wisproId) === String(wisproId) || u.name.toLowerCase() === name.toLowerCase()
         );
@@ -7394,6 +7401,7 @@ window.executeWisproSync = function() {
                 id: (role === 'admin' || role === 'supervisor') ? `S-${ts}-${rnd}` : `T-${ts}-${rnd}`,
                 name,
                 email,
+                phone,
                 password: 'Velocity2024',
                 role,
                 wisproId,
@@ -7408,6 +7416,12 @@ window.executeWisproSync = function() {
                 db.technicians.push(newUser);
             }
             importedCount++;
+        } else {
+            // Actualizar correo y teléfono si cambiaron
+            existing.email = email;
+            if (phone) existing.phone = phone;
+            existing.wisproId = wisproId;
+            updatedCount++;
         }
     });
 
@@ -7416,7 +7430,7 @@ window.executeWisproSync = function() {
     if (typeof window.updateActiveTechs === 'function') window.updateActiveTechs();
 
     window.closeWisproSyncModal();
-    showNotification('Sincronización Exitosa', `Se importaron ${importedCount} cuentas nuevas de Wispro. Contraseña por defecto: Velocity2024`, 'success');
+    showNotification('Sincronización Exitosa', `Se procesaron ${importedCount} cuentas nuevas y ${updatedCount} actualizadas.`, 'success');
     renderTab('users');
 };
 

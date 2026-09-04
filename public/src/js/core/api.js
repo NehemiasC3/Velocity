@@ -330,7 +330,9 @@ async function loadStaticData(force = false) {
         (Array.isArray(rawTechs.data) ? rawTechs.data : []).forEach(t => {
             state.techs[t.id] = t.name;
             if (!state.techEmails) state.techEmails = {};
+            if (!state.techPhones) state.techPhones = {};
             state.techEmails[t.id] = t.email || '';
+            state.techPhones[t.id] = t.phone_mobile || t.phone || '';
         });
 
         (Array.isArray(rawCats.data) ? rawCats.data : []).forEach(c => {
@@ -341,6 +343,7 @@ async function loadStaticData(force = false) {
             clients:    state.clients,
             techs:      state.techs,
             techEmails: state.techEmails,
+            techPhones: state.techPhones,
             categories: state.categories
         }, CFG.cacheTTL.static);
         loadDynamicClients();

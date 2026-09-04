@@ -5682,8 +5682,8 @@ Views.users = () => {
     const bodegueroCount = allUsers.filter(u => u.role === 'bodeguero').length;
     const disabledCount = allUsers.filter(u => u.disabled).length;
     
-    // Técnicos online
-    const onlineTechsCount = technicians.filter(t => isTechOnline(t.id) || isTechOnline(t.name)).length;
+    // Usuarios en línea en tiempo real (Cálculo real para todos los roles)
+    const onlineUsersCount = allUsers.filter(u => isUserOnline(u)).length;
 
     // Filtrar por sub-pestaña
     let filtered = allUsers.filter(u => {
@@ -5712,9 +5712,9 @@ Views.users = () => {
         const isBodeguero = u.role === 'bodeguero';
         const isTech = u.role === 'technician';
         
-        // Estado de Conexión
-        const online = isTechOnline(u.id) || isTechOnline(u.name);
-        const hasActiveOrder = state.activeTracking && (state.activeTracking[u.id] || Object.values(state.activeTracking).some(t => String(t.empId) === String(u.id)));
+        // Estado de Conexión Real
+        const online = isUserOnline(u);
+        const hasActiveOrder = isTech && state.activeTracking && (state.activeTracking[u.id] || Object.values(state.activeTracking).some(t => String(t.empId) === String(u.id)));
 
         // Colores y Badges de Rol
         let roleBadge = '';
@@ -5739,20 +5739,16 @@ Views.users = () => {
             avatarBg = techColor(u.name);
         }
 
-        // Estado Operativo
+        // Estado Operativo y Presencia Real
         let statusPill = '';
         if (u.disabled) {
             statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>Inactivo</span>';
-        } else if (isTech) {
-            if (hasActiveOrder) {
-                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>En Ruta</span>';
-            } else if (online) {
-                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]"></span>Online (App)</span>';
-            } else {
-                statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant border border-outline-variant/20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>Desconectado</span>';
-            }
+        } else if (hasActiveOrder) {
+            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1 animate-pulse"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>En Ruta</span>';
+        } else if (online) {
+            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_6px_#10b981]"></span>En línea</span>';
         } else {
-            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Habilitado</span>';
+            statusPill = '<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-surface-container text-on-surface-variant border border-outline-variant/20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-outline-variant"></span>Desconectado</span>';
         }
 
         const safeName = (u.name || '').replace(/'/g, "\\'");
@@ -5766,7 +5762,7 @@ Views.users = () => {
                 <div class="flex items-center gap-3 min-w-0">
                     <div class="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-black shrink-0 shadow-2xs relative" style="background: ${avatarBg};">
                         ${techInitials(u.name)}
-                        ${online && isTech ? '<span class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-[0_0_6px_#10b981]"></span>' : ''}
+                        ${online ? '<span class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-emerald-500 border-2 border-white rounded-full shadow-[0_0_6px_#10b981]"></span>' : ''}
                     </div>
                     <div class="min-w-0">
                         <div class="flex items-center gap-2 flex-wrap">
@@ -5873,14 +5869,14 @@ Views.users = () => {
 
             <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center shrink-0">
-                    <span class="material-symbols-outlined text-xl">engineering</span>
+                    <span class="material-symbols-outlined text-xl">sensors</span>
                 </div>
                 <div>
                     <div class="flex items-center gap-1.5">
-                        <span class="text-lg font-black text-on-surface leading-none">${techCount}</span>
-                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded-full">${onlineTechsCount} online</span>
+                        <span class="text-lg font-black text-on-surface leading-none">${onlineUsersCount}</span>
+                        <span class="text-[10px] font-bold text-emerald-700 bg-emerald-100/60 px-1.5 py-0.2 rounded-full">en vivo</span>
                     </div>
-                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">Técnicos Campo</p>
+                    <p class="text-[11px] font-bold text-on-surface-variant uppercase tracking-wider mt-0.5">En Línea Ahora</p>
                 </div>
             </div>
 
@@ -6453,23 +6449,53 @@ window.toggleSimulatedOnline = function(techId) {
     showNotification('Estado Simulado', 'Cambio aplicado para pruebas visuales.', 'success');
 };
 
-// Modificar isTechOnline para que respete la simulación
+// Sistema Universal de Presencia en Tiempo Real
+function isUserOnline(u) {
+    if (!u || u.disabled) return false;
+
+    const idsToCheck = [
+        u.id,
+        u.email,
+        u.wisproId,
+        u.name
+    ].filter(Boolean).map(x => String(x).toLowerCase().trim());
+
+    const onlineStatus = state.onlineStatus || {};
+    const now = Date.now();
+    const threshold = 120 * 1000; // 2 minutos de TTL
+
+    // 1. Verificar si hay un latido registrado en el servidor (en memoria / Redis / DB)
+    for (const [k, ts] of Object.entries(onlineStatus)) {
+        const cleanK = String(k).toLowerCase().trim();
+        if (idsToCheck.includes(cleanK) || idsToCheck.some(id => id.length > 3 && (cleanK.includes(id) || id.includes(cleanK)))) {
+            if (now - Number(ts) < threshold) return true;
+        }
+    }
+
+    // 2. Si es el usuario actualmente autenticado en esta sesión local
+    const currentUserId = String(sessionStorage.getItem('Velocity_Active_User') || '').toLowerCase().trim();
+    const currentUserEmail = String(sessionStorage.getItem('Velocity_Active_Email') || '').toLowerCase().trim();
+    const currentUserName = String(sessionStorage.getItem('Velocity_User_Name') || '').toLowerCase().trim();
+
+    if (currentUserId && idsToCheck.includes(currentUserId)) return true;
+    if (currentUserEmail && idsToCheck.includes(currentUserEmail)) return true;
+    if (currentUserName && idsToCheck.includes(currentUserName)) return true;
+
+    return false;
+}
+
 function isTechOnline(techId) {
-    // Buscar id del técnico por nombre si se pasa el nombre
+    if (!techId) return false;
     let foundId = techId;
     if (isNaN(techId) && typeof techId === 'string') {
-        Object.entries(state.techs).forEach(([id, n]) => {
+        Object.entries(state.techs || {}).forEach(([id, n]) => {
             if (n.toLowerCase().includes(techId.toLowerCase().split(' ')[0])) foundId = id;
         });
     }
 
-    if (!foundId) return false;
-    
-    const lastSeen = state.onlineStatus?.[foundId];
+    const lastSeen = state.onlineStatus?.[foundId] || state.onlineStatus?.[techId];
     if (!lastSeen) return false;
-    
-    // Un técnico está online si envió un pulso en los últimos 2.5 minutos
-    return (Date.now() - lastSeen) < (150 * 1000);
+    return (Date.now() - Number(lastSeen)) < (120 * 1000);
 }
 
 window.loadSupervisorDemo = async function() {
@@ -7521,8 +7547,46 @@ async function initApp() {
     if (window.hideLoadingOverlay) window.hideLoadingOverlay();
     switchTab(state.tab);
 
+    // Iniciar latido continuo en tiempo real (Heartbeat de presencia)
+    startSupervisorHeartbeat();
+
     // Iniciar polling
     startPolling();
+}
+
+function startSupervisorHeartbeat() {
+    const sendPulse = async () => {
+        try {
+            const activeUserId = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User') || 'S-ROOT-1';
+            const activeUserEmail = sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email') || '';
+            const activeUserName = sessionStorage.getItem('Velocity_User_Name') || '';
+            const token = sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token') || '';
+
+            if (!token) return;
+
+            // Enviar pulso tanto al endpoint de sync como al heartbeat principal
+            await fetch('/api/sync/heartbeat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': token
+                },
+                body: JSON.stringify({
+                    userId: activeUserId,
+                    techId: activeUserId,
+                    email: activeUserEmail,
+                    name: activeUserName,
+                    role: sessionStorage.getItem('Velocity_Role') || 'supervisor'
+                })
+            }).catch(() => {});
+        } catch (e) {
+            // Silencioso en caso de desconexión momentánea
+        }
+    };
+
+    sendPulse();
+    if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
+    state.heartbeatTimer = setInterval(sendPulse, 30000); // Latido cada 30 segundos
 }
 
 window.addEventListener('DOMContentLoaded', initApp);

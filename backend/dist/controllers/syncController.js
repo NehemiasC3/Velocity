@@ -23,12 +23,13 @@ class SyncController {
         }
     }
     static heartbeat(req, res) {
-        const { techId, tracking } = req.body;
-        if (!techId) {
-            res.status(400).json({ error: 'techId es requerido' });
+        const userId = req.body.userId || req.body.techId || req.user?.userId;
+        const { tracking } = req.body;
+        if (!userId) {
+            res.status(400).json({ error: 'userId o techId es requerido' });
             return;
         }
-        const timestamp = SyncService_1.syncService.recordHeartbeat(techId, tracking);
+        const timestamp = SyncService_1.syncService.recordHeartbeat(userId, tracking);
         res.status(200).json({ success: true, timestamp });
     }
 }

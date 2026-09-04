@@ -323,10 +323,11 @@ app.post('/api/sync', validateToken, (req, res) => {
 });
 
 app.post('/api/heartbeat', (req, res) => {
-    const { techId, tracking } = req.body;
-    if (!techId) return res.status(400).json({ error: 'techId missing' });
+    const userId = req.body.userId || req.body.techId || (req.user && req.user.userId);
+    const { tracking } = req.body;
+    if (!userId) return res.status(400).json({ error: 'userId/techId missing' });
     
-    onlineStatus[techId] = Date.now();
+    onlineStatus[userId] = Date.now();
     
     if (tracking) {
         // Eliminar órdenes previas pertenecientes a este técnico

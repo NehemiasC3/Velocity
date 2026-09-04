@@ -18,6 +18,7 @@ export const WarehousesModule: React.FC = () => {
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('all');
+  const [warehouseTypeFilter, setWarehouseTypeFilter] = useState<string>('ALL');
   const [activeSubTab, setActiveSubTab] = useState<'serialized' | 'bulk'>('serialized');
   
   const [serializedItems, setSerializedItems] = useState<SerializedItem[]>([]);
@@ -379,15 +380,61 @@ export const WarehousesModule: React.FC = () => {
         </div>
       </div>
 
-      {/* ── Grid de Tarjetas de Bodegas (Jerarquía Visual) ── */}
+      {/* ── Grid de Tarjetas de Bodegas (Jerarquía Visual Hub & Spoke) ── */}
       <div>
-        <div className="flex items-center justify-between mb-3 px-1">
-          <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
-            Red de Bodegas ({warehouses.length})
-          </h3>
-          <span className="text-xs text-slate-500">
-            Haz clic en una bodega para filtrar su stock
-          </span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 px-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Red de Bodegas ({warehouses.length})
+            </h3>
+            <span className="text-xs text-slate-500 hidden sm:inline">
+              &bull; Haz clic para ver stock o gestionar
+            </span>
+          </div>
+
+          {/* Filtros por tipo de nodo */}
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl text-xs overflow-x-auto">
+            <button
+              onClick={() => setWarehouseTypeFilter('ALL')}
+              className={`px-3 py-1 rounded-lg font-semibold transition whitespace-nowrap ${
+                warehouseTypeFilter === 'ALL'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Todos ({warehouses.length})
+            </button>
+            <button
+              onClick={() => setWarehouseTypeFilter('HUBS')}
+              className={`px-3 py-1 rounded-lg font-semibold transition whitespace-nowrap ${
+                warehouseTypeFilter === 'HUBS'
+                  ? 'bg-white dark:bg-slate-900 text-purple-600 dark:text-purple-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Hubs ({warehouses.filter(w => w.type === 'PRINCIPAL' || w.type === 'HUB').length})
+            </button>
+            <button
+              onClick={() => setWarehouseTypeFilter('SUCURSALES')}
+              className={`px-3 py-1 rounded-lg font-semibold transition whitespace-nowrap ${
+                warehouseTypeFilter === 'SUCURSALES'
+                  ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              Sucursales ({warehouses.filter(w => w.type === 'SUCURSAL' || w.type === 'SPOKE').length})
+            </button>
+            <button
+              onClick={() => setWarehouseTypeFilter('VEHICULOS')}
+              className={`px-3 py-1 rounded-lg font-semibold transition whitespace-nowrap ${
+                warehouseTypeFilter === 'VEHICULOS'
+                  ? 'bg-white dark:bg-slate-900 text-emerald-600 dark:text-emerald-400 shadow-2xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              🚚 Móviles ({warehouses.filter(w => w.type === 'VEHICULO').length})
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -400,41 +447,52 @@ export const WarehousesModule: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             
             {/* Tarjeta General (Todas) */}
-            <div
-              onClick={() => setSelectedWarehouseId('all')}
-              className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
-                selectedWarehouseId === 'all'
-                  ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 shadow-md'
-                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-sky-300 hover:shadow-sm'
-              }`}
-            >
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="p-2 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
-                    <Layers className="w-5 h-5" />
+            {warehouseTypeFilter === 'ALL' && (
+              <div
+                onClick={() => setSelectedWarehouseId('all')}
+                className={`p-4 rounded-2xl border cursor-pointer transition-all flex flex-col justify-between ${
+                  selectedWarehouseId === 'all'
+                    ? 'bg-sky-50/80 dark:bg-sky-950/40 border-sky-500 ring-2 ring-sky-500/20 shadow-md'
+                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-sky-300 hover:shadow-sm'
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="p-2 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+                      <Layers className="w-5 h-5" />
+                    </div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                      Vista General
+                    </span>
                   </div>
-                  <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-                    Vista General
+                  <h4 className="font-heading font-bold text-base text-slate-900 dark:text-white">
+                    Todas las Bodegas
+                  </h4>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Inventario consolidado de toda la red
+                  </p>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Total Seriados:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
+                    {serializedItems.length}
                   </span>
                 </div>
-                <h4 className="font-heading font-bold text-base text-slate-900 dark:text-white">
-                  Todas las Bodegas
-                </h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  Inventario consolidado de toda la red
-                </p>
               </div>
+            )}
 
-              <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-slate-500">Total Seriados:</span>
-                <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
-                  {serializedItems.length}
-                </span>
-              </div>
-            </div>
-
-            {/* Listado dinámico de Bodegas */}
-            {warehouses.map(wh => {
+            {/* Listado dinámico de Bodegas Filtradas */}
+            {warehouses
+              .filter(wh => {
+                if (warehouseTypeFilter === 'ALL') return true;
+                if (warehouseTypeFilter === 'HUBS') return wh.type === 'PRINCIPAL' || wh.type === 'HUB';
+                if (warehouseTypeFilter === 'SUCURSALES') return wh.type === 'SUCURSAL' || wh.type === 'SPOKE';
+                if (warehouseTypeFilter === 'VEHICULOS') return wh.type === 'VEHICULO';
+                if (warehouseTypeFilter === 'RMA') return wh.type === 'CUARENTENA_RMA';
+                return true;
+              })
+              .map(wh => {
               const badge = getWarehouseTypeBadge(wh.type);
               const isSelected = selectedWarehouseId === wh.id;
               const countSer = serializedItems.filter(i => i.currentWarehouseId === wh.id).length;

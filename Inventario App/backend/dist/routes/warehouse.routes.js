@@ -5,6 +5,7 @@ const warehouse_controller_1 = require("../controllers/warehouse.controller");
 const router = (0, express_1.Router)();
 // CRUD de Bodegas con Jerarquía
 router.get('/', warehouse_controller_1.WarehouseController.getWarehouses);
+router.get('/technician/:identifier', warehouse_controller_1.WarehouseController.getTechnicianVehicleWarehouse);
 router.get('/:id', warehouse_controller_1.WarehouseController.getWarehouseById);
 router.post('/', warehouse_controller_1.WarehouseController.createWarehouse);
 router.put('/:id', warehouse_controller_1.WarehouseController.updateWarehouse);

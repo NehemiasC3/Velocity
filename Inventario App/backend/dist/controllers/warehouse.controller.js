@@ -257,5 +257,93 @@ class WarehouseController {
             res.status(500).json({ success: false, error: 'Error al eliminar la bodega', details: error.message });
         }
     }
+    /**
+     * Obtiene o auto-aprovisiona la bodega móvil de un técnico
+     * GET /api/warehouses/technician/:identifier
+     */
+    static async getTechnicianVehicleWarehouse(req, res) {
+        try {
+            const identifier = decodeURIComponent(String(req.params.identifier || '')).trim();
+            if (!identifier) {
+                res.status(400).json({ success: false, error: 'Identificador de técnico requerido' });
+                return;
+            }
+            // Buscar si existe un usuario con este id, email o nombre
+            const user = await db_1.prisma.user.findFirst({
+                where: {
+                    OR: [
+                        { id: identifier },
+                        { email: { equals: identifier, mode: 'insensitive' } },
+                        { name: { contains: identifier, mode: 'insensitive' } }
+                    ]
+                }
+            });
+            // Buscar si ya existe la bodega de tipo VEHICULO asociada al técnico
+            let warehouse = await db_1.prisma.warehouse.findFirst({
+                where: {
+                    type: client_1.WarehouseType.VEHICULO,
+                    OR: [
+                        ...(user ? [{ managerId: user.id }] : []),
+                        { name: { contains: identifier, mode: 'insensitive' } }
+                    ]
+                },
+                include: {
+                    parentWarehouse: true,
+                    manager: true,
+                    bulkStocks: {
+                        include: { product: true }
+                    },
+                    batchItems: {
+                        include: { product: true }
+                    },
+                    serializedItems: {
+                        include: { product: true }
+                    }
+                }
+            });
+            // Si no existe, auto-crear la bodega móvil para este técnico
+            if (!warehouse) {
+                const defaultHub = await db_1.prisma.warehouse.findFirst({
+                    where: { type: { in: [client_1.WarehouseType.PRINCIPAL, client_1.WarehouseType.SUCURSAL] } },
+                    orderBy: { createdAt: 'asc' }
+                });
+                const techName = user?.name || identifier;
+                const cleanCode = `MOV-${techName.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4).toUpperCase()}-${Math.floor(100 + Math.random() * 900)}`;
+                const created = await db_1.prisma.warehouse.create({
+                    data: {
+                        name: `Móvil - ${techName}`,
+                        code: cleanCode,
+                        type: client_1.WarehouseType.VEHICULO,
+                        parentId: defaultHub?.id || null,
+                        managerId: user?.id || null,
+                        status: client_1.WarehouseStatus.ACTIVE,
+                        address: `Cuadrilla móvil en ruta`
+                    },
+                    include: {
+                        parentWarehouse: true,
+                        manager: true,
+                        bulkStocks: {
+                            include: { product: true }
+                        },
+                        batchItems: {
+                            include: { product: true }
+                        },
+                        serializedItems: {
+                            include: { product: true }
+                        }
+                    }
+                });
+                warehouse = created;
+            }
+            res.json({
+                success: true,
+                warehouse
+            });
+        }
+        catch (error) {
+            console.error('[WarehouseController.getTechnicianVehicleWarehouse] Error:', error);
+            res.status(500).json({ success: false, error: 'Error al consultar la bodega del técnico', details: error.message });
+        }
+    }
 }
 exports.WarehouseController = WarehouseController;

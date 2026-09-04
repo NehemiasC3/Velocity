@@ -5,6 +5,7 @@ const router = Router();
 
 // CRUD de Bodegas con Jerarquía
 router.get('/', WarehouseController.getWarehouses);
+router.get('/technician/:identifier', WarehouseController.getTechnicianVehicleWarehouse);
 router.get('/:id', WarehouseController.getWarehouseById);
 router.post('/', WarehouseController.createWarehouse);
 router.put('/:id', WarehouseController.updateWarehouse);

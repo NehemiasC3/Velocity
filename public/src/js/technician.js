@@ -1,27 +1,29 @@
 /**
  * VELOCITY — Panel de Técnico
- * Muestra las órdenes del día asignadas al técnico autenticado
+ * Muestra las órdenes del día asignadas al técnico autenticado y gestiona
+ * el Stock en tiempo real de su Camioneta / Bodega Móvil conectada con PostgreSQL.
  */
 
 // ── CONFIG ────────────────────────────────────────────────────────────────
-// Cargar configuración desde config.js
 const CFG_T = {
     server: '' 
 };
 
-
 // ── ESTADO ────────────────────────────────────────────────────────────────
 const techState = {
-    profile:    null,   // datos del técnico logueado
-    orders:     [],     // órdenes del día
-    view:       'agenda',
-    inventory:  null
+    profile:          null,   // datos del técnico logueado
+    orders:           [],     // órdenes del día desde Wispro
+    view:             'agenda',
+    inventory:        null,   // inventario local / legacy
+    vehicleWarehouse: null,   // Bodega móvil real desde PostgreSQL / Prisma
+    isLoadingStock:   false,
+    techs:            {}
 };
 
 // ── SESIÓN ────────────────────────────────────────────────────────────────
-const SESSION_ROLE  = sessionStorage.getItem('Velocity_Role');
-const SESSION_ID    = sessionStorage.getItem('Velocity_Active_User');
-const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token');
+const SESSION_ROLE  = sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role');
+const SESSION_ID    = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
+const SESSION_TOKEN = sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token');
 
 if (SESSION_ROLE !== 'technician' || !SESSION_TOKEN) {
     window.location.href = 'login.html';
@@ -30,18 +32,25 @@ if (SESSION_ROLE !== 'technician' || !SESSION_TOKEN) {
 // ── API ───────────────────────────────────────────────────────────────────
 async function tFetch(path, opts = {}, silent = false) {
     try {
-        const isLocalApi = path.startsWith('/api/') || path.startsWith('api/');
+        const isDirect = path.startsWith('/api/') || path.startsWith('api/') || 
+                         path.startsWith('/inventory-api/') || path.startsWith('inventory-api/');
         const cleanPath = path.startsWith('/') ? path.slice(1) : path;
-        const url = path.startsWith('http') ? path : (isLocalApi ? path : VELOCITY_CONFIG.proxy + cleanPath);
+        const url = path.startsWith('http') 
+            ? path 
+            : (isDirect ? (path.startsWith('/') ? path : '/' + path) : VELOCITY_CONFIG.proxy + cleanPath);
         
+        const headers = {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            ...(opts.headers || {})
+        };
+        if (SESSION_TOKEN) {
+            headers['Authorization'] = SESSION_TOKEN;
+        }
+
         const res = await fetch(url, {
             ...opts,
-            headers: {
-                'Authorization': SESSION_TOKEN, // Usar token de sesión
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                ...(opts.headers || {})
-            },
+            headers,
             body: opts.body || (['POST', 'PUT', 'PATCH'].includes(opts.method) ? JSON.stringify(opts.data) : undefined)
         });
 
@@ -49,13 +58,12 @@ async function tFetch(path, opts = {}, silent = false) {
         if (silent && res.status === 404) return null;
         
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${res.status}`);
+        throw new Error(errorData.error || errorData.message || `HTTP ${res.status}`);
     } catch (e) {
         if (!silent) console.error('[Velocity-Tech] API Error:', e.message);
         throw e;
     }
 }
-
 
 // ── SISTEMA DE LATIDO (HEARTBEAT) ──────────────────────────────────────────
 function startHeartbeat() {
@@ -79,12 +87,11 @@ function startHeartbeat() {
     };
 
     window.triggerHeartbeat = sendPulse;
-
     sendPulse();
     setInterval(sendPulse, 30000); // Cada 30 segundos
 }
 
-// ── TIPOS ─────────────────────────────────────────────────────────────────
+// ── TIPOS DE ÓRDENES ──────────────────────────────────────────────────────
 const TYPE_CFG_T = {
     technical:   { color: '#7c3aed', label: 'Visita Técnica',  icon: 'build' },
     installation:{ color: '#0059bb', label: 'Instalación',     icon: 'wifi' },
@@ -100,17 +107,50 @@ async function loadTechData() {
     techState.profile = techs.find(t => String(t.id) === String(SESSION_ID));
 
     if (!techState.profile) {
-        showError('No se encontró tu perfil. Contacta al supervisor.');
-        return;
+        // Fallback usando datos de sesión
+        const storedName = sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name') || 'Técnico de Campo';
+        techState.profile = {
+            id: SESSION_ID,
+            name: storedName,
+            email: 'tecnico@velocity.com'
+        };
     }
 
-    // Cargar inventario guardado
+    // Cargar inventario guardado / fallback
     const savedInv = localStorage.getItem(`V_Inventory_${SESSION_ID}`);
     techState.inventory = savedInv ? JSON.parse(savedInv) : defaultInventory();
 
-    // Cargar órdenes del día desde Wispro
-    await loadMyOrders();
+    // Cargar bodega móvil real desde PostgreSQL y órdenes de Wispro en paralelo
+    await Promise.allSettled([
+        loadMyOrders(),
+        loadVehicleWarehouse()
+    ]);
 }
+
+async function loadVehicleWarehouse() {
+    try {
+        techState.isLoadingStock = true;
+        const identifier = techState.profile?.name || techState.profile?.id || SESSION_ID || 'Técnico';
+        const res = await tFetch(`/inventory-api/warehouses/technician/${encodeURIComponent(identifier)}`, {}, true);
+        if (res && res.success && res.warehouse) {
+            techState.vehicleWarehouse = res.warehouse;
+            const tagEl = document.getElementById('vehicle-warehouse-tag');
+            if (tagEl) {
+                tagEl.textContent = `${res.warehouse.name} (${res.warehouse.code || 'MÓVIL'})`;
+            }
+        }
+    } catch (e) {
+        console.warn('[Velocity-Tech] No se pudo cargar la bodega móvil remota:', e);
+    } finally {
+        techState.isLoadingStock = false;
+    }
+}
+
+window.refreshTechStock = async function() {
+    await loadVehicleWarehouse();
+    renderStock();
+    showToastNotification('Stock Actualizado', 'Existencias físicas de tu camioneta sincronizadas con PostgreSQL.');
+};
 
 function defaultInventory() {
     return [
@@ -134,7 +174,7 @@ async function loadMyOrders() {
 
         // Buscar el employee_id del técnico en Wispro
         const empData = await tFetch('/employees?per_page=1000');
-        const employees = Array.isArray(empData.data) ? empData.data : [];
+        const employees = Array.isArray(empData?.data) ? empData.data : [];
         
         // Poblar mapa de técnicos
         techState.techs = {};
@@ -143,18 +183,17 @@ async function loadMyOrders() {
         });
 
         const myEmployee = employees.find(e =>
-            (techState.profile.wisproId && String(e.id) === String(techState.profile.wisproId)) ||
-            (techState.profile.email && e.email?.toLowerCase() === techState.profile.email?.toLowerCase()) ||
-            e.name?.toLowerCase().includes(techState.profile.name.split(' ')[0].toLowerCase())
+            (techState.profile?.wisproId && String(e.id) === String(techState.profile.wisproId)) ||
+            (techState.profile?.email && e.email?.toLowerCase() === techState.profile.email?.toLowerCase()) ||
+            (techState.profile?.name && e.name?.toLowerCase().includes(techState.profile.name.split(' ')[0].toLowerCase()))
         );
 
-        const myEmpId = techState.profile.wisproId || myEmployee?.id;
+        const myEmpId = techState.profile?.wisproId || myEmployee?.id;
 
         // Filtrar órdenes del día asignadas a este técnico
         const myOrders = (d.data || []).filter(o => {
             const day   = (o.start_at || '').slice(0, 10);
-            const state = (o.state || '').toLowerCase();
-            return day === todayStr && o.employee_id === myEmpId;
+            return day === todayStr && (!myEmpId || o.employee_id === myEmpId);
         });
 
         // Resolver ordenables (contratos, instalaciones) para obtener datos del cliente
@@ -193,13 +232,11 @@ async function loadMyOrders() {
                 const realClientId = c ? (c.client_id || c.id) : null;
 
                 if (c && realClientId) {
-                    // Buscar cliente en cache
-                    let client  = clients.find(cl => cl.id === realClientId);
+                    let client = clients.find(cl => cl.id === realClientId);
                     
                     if (!c.client_id && c.name) {
                         client = c;
-                    }
-                    else if (!client) {
+                    } else if (!client) {
                         try {
                             const clRes = await tFetch(`/clients/${realClientId}`);
                             if (clRes) {
@@ -239,7 +276,7 @@ async function loadMyOrders() {
                 typeIcon:  typeCfg.icon,
                 state:     o.state,
                 result:    o.result,
-                client:    resolved.name || nameFromDesc || `#${o.sequential_id}`,
+                client:    mappedName,
                 address:   resolved.address || '',
                 zone:      resolved.zone || '',
                 phone:     resolved.phone || '',
@@ -251,14 +288,10 @@ async function loadMyOrders() {
                 description: o.description || '',
                 feedbacksCount: o.feedbacks_count || 0,
                 ticketable_id: o.ticketable_id || null,
-                ticketable_type: o.ticketable_type || null
+                ticketable_type: o.ticketable_type || null,
+                orderable_id: o.orderable_id || null
             };
         }).sort((a, b) => a.startTime.localeCompare(b.startTime));
-
-        // Calcular ONUs necesarias
-        const instCount = techState.orders.filter(o => o.kind === 'installation').length;
-        const onuItem   = techState.inventory.find(i => i.id === 'onu');
-        if (onuItem) onuItem.qty = instCount;
 
     } catch(e) {
         console.error('Error cargando órdenes:', e);
@@ -412,7 +445,7 @@ function renderOrderCard(o) {
 
     if (isDone) {
         buttons = `<div class="mt-4 bg-tertiary-fixed/20 text-on-tertiary-container px-4 py-2.5 rounded-xl text-center font-bold text-sm flex items-center justify-center gap-2">
-                       <span class="material-symbols-outlined text-sm">done_all</span> Completada
+                       <span class="material-symbols-outlined text-sm">done_all</span> Completada y Liquidada
                    </div>`;
     } else if (trackData && trackData.status === 'started') {
         const mins = Math.floor((Date.now() - trackData.startTime) / 60000);
@@ -421,9 +454,9 @@ function renderOrderCard(o) {
                            <span class="material-symbols-outlined text-[18px] animate-pulse">timer</span>
                            En curso: ${mins} min
                        </div>
-                       <button onclick="window.finishOrder('${o.id}')" class="flex-1 flex items-center justify-center gap-2 border border-outline-variant text-on-surface py-3 rounded-xl font-bold text-sm active:scale-95 transition-transform hover:bg-surface-container-low">
+                       <button onclick="window.openLiquidationModal('${o.id}')" class="flex-1 flex items-center justify-center gap-2 kinetic-gradient text-white py-3 rounded-xl font-bold text-sm active:scale-95 transition-transform shadow-md">
                            <span class="material-symbols-outlined text-sm">check_circle</span>
-                           Finalizar
+                           Finalizar / Liquidar
                        </button>
                    </div>`;
     } else {
@@ -432,7 +465,7 @@ function renderOrderCard(o) {
                    <span class="material-symbols-outlined text-sm" style="font-variation-settings:'FILL' 1;">play_arrow</span>
                    Iniciar
                </button>
-               <button onclick="window.finishOrder('${o.id}')" class="flex items-center justify-center gap-2 border border-outline-variant text-on-surface py-3 rounded-xl font-bold text-sm active:scale-95 transition-transform hover:bg-surface-container-low">
+               <button onclick="window.openLiquidationModal('${o.id}')" class="flex items-center justify-center gap-2 border border-outline-variant text-on-surface py-3 rounded-xl font-bold text-sm active:scale-95 transition-transform hover:bg-surface-container-low">
                    <span class="material-symbols-outlined text-sm">check_circle</span>
                    Finalizar
                </button>
@@ -514,72 +547,407 @@ function renderOrderCard(o) {
     </div>`;
 }
 
-// ── STOCK ─────────────────────────────────────────────────────────────────
+// ── STOCK REAL (BODEGA MÓVIL / CAMIONETA) ───────────────────────────────────
 function renderStock() {
     const container = document.getElementById('inventory-container');
-    if (!container || !techState.inventory) return;
+    if (!container) return;
 
-    const pendingInst = techState.orders.filter(o => o.kind === 'installation' && o.result !== 'success').length;
-    const onuItem     = techState.inventory.find(i => i.id === 'onu');
-    if (onuItem) onuItem.name = `ONU (Req. ${pendingInst})`;
+    if (techState.isLoadingStock) {
+        container.innerHTML = `
+            <div class="flex flex-col items-center justify-center py-16 text-on-surface-variant">
+                <span class="material-symbols-outlined text-4xl text-secondary mb-3 animate-spin">sync</span>
+                <p class="font-bold text-sm uppercase tracking-widest">Sincronizando Stock de Camioneta...</p>
+            </div>`;
+        return;
+    }
 
-    let lowStock = false;
+    const wh = techState.vehicleWarehouse;
+    const serialized = (wh?.serializedItems || []).filter(i => i.status !== 'INSTALADO_CLIENTE');
+    const batches    = wh?.batchItems || [];
+    const bulks      = wh?.bulkStocks || [];
+
+    const parentName = wh?.parentWarehouse?.name || 'Hub Central Tocumen';
+
     let html = `
-        <div class="flex justify-between items-center mb-4">
-            <span class="text-xs font-bold uppercase tracking-widest text-on-surface-variant">Mi Equipamiento</span>
-        </div>
-        <div class="space-y-3 max-h-80 overflow-y-auto pr-1">`;
-
-    techState.inventory.forEach(item => {
-        const isLow = item.qty <= 0;
-        if (isLow) lowStock = true;
-        const qtyColor = isLow ? 'text-error' : item.qty <= 3 ? 'text-on-tertiary-container' : 'text-secondary';
-
-        html += `
-        <div class="flex flex-col gap-1 border-b border-surface-container-highest pb-2 last:border-0">
-            <div class="flex justify-between items-center">
-                <span class="text-sm font-medium text-on-surface">${item.name}</span>
-                <span class="text-sm font-bold ${qtyColor}">${item.qty}</span>
+    <!-- Tarjeta de Nodo Móvil -->
+    <div class="bg-surface-container-lowest border border-outline-variant/30 p-5 rounded-[1.5rem] shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div class="flex items-center gap-3.5">
+            <div class="w-12 h-12 rounded-2xl bg-secondary/10 text-secondary flex items-center justify-center border border-secondary/20">
+                <span class="material-symbols-outlined text-2xl">local_shipping</span>
             </div>
-            <div class="flex justify-end gap-2">
-                <button onclick="window.updateStock('${item.id}',-${item.step})" class="text-xs bg-surface-container font-bold text-on-surface-variant px-3 py-1 rounded-lg hover:bg-outline-variant/30 active:scale-95 transition-all">- ${item.step}</button>
-                <button onclick="window.updateStock('${item.id}',${item.step})" class="text-xs bg-surface-container font-bold text-on-surface-variant px-3 py-1 rounded-lg hover:bg-outline-variant/30 active:scale-95 transition-all">+ ${item.step}</button>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h3 class="font-extrabold text-base text-on-surface">${wh?.name || 'Móvil - Mi Camioneta'}</h3>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 uppercase">
+                        ${wh?.code || 'MOV-01'}
+                    </span>
+                </div>
+                <p class="text-xs text-on-surface-variant mt-0.5">
+                    Abastecido por: <strong class="text-on-surface font-semibold">${parentName}</strong>
+                </p>
+            </div>
+        </div>
+        <div class="flex items-center gap-2 text-xs font-bold text-on-surface bg-surface-container px-3.5 py-2 rounded-xl">
+            <span class="material-symbols-outlined text-sm text-secondary">inventory</span>
+            <span>${serialized.length} ONUs en vehículo</span>
+        </div>
+    </div>
+
+    <!-- SECCIÓN 1: Equipos Seriados (ONUs / Routers en Vehículo) -->
+    <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-secondary text-xl">router</span>
+                <h3 class="font-extrabold text-base text-on-surface">ONUs Asignadas para Instalación</h3>
+            </div>
+            <span class="text-xs font-bold bg-secondary/10 text-secondary px-2.5 py-1 rounded-full">
+                ${serialized.length} Disponibles
+            </span>
+        </div>`;
+
+    if (serialized.length === 0) {
+        html += `
+        <div class="py-8 text-center text-on-surface-variant/70 bg-surface-container-low/50 rounded-2xl border border-dashed border-outline-variant/30 p-4">
+            <span class="material-symbols-outlined text-4xl mb-2 opacity-30">inventory_2</span>
+            <p class="text-xs font-bold uppercase tracking-wider">Sin equipos en camioneta</p>
+            <p class="text-[11px] mt-1">Solicita un traspaso de ONUs a tu supervisor de bodega central.</p>
+        </div>`;
+    } else {
+        html += `<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">`;
+        serialized.forEach(onu => {
+            html += `
+            <div class="bg-surface-container-low/60 p-4 rounded-2xl border border-outline-variant/20 flex flex-col justify-between hover:border-secondary/40 transition-colors">
+                <div>
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="font-mono text-xs font-black text-secondary tracking-wider">${onu.macAddress}</span>
+                        <span class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 uppercase">
+                            Listo
+                        </span>
+                    </div>
+                    <p class="text-xs font-semibold text-on-surface">${onu.product?.name || onu.brand + ' ' + onu.model}</p>
+                    <p class="font-mono text-[10px] text-on-surface-variant mt-1">S/N: ${onu.serialNumber}</p>
+                </div>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+
+    html += `</div>`;
+
+    // SECCIÓN 2: Bobinas de Fibra Drop
+    html += `
+    <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-sky-600 text-xl">cable</span>
+                <h3 class="font-extrabold text-base text-on-surface">Bobinas de Fibra Drop</h3>
+            </div>
+            <span class="text-xs font-bold bg-sky-500/10 text-sky-600 px-2.5 py-1 rounded-full">
+                ${batches.length} Activas
+            </span>
+        </div>`;
+
+    if (batches.length === 0) {
+        html += `
+        <div class="py-6 text-center text-on-surface-variant/70 bg-surface-container-low/50 rounded-2xl border border-dashed border-outline-variant/30 p-4">
+            <p class="text-xs font-bold uppercase tracking-wider">No hay bobinas registradas</p>
+            <p class="text-[11px] mt-1">Metraje estándar precargado: 1000m por camioneta.</p>
+        </div>`;
+    } else {
+        html += `<div class="space-y-3">`;
+        batches.forEach(b => {
+            const initial = b.initialQuantity || 1000;
+            const current = b.currentQuantity || 0;
+            const pct = Math.round((current / initial) * 100);
+            const isLow = current < 150;
+            const barColor = isLow ? 'bg-error' : current < 300 ? 'bg-amber-500' : 'bg-emerald-500';
+
+            html += `
+            <div class="bg-surface-container-low/60 p-4 rounded-2xl border border-outline-variant/20">
+                <div class="flex items-center justify-between mb-2">
+                    <div>
+                        <span class="font-bold text-xs text-on-surface">Bobina #${b.batchNumber}</span>
+                        <p class="text-[10px] text-on-surface-variant">${b.product?.name || 'Cable Drop 1 Hilo GJYXFCH'}</p>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-mono font-black text-sm ${isLow ? 'text-error' : 'text-on-surface'}">${current}m</span>
+                        <span class="text-[10px] text-on-surface-variant">/ ${initial}m</span>
+                    </div>
+                </div>
+                <div class="w-full bg-surface-container-high h-2.5 rounded-full overflow-hidden">
+                    <div class="${barColor} h-full transition-all duration-500" style="width: ${pct}%"></div>
+                </div>
+            </div>`;
+        });
+        html += `</div>`;
+    }
+
+    html += `</div>`;
+
+    // SECCIÓN 3: Consumibles y Granel
+    html += `
+    <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] shadow-sm">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+                <span class="material-symbols-outlined text-amber-500 text-xl">handyman</span>
+                <h3 class="font-extrabold text-base text-on-surface">Consumibles & Conectividad</h3>
+            </div>
+            <span class="text-xs font-bold bg-amber-500/10 text-amber-600 px-2.5 py-1 rounded-full">
+                Materiales de Campo
+            </span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">`;
+
+    // Si hay bulks en PostgreSQL los mostramos, de lo contrario usamos el inventario base
+    const displayBulks = bulks.length > 0 
+        ? bulks.map(b => ({ name: b.product?.name || 'Material', qty: b.quantity, unit: b.product?.unitOfMeasure || 'und' }))
+        : (techState.inventory || []).filter(i => i.id !== 'onu').map(i => ({ name: i.name, qty: i.qty, unit: 'und' }));
+
+    displayBulks.forEach(item => {
+        const isLow = item.qty <= 3;
+        html += `
+        <div class="bg-surface-container-low/60 p-3.5 rounded-2xl border border-outline-variant/20 flex flex-col justify-between">
+            <span class="text-xs font-semibold text-on-surface line-clamp-1">${item.name}</span>
+            <div class="mt-2 flex items-baseline justify-between">
+                <span class="font-mono font-black text-base ${isLow ? 'text-error' : 'text-secondary'}">${item.qty}</span>
+                <span class="text-[10px] uppercase font-bold text-on-surface-variant">${item.unit}</span>
             </div>
         </div>`;
     });
 
-    html += `</div>`;
-
-    if (lowStock) {
-        const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-        const warehouseEmail = db.settings?.warehouseEmail || '';
-        const body = encodeURIComponent(`Hola,\n\nSolicito material extra. Me estoy quedando sin stock crítico.\n\nAtentamente,\n${techState.profile?.name}`);
-        html += `
-        <div class="mt-4 p-3 bg-error-container text-on-error-container rounded-xl">
-            <p class="text-xs font-bold uppercase mb-2">⚠️ Stock Crítico</p>
-            <a href="mailto:${warehouseEmail}?subject=Solicitud de Materiales - ${techState.profile?.name}&body=${body}"
-               class="block w-full text-center bg-error text-on-error py-2 rounded-lg text-xs font-bold active:scale-95 transition-transform">
-               Solicitar al Almacén
-            </a>
-        </div>`;
-    }
+    html += `
+        </div>
+    </div>`;
 
     container.innerHTML = html;
 }
 
-// ── PERFIL ────────────────────────────────────────────────────────────────
-function renderPerfil() {
-    const nameTag   = document.getElementById('profile-name-tag');
-    const nameInput = document.getElementById('profile-name-input');
-    if (nameTag)   nameTag.textContent   = techState.profile?.name || 'Técnico';
-    if (nameInput) nameInput.value       = techState.profile?.name || '';
-}
+// ── MODAL DE LIQUIDACIÓN DE ORDEN (TRANSACCIONAL POSTGRESQL) ───────────────
+window.openLiquidationModal = async function(orderId) {
+    const order = techState.orders.find(o => String(o.id) === String(orderId)) || 
+                  techState.orders.find(o => String(o.rawId) === String(orderId));
+    if (!order) return;
+
+    // Asegurar que la bodega móvil esté cargada
+    if (!techState.vehicleWarehouse) {
+        await loadVehicleWarehouse();
+    }
+
+    const wh = techState.vehicleWarehouse;
+    const availableOnus = (wh?.serializedItems || []).filter(i => i.status !== 'INSTALADO_CLIENTE');
+    const availableBatches = wh?.batchItems || [];
+
+    const modalId = 'order-liquidation-modal';
+    document.getElementById(modalId)?.remove();
+
+    const isInstallation = order.kind === 'installation';
+
+    const html = `
+    <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
+        <div class="w-full max-w-lg max-h-[90vh] rounded-[2.25rem] shadow-2xl flex flex-col overflow-hidden border animate-in zoom-in-95 duration-200" style="background-color: var(--surface-container-lowest); border-color: var(--outline-variant);">
+            
+            <!-- Header -->
+            <div class="p-6 flex items-center justify-between border-b" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-secondary text-white flex items-center justify-center shadow-md">
+                        <span class="material-symbols-outlined text-2xl">checklist_rtl</span>
+                    </div>
+                    <div>
+                        <h3 class="font-black text-lg text-on-surface">Liquidar Orden #${order.id}</h3>
+                        <p class="text-xs font-bold text-secondary truncate max-w-[280px]">${order.client}</p>
+                    </div>
+                </div>
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-8 h-8 rounded-full text-on-surface-variant hover:text-error flex items-center justify-center transition-transform hover:scale-105">
+                    <span class="material-symbols-outlined text-lg">close</span>
+                </button>
+            </div>
+
+            <!-- Form Body -->
+            <form id="liquidation-form" onsubmit="window.submitLiquidation(event, '${order.id}')" class="flex-1 overflow-y-auto p-6 space-y-4 text-xs">
+                
+                <!-- Dirección / NAP -->
+                <div class="bg-surface-container-low p-3.5 rounded-xl border border-outline-variant/30">
+                    <p class="text-xs text-on-surface font-semibold">${order.address || 'Panamá'}</p>
+                    ${order.nap ? `<span class="text-[10px] font-bold text-secondary mt-1 inline-block">🔌 NAP: ${order.nap}</span>` : ''}
+                </div>
+
+                <!-- 1. ONU Instalada -->
+                <div class="space-y-1.5">
+                    <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px]">
+                        Equipo Seriado / ONU Instalada ${isInstallation ? '*' : '(Opcional)'}
+                    </label>
+                    <select id="liq-onu-select" class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3.5 py-2.5 text-xs text-on-surface font-mono font-medium focus:ring-2 focus:ring-secondary outline-none">
+                        <option value="">-- Sin cambio de ONU / Ninguna --</option>
+                        ${availableOnus.map(onu => `
+                            <option value="${onu.macAddress}" ${isInstallation ? 'selected' : ''}>
+                                ${onu.macAddress} &bull; ${onu.brand || ''} ${onu.model || ''} (S/N: ${onu.serialNumber})
+                            </option>
+                        `).join('')}
+                    </select>
+                    ${availableOnus.length === 0 ? `
+                        <p class="text-[10px] text-amber-600 font-bold">⚠️ No tienes ONUs cargadas en tu camioneta en el sistema.</p>
+                    ` : ''}
+                </div>
+
+                <!-- 2. Metros de Drop Fibra Consumidos -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px]">
+                            Metros de Fibra Drop *
+                        </label>
+                        <input type="number" id="liq-meters-input" required min="0" max="500" value="${isInstallation ? '120' : '0'}"
+                            class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-on-surface focus:ring-2 focus:ring-secondary outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px]">
+                            Bobina de Origen
+                        </label>
+                        <select id="liq-batch-select" class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3 py-2 text-xs text-on-surface font-medium focus:ring-2 focus:ring-secondary outline-none">
+                            ${availableBatches.length > 0 ? availableBatches.map(b => `
+                                <option value="${b.batchNumber}">Bobina #${b.batchNumber} (${b.currentQuantity}m disp.)</option>
+                            `).join('') : '<option value="BOB-AUTO">Bobina Principal Camioneta</option>'}
+                        </select>
+                    </div>
+                </div>
+
+                <!-- 3. Consumibles usados -->
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px]">
+                            Conectores APC/UPC
+                        </label>
+                        <input type="number" id="liq-connectors-input" min="0" max="20" value="${isInstallation ? '2' : '0'}"
+                            class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-on-surface focus:ring-2 focus:ring-secondary outline-none">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px]">
+                            Tensores de Acometida
+                        </label>
+                        <input type="number" id="liq-tensors-input" min="0" max="20" value="${isInstallation ? '2' : '0'}"
+                            class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-on-surface focus:ring-2 focus:ring-secondary outline-none">
+                    </div>
+                </div>
+
+                <!-- 4. Observaciones de Campo -->
+                <div>
+                    <label class="block font-bold text-on-surface uppercase tracking-wider text-[10px] mb-1">
+                        Observaciones / Bitácora de Cierre
+                    </label>
+                    <textarea id="liq-notes-input" rows="2" placeholder="Ej. Instalación OK, potencia -19.4 dBm en NAP. Cliente satisfecho."
+                        class="w-full bg-surface border border-outline-variant/40 rounded-xl px-3.5 py-2 text-xs text-on-surface focus:ring-2 focus:ring-secondary outline-none"></textarea>
+                </div>
+
+                <!-- Botones de Acción -->
+                <div class="pt-4 border-t border-outline-variant/30 flex items-center justify-end gap-3">
+                    <button type="button" onclick="document.getElementById('${modalId}').remove()" class="px-4 py-2.5 rounded-xl font-bold text-on-surface-variant hover:bg-surface-container">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="liq-submit-btn" class="px-6 py-2.5 rounded-xl kinetic-gradient text-white font-black uppercase tracking-wider text-xs shadow-md active:scale-95 transition-all flex items-center gap-2">
+                        <span class="material-symbols-outlined text-base">check_circle</span>
+                        Confirmar y Liquidar
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>`;
+
+    document.body.insertAdjacentHTML('beforeend', html);
+};
+
+window.submitLiquidation = async function(e, orderId) {
+    e.preventDefault();
+    const order = techState.orders.find(o => String(o.id) === String(orderId)) || 
+                  techState.orders.find(o => String(o.rawId) === String(orderId));
+    if (!order) return;
+
+    const submitBtn = document.getElementById('liq-submit-btn');
+    if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `<span class="material-symbols-outlined text-base animate-spin">sync</span> Liquidando...`;
+    }
+
+    try {
+        const onuMac = document.getElementById('liq-onu-select')?.value.trim();
+        const meters = parseFloat(document.getElementById('liq-meters-input')?.value || '0');
+        const batchNumber = document.getElementById('liq-batch-select')?.value;
+        const connectors = parseInt(document.getElementById('liq-connectors-input')?.value || '0', 10);
+        const tensors = parseInt(document.getElementById('liq-tensors-input')?.value || '0', 10);
+        const notes = document.getElementById('liq-notes-input')?.value.trim();
+
+        const whId = techState.vehicleWarehouse?.id;
+
+        // Si tenemos bodega móvil registrada, enviamos liquidación al backend
+        if (whId) {
+            await tFetch('/inventory-api/liquidations/consume', {
+                method: 'POST',
+                data: {
+                    vehicleWarehouseId: whId,
+                    technicianId: techState.profile?.id,
+                    ticketNumber: `#${order.id}`,
+                    ticketType: order.kind === 'installation' ? 'INSTALACION_NUEVA' : 'MANTENIMIENTO_CAMBIO_EQUIPO',
+                    wisproClientId: order.orderable_id || order.id,
+                    clientName: order.client,
+                    clientAddress: order.address,
+                    wisproNode: order.nap,
+                    installedOnuMac: onuMac || undefined,
+                    batchedUsage: meters > 0 ? { batchNumber, metersUsed: meters } : undefined,
+                    connectorsUsed: connectors,
+                    tensorsUsed: tensors,
+                    notes: notes
+                }
+            });
+        }
+
+        // Marcar como completada localmente
+        order.result = 'success';
+        order.state  = 'finalized';
+
+        // Limpiar tracking
+        try {
+            const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
+            delete tracking[order.id];
+            delete tracking[order.rawId];
+            localStorage.setItem('Velocity_Order_Tracking', JSON.stringify(tracking));
+        } catch(e) {}
+
+        // Cerrar modal
+        document.getElementById('order-liquidation-modal')?.remove();
+
+        renderProgress();
+        renderAgenda();
+
+        // Actualizar bodega móvil en segundo plano
+        loadVehicleWarehouse().then(() => {
+            if (techState.view === 'stock') renderStock();
+        });
+
+        // WhatsApp de confirmación
+        const text = `✅ *ORDEN FINALIZADA Y LIQUIDADA*\n\n` +
+            `📋 Orden: #${order.id}\n` +
+            `📌 Tipo: ${order.typeLabel}\n` +
+            `👤 Cliente: ${order.client}\n` +
+            `📍 Dirección: ${order.address || order.zone || '—'}\n` +
+            `${order.nap ? `🔌 NAP: ${order.nap}\n` : ''}` +
+            `${onuMac ? `📦 ONU MAC: ${onuMac}\n` : ''}` +
+            `${meters > 0 ? `📏 Fibra Drop: ${meters}m\n` : ''}` +
+            `⏰ Finalizado: ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}\n\n` +
+            `— ${techState.profile?.name}`;
+
+        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+
+    } catch (err) {
+        alert(`⚠️ Error al liquidar materiales: ${err.message}\nVerifica tus existencias en camioneta.`);
+        if (submitBtn) {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `<span class="material-symbols-outlined text-base">check_circle</span> Confirmar y Liquidar`;
+        }
+    }
+};
 
 // ── ACCIONES ──────────────────────────────────────────────────────────────
 window.switchTab = function(view) {
     techState.view = view;
 
-    // Actualizar nav
     document.querySelectorAll('.nav-tab').forEach(btn => {
         const isActive = btn.id === `nav-${view}`;
         btn.classList.toggle('text-secondary', isActive);
@@ -592,8 +960,19 @@ window.switchTab = function(view) {
 };
 
 window.startOrder = function(orderId) {
-    const order = techState.orders.find(o => String(o.id) === String(orderId));
+    const order = techState.orders.find(o => String(o.id) === String(orderId)) ||
+                  techState.orders.find(o => String(o.rawId) === String(orderId));
     if (!order) return;
+
+    try {
+        const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
+        tracking[order.id] = { status: 'started', startTime: Date.now(), empId: SESSION_ID };
+        localStorage.setItem('Velocity_Order_Tracking', JSON.stringify(tracking));
+        renderAgenda();
+        if (typeof window.triggerHeartbeat === 'function') {
+            window.triggerHeartbeat();
+        }
+    } catch(e) { console.error('Error al iniciar orden:', e); }
 
     // WhatsApp con texto prescrito
     const text = `🔧 *INICIO DE ORDEN*\n\n` +
@@ -607,53 +986,12 @@ window.startOrder = function(orderId) {
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
 };
 
-window.finishOrder = function(orderId) {
-    const order = techState.orders.find(o => String(o.id) === String(orderId));
-    if (!order) return;
-
-    // Validar NAP para instalaciones y visitas técnicas
-    if ((order.kind === 'installation' || order.kind === 'technical') && !order.nap) {
-        if (!confirm(`⚠️ Esta ${order.typeLabel} no tiene NAP asignada.\n¿Deseas finalizar de todas formas?`)) return;
-    }
-
-    // Marcar como completada localmente
-    order.result = 'success';
-    order.state  = 'finalized';
-
-    // Descontar ONU si es instalación
-    if (order.kind === 'installation') {
-        const onuItem = techState.inventory.find(i => i.id === 'onu');
-        if (onuItem && onuItem.qty > 0) onuItem.qty--;
-        saveInventory();
-    }
-
-    renderProgress();
-    renderAgenda();
-
-    // WhatsApp con texto prescrito
-    const text = `✅ *ORDEN FINALIZADA*\n\n` +
-        `📋 Orden: #${order.id}\n` +
-        `📌 Tipo: ${order.typeLabel}\n` +
-        `👤 Cliente: ${order.client}\n` +
-        `📍 Dirección: ${order.address || order.zone || '—'}\n` +
-        `${order.nap ? `🔌 NAP: ${order.nap}\n` : ''}` +
-        `⏰ Finalizado: ${new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}\n\n` +
-        `— ${techState.profile?.name}`;
-
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-};
-
-window.updateStock = function(id, delta) {
-    const item = techState.inventory.find(i => i.id === id);
-    if (item) {
-        item.qty = Math.max(0, item.qty + delta);
-        saveInventory();
-        renderStock();
-    }
-};
-
-function saveInventory() {
-    localStorage.setItem(`V_Inventory_${SESSION_ID}`, JSON.stringify(techState.inventory));
+// ── PERFIL ────────────────────────────────────────────────────────────────
+function renderPerfil() {
+    const nameTag   = document.getElementById('profile-name-tag');
+    const nameInput = document.getElementById('profile-name-input');
+    if (nameTag)   nameTag.textContent   = techState.profile?.name || 'Técnico';
+    if (nameInput) nameInput.value       = techState.profile?.name || '';
 }
 
 window.saveProfile = function() {
@@ -666,6 +1004,7 @@ window.saveProfile = function() {
         tech.name = newName;
         localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
         techState.profile.name = newName;
+        sessionStorage.setItem('Velocity_User_Name', newName);
         updateGreeting();
         renderPerfil();
         alert('✅ Perfil actualizado');
@@ -687,126 +1026,22 @@ window.logout = function() {
     document.getElementById('logout-modal')?.classList.remove('hidden');
 };
 
-// ── TRACKING EN CURSO ─────────────────────────────────────────────────────
-window.startOrder = function(id) {
-    if(!confirm('¿Iniciar tiempo de trabajo para esta orden?')) return;
-    try {
-        const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
-        tracking[id] = { status: 'started', startTime: Date.now(), empId: SESSION_ID };
-        localStorage.setItem('Velocity_Order_Tracking', JSON.stringify(tracking));
-        renderAgenda();
-        if (typeof window.triggerHeartbeat === 'function') {
-            window.triggerHeartbeat();
-        }
-    } catch(e) { console.error('Error al iniciar orden:', e); }
-};
-
-window.finishOrder = function(id) {
-    if(!confirm('¿Marcar como finalizada localmente? (Recuerda cerrar el contrato en Wispro)')) return;
-    try {
-        const tracking = JSON.parse(localStorage.getItem('Velocity_Order_Tracking') || '{}');
-        delete tracking[id];
-        localStorage.setItem('Velocity_Order_Tracking', JSON.stringify(tracking));
-        // Aquí podríamos hacer un optimistic UI update
-        const order = techState.orders.find(o => o.id === id || o.rawId === id);
-        if(order) order.result = 'success';
-        
-        renderApp();
-        if (typeof window.triggerHeartbeat === 'function') {
-            window.triggerHeartbeat();
-        }
-    } catch(e) { console.error('Error al finalizar orden:', e); }
-};
-
-// ── SIMULACIÓN (MODO QA) ──────────────────────────────────────────────────
-window.loadDemoOrders = function() {
-    const demo = [
-        {
-            id: 'DEMO-101',
-            rawId: 'demo-ins-01',
-            kind: 'installation',
-            typeLabel: 'Instalación',
-            typeColor: '#0059bb',
-            typeIcon: 'wifi',
-            state: 'pending',
-            result: 'not_set',
-            client: 'FAMILIA RODRIGUEZ (DEMO)',
-            address: 'Calle 50, Edificio F&F, Piso 20',
-            zone: 'CIUDAD DE PANAMÁ',
-            phone: '6600-0000',
-            nap: 'NAP-S5-P12',
-            startTime: '09:00 AM',
-            endTime: '11:00 AM',
-            description: 'Instalación de alta velocidad. Cliente VIP.',
-            feedbacksCount: 2
-        },
-        {
-            id: 'DEMO-102',
-            rawId: 'demo-tech-01',
-            kind: 'technical',
-            typeLabel: 'Visita Técnica',
-            typeColor: '#7c3aed',
-            typeIcon: 'build',
-            state: 'pending',
-            result: 'not_set',
-            client: 'SUPERMERCADOS REY (DEMO)',
-            address: 'Albrook Mall, Pasillo del Koala',
-            zone: 'ALBROOK',
-            phone: '200-1234',
-            nap: null,
-            startTime: '01:30 PM',
-            endTime: '02:30 PM',
-            description: 'Revisión de lentitud en caja 4.',
-            feedbacksCount: 0
-        },
-        {
-            id: 'DEMO-103',
-            rawId: 'demo-feas-01',
-            kind: 'feasibility',
-            typeLabel: 'Factibilidad',
-            typeColor: '#059669',
-            typeIcon: 'search',
-            state: 'pending',
-            result: 'not_set',
-            client: 'RESIDENCIAL ALTOS (DEMO)',
-            address: 'Altos de Panamá, Casa #45',
-            zone: 'CENTRO',
-            phone: '300-4567',
-            nap: 'PROXIMIDAD: NAP-09',
-            startTime: '04:00 PM',
-            endTime: '04:30 PM',
-            description: 'Verificar distancias para posteo.',
-            feedbacksCount: 1
-        }
-    ];
-
-    techState.orders = demo;
-    renderApp();
-    showNotification('Prueba Activada', 'Órdenes de simulación cargadas correctamente.', 'success');
-};
-
-function showNotification(title, msg, type) {
-    alert(`${title}: ${msg}`);
-}
-
-
-
 // ── BITÁCORA (SINCRONIZADA CON WISPRO) ────────────────────────────────────
 window.openFeedbackModal = async function(id) {
-    const order = techState.orders.find(o => String(o.id) === String(id)) || techState.orders.find(o => String(o.rawId) === String(id));
-    if (!order) { return; }
+    const order = techState.orders.find(o => String(o.id) === String(id)) || 
+                  techState.orders.find(o => String(o.rawId) === String(id));
+    if (!order) return;
 
     const modalId = 'tech-feedback-modal';
     document.getElementById(modalId)?.remove();
 
     const html = `
     <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[100] bg-slate-950/65 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-300">
-        <div class="w-full max-w-xl max-h-[85vh] rounded-[2.25rem] shadow-[0_32px_80px_rgba(0,0,0,0.45)] flex flex-col overflow-hidden border animate-in zoom-in-95 slide-in-from-bottom-4 duration-300" style="background-color: var(--surface-container-lowest); border-color: var(--outline-variant);">
+        <div class="w-full max-w-xl max-h-[85vh] rounded-[2.25rem] shadow-2xl flex flex-col overflow-hidden border animate-in zoom-in-95 duration-300" style="background-color: var(--surface-container-lowest); border-color: var(--outline-variant);">
             <!-- Header -->
             <div class="p-6 flex items-center justify-between border-b backdrop-blur-md" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
                 <div class="flex items-center gap-4">
                     <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-white relative overflow-hidden flex-shrink-0" style="background: linear-gradient(135deg, ${order.typeColor} 0%, ${order.typeColor}dd 100%); box-shadow: 0 8px 24px -4px ${order.typeColor}50">
-                        <div class="absolute inset-0 bg-white/15 backdrop-blur-[1px]"></div>
                         <span class="material-symbols-outlined text-2xl relative z-10">forum</span>
                     </div>
                     <div class="min-w-0">
@@ -817,7 +1052,7 @@ window.openFeedbackModal = async function(id) {
                         </p>
                     </div>
                 </div>
-                <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full text-on-surface-variant hover:text-error hover:bg-error/15 flex items-center justify-center transition-all duration-200 hover:rotate-90 hover:scale-105 active:scale-95 border shadow-sm" style="background-color: var(--surface-container-high); border-color: var(--outline-variant);">
+                <button onclick="document.getElementById('${modalId}').remove()" class="w-9 h-9 rounded-full text-on-surface-variant hover:text-error flex items-center justify-center transition-all border shadow-sm" style="background-color: var(--surface-container-high); border-color: var(--outline-variant);">
                     <span class="material-symbols-outlined text-lg">close</span>
                 </button>
             </div>
@@ -825,11 +1060,8 @@ window.openFeedbackModal = async function(id) {
             <!-- Body (Timeline) -->
             <div id="feedback-timeline" class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar scroll-smooth">
                 <div class="flex flex-col items-center justify-center py-24 text-center" style="color: var(--on-surface-variant); opacity: 0.3;">
-                    <div class="relative w-12 h-12 mb-4 flex items-center justify-center">
-                        <span class="material-symbols-outlined text-4xl animate-spin">sync</span>
-                    </div>
-                    <p class="font-black text-xs tracking-widest uppercase italic mb-1">Sincronizando Bitácora...</p>
-                    <p class="text-[8px] font-bold uppercase tracking-wider">Cargando comentarios del servidor</p>
+                    <span class="material-symbols-outlined text-4xl animate-spin mb-2">sync</span>
+                    <p class="font-black text-xs tracking-widest uppercase italic">Sincronizando Bitácora...</p>
                 </div>
             </div>
 
@@ -837,7 +1069,7 @@ window.openFeedbackModal = async function(id) {
             <div class="px-6 py-4 border-t flex items-center justify-between" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
                 <span class="text-[9px] font-black uppercase tracking-wider" style="color: var(--on-surface-variant); opacity: 0.5;">Historial Integrado Wispro • Sólo Lectura</span>
                 <div class="flex items-center gap-2">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981] animate-pulse"></span>
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     <span class="text-[9px] font-extrabold uppercase tracking-widest" style="color: var(--on-surface-variant); opacity: 0.7;">Live Link</span>
                 </div>
             </div>
@@ -853,20 +1085,15 @@ window.loadFeedbacks = async function(target) {
     if (!timeline) return;
 
     try {
-        const endpoints = [
-            `/order/orders/${target.rawId}/feedbacks`
-        ];
-
+        const endpoints = [`/order/orders/${target.rawId}/feedbacks`];
         if (target.kind === 'installation' && target.orderable_id) {
             endpoints.push(`/installation_orders/${target.orderable_id}/feedbacks`);
         }
-
         if (target.ticketable_id) {
             endpoints.push(`/help_desk/issues/${target.ticketable_id}/feedbacks`);
         }
 
         const results = await Promise.allSettled(endpoints.map(ep => tFetch(ep)));
-        
         let allFeedbacks = [];
         const seenIds = new Set();
 
@@ -896,102 +1123,71 @@ window.loadFeedbacks = async function(target) {
         }
 
         const titleEl = document.getElementById('tech-feedback-modal-title');
-        if (titleEl) {
-            titleEl.textContent = `Bitácora #${target.id} (${allFeedbacks.length})`;
-        }
+        if (titleEl) titleEl.textContent = `Bitácora #${target.id} (${allFeedbacks.length})`;
 
         allFeedbacks.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
 
         timeline.innerHTML = allFeedbacks.map((f, idx) => {
             const date = new Date(f.created_at).toLocaleString('es-PA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-            
-            // Resolver el nombre del autor
             const sender = (techState.techs && techState.techs[f.creatable_id]) || f.author_name || f.technician_name || f.creator_name || 'Sistema';
-            
             const isMe = sender.toLowerCase().includes(techState.profile?.name?.split(' ')[0].toLowerCase());
             const isSistema = sender.toLowerCase() === 'sistema';
             const roleLabel = isSistema ? 'Sistema' : isMe ? 'Yo' : 'Técnico';
-            
-            let cardBgColor = 'var(--surface-container-low)';
-            let cardBorderColor = 'var(--outline-variant)';
-            let cardLeftBorderColor = '';
-            let badgeBgColor = '';
-            let badgeTextColor = '';
-
-            if (isSistema) {
-                cardBgColor = 'color-mix(in srgb, var(--surface-container-high) 60%, transparent)';
-                cardLeftBorderColor = 'color-mix(in srgb, var(--on-surface-variant) 40%, transparent)';
-                badgeBgColor = 'color-mix(in srgb, var(--on-surface-variant) 15%, transparent)';
-                badgeTextColor = 'var(--on-surface-variant)';
-            } else if (isMe) {
-                cardLeftBorderColor = 'var(--secondary)';
-                badgeBgColor = 'var(--secondary)';
-                badgeTextColor = 'var(--on-secondary)';
-            } else {
-                cardLeftBorderColor = 'var(--primary)';
-                badgeBgColor = 'var(--primary)';
-                badgeTextColor = 'var(--on-primary)';
-            }
-            
-            // Generar HSL único para el autor
-            let hash = 0;
-            for (let i = 0; i < sender.length; i++) {
-                hash = sender.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            const hue = Math.abs(hash % 360);
-            const avatarColor = `hsl(${hue}, 55%, 42%)`;
-            const initials = sender.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-
-            const isLast = idx === allFeedbacks.length - 1;
 
             return `
-            <div class="relative pl-12 pb-6 last:pb-0 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <!-- Line connecting this avatar to the next -->
-                ${isLast ? '' : `<div class="absolute left-[17px] top-10 bottom-0 w-[2px]" style="background-color: var(--outline-variant); opacity: 0.2;"></div>`}
-                
-                <!-- Avatar -->
-                <div class="absolute left-0 top-0.5 w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-[11px] shadow-[0_4px_12px_rgba(0,0,0,0.15)] select-none border border-white/20" style="background: linear-gradient(135deg, ${avatarColor} 0%, ${avatarColor}dd 100%)">
-                    ${initials}
+            <div class="relative pl-12 pb-6 last:pb-0">
+                <div class="absolute left-0 top-0.5 w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-[11px] shadow-sm bg-secondary">
+                    ${sender.slice(0, 2).toUpperCase()}
                 </div>
-                
-                <!-- Comment Card -->
-                <div class="flex-1 min-w-0 rounded-2xl p-4 hover:shadow-[0_8px_30px_rgba(0,0,0,0.06)] hover:translate-x-0.5 transition-all duration-300 border border-l-[4px]" style="background-color: ${cardBgColor}; border-color: ${cardBorderColor}; border-left-color: ${cardLeftBorderColor};">
-                    <!-- Card Header -->
-                    <div class="flex items-center justify-between gap-2 mb-2.5">
+                <div class="flex-1 min-w-0 rounded-2xl p-4 border" style="background-color: var(--surface-container-low); border-color: var(--outline-variant);">
+                    <div class="flex items-center justify-between gap-2 mb-2">
                         <div class="flex items-center gap-2 min-w-0">
-                            <span class="text-xs font-bold truncate max-w-[180px]" style="color: var(--on-surface);">${sender}</span>
-                            <span class="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wider select-none" style="background-color: ${badgeBgColor}; color: ${badgeTextColor};">
+                            <span class="text-xs font-bold truncate" style="color: var(--on-surface);">${sender}</span>
+                            <span class="text-[9px] font-extrabold px-2 py-0.5 rounded-full uppercase bg-secondary/10 text-secondary">
                                 ${roleLabel}
                             </span>
                         </div>
-                        <span class="text-[10px] font-bold flex items-center gap-1 select-none whitespace-nowrap" style="color: var(--on-surface-variant); opacity: 0.6;">
-                            <span class="material-symbols-outlined text-[11px]">schedule</span> ${date}
-                        </span>
+                        <span class="text-[10px] opacity-60">${date}</span>
                     </div>
-                    
-                    <!-- Card Body -->
-                    <p class="text-[13px] leading-relaxed font-normal tracking-wide whitespace-pre-wrap break-words select-text" style="color: var(--on-surface-variant);">${f.body || f.comment || '—'}</p>
+                    <p class="text-[13px] leading-relaxed select-text" style="color: var(--on-surface-variant);">${f.body || f.comment || '—'}</p>
                 </div>
             </div>`;
         }).join('');
 
         timeline.scrollTop = timeline.scrollHeight;
-
     } catch(e) {
         timeline.innerHTML = `<p class="text-center text-error font-black text-[9px] uppercase p-10 opacity-50">Error de conexión</p>`;
     }
 };
 
-
-
-function showError(msg) {
-    const el = document.getElementById('tickets-container');
-    if (el) el.innerHTML = `
-        <div class="flex flex-col items-center py-16 text-error opacity-70">
-            <span class="material-symbols-outlined text-5xl mb-3">error</span>
-            <p class="font-bold text-sm text-center">${msg}</p>
-        </div>`;
+function showToastNotification(title, msg) {
+    alert(`${title}\n${msg}`);
 }
+
+window.loadDemoOrders = function() {
+    techState.orders = [
+        {
+            id: 'DEMO-101',
+            rawId: 'demo-ins-01',
+            kind: 'installation',
+            typeLabel: 'Instalación',
+            typeColor: '#0059bb',
+            typeIcon: 'wifi',
+            state: 'pending',
+            result: 'not_set',
+            client: 'FAMILIA RODRIGUEZ (DEMO)',
+            address: 'Calle 50, Edificio F&F, Piso 20',
+            zone: 'CIUDAD DE PANAMÁ',
+            phone: '6600-0000',
+            nap: 'NAP-S5-P12',
+            startTime: '09:00 AM',
+            endTime: '11:00 AM',
+            description: 'Instalación de fibra óptica.',
+            feedbacksCount: 2
+        }
+    ];
+    renderApp();
+};
 
 window.navigateGPS = function(lat, lng, platform) {
     let url = '';
@@ -1016,7 +1212,6 @@ window.navigateAddress = function(address, platform) {
 
 // ── INIT ──────────────────────────────────────────────────────────────────
 window.addEventListener('DOMContentLoaded', async () => {
-    // Mostrar loading
     const container = document.getElementById('tickets-container');
     if (container) container.innerHTML = `
         <div class="flex flex-col items-center py-16 text-on-surface-variant">
@@ -1025,29 +1220,16 @@ window.addEventListener('DOMContentLoaded', async () => {
         </div>`;
 
     await loadTechData();
-    startHeartbeat(); // Iniciar latido para que el servidor nos vea online
+    startHeartbeat();
     renderAgenda();
 
-    // Auto-recarga cada 60s
+    // Auto-recarga periódica cada 60s
     setInterval(async () => {
         if (techState.profile && document.visibilityState === 'visible') {
             try {
-                const oldHash = JSON.stringify((techState.orders || []).map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`));
-                await loadTechData();
-                const newHash = JSON.stringify((techState.orders || []).map(o => `${o.id}:${o.state}:${o.result}:${o.feedbacksCount}`));
-                if (oldHash !== newHash) {
-                    console.log('[Velocity Tech] Cambios detectados. Actualizando agenda...');
-                    renderApp();
-                }
-            } catch (e) {
-                console.error('Error en auto-recarga del técnico:', e);
-            }
+                await loadMyOrders();
+                renderApp();
+            } catch (e) {}
         }
     }, 60000);
 });
-
-async function initApp() {
-    await loadTechData();
-    startHeartbeat();
-    renderAgenda();
-}

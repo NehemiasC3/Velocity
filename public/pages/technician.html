@@ -218,22 +218,20 @@
 
         <!-- ================= VIEW: STOCK ================= -->
         <div id="view-stock" class="hidden animation-slide-up">
-            <header class="mb-8 mt-4">
-                <h1 class="text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mt-1">Stock de Vehículo</h1>
-                <p class="text-on-surface-variant mt-2 max-w-md">Control de tu equipamiento móvil. Registra consumos en tiempo real para evitar quiebres.</p>
+            <header class="mb-8 mt-4 flex flex-col md:flex-row md:items-end justify-between gap-4">
+                <div>
+                    <span class="text-on-surface-variant font-medium tracking-wider text-[10px] uppercase" id="vehicle-warehouse-tag">Inventario Móvil</span>
+                    <h1 class="text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mt-1">Stock de Vehículo</h1>
+                    <p class="text-on-surface-variant mt-2 max-w-lg">Control de equipamiento físico en camioneta conectado en tiempo real con la base de datos de Bodega Central.</p>
+                </div>
+                <button onclick="window.refreshTechStock()" class="inline-flex items-center gap-2 px-4 py-2.5 bg-surface-container-high hover:bg-surface-container-highest text-on-surface font-bold text-xs uppercase tracking-wider rounded-xl transition-all active:scale-95 shadow-xs self-start md:self-auto border border-outline-variant/30">
+                    <span class="material-symbols-outlined text-sm">sync</span>
+                    Actualizar Stock
+                </button>
             </header>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="bg-surface-container-lowest border border-outline-variant/30 p-6 rounded-[1.5rem] flex flex-col" id="inventory-container">
-                    <!-- Injected by JS -->
-                </div>
-                <div class="bg-surface-container-low p-6 rounded-[1.5rem] flex flex-col justify-center items-center text-center">
-                    <span class="material-symbols-outlined text-secondary text-5xl mb-4">box</span>
-                    <h3 class="font-bold text-lg text-on-surface mb-2">Directivas de Almacén</h3>
-                    <p class="text-sm text-on-surface-variant max-w-xs">
-                        Tus ONUs se calculan automáticamente con base en tus instalaciones activas del día. Para el resto de materiales, utiliza los controles de uso y envíale tu reporte a Maydelin Ojo.
-                    </p>
-                </div>
+            <div id="inventory-container" class="space-y-6">
+                <!-- Injected dynamically by technician.js -->
             </div>
         </div>
 

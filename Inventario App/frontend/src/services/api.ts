@@ -164,9 +164,12 @@ class ApiService {
     return this.request('/dashboard/kpis');
   }
 
-  // Warehouses
   public async getWarehouses(): Promise<{ warehouses: Warehouse[] }> {
     return this.request('/warehouses');
+  }
+
+  public async getTechnicianWarehouse(identifier: string): Promise<{ success: boolean; warehouse: Warehouse }> {
+    return this.request(`/warehouses/technician/${encodeURIComponent(identifier)}`);
   }
 
   public async createWarehouse(data: Partial<Warehouse>): Promise<{ warehouse: Warehouse }> {

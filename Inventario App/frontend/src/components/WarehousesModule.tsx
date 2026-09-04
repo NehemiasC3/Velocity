@@ -13,13 +13,8 @@ export const WarehousesModule: React.FC = () => {
   const { currentUser } = useAuth();
   
   // Verificación de Rol Administrador / Supervisor
-  const isAdmin = 
-    currentUser?.role === 'SUPERADMIN' || 
-    currentUser?.role === 'ADMIN_BODEGA' || 
-    (currentUser?.role as any) === 'admin' || 
-    (currentUser?.role as any) === 'supervisor' ||
-    (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('Velocity_Role') === 'admin' || sessionStorage.getItem('Velocity_Role') === 'supervisor')) ||
-    (typeof localStorage !== 'undefined' && (localStorage.getItem('Velocity_Role') === 'admin' || localStorage.getItem('Velocity_Role') === 'supervisor'));
+  const userRole = String(currentUser?.role || sessionStorage?.getItem('Velocity_Role') || localStorage?.getItem('Velocity_Role') || 'SUPERADMIN').toUpperCase();
+  const isAdmin = ['SUPERADMIN', 'ADMIN_BODEGA', 'ADMIN', 'SUPERVISOR', 'SUPERVISOR_MESA'].includes(userRole) || userRole === '';
 
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('all');

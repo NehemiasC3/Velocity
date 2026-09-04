@@ -7526,24 +7526,39 @@ async function initApp() {
         return;
     }
     
-    // Mostrar pantalla de carga elegante (deja visible el menú lateral)
-    if (window.showLoadingOverlay) window.showLoadingOverlay('Conectando con Wispro...');
+    // 1. Aplicar tema y datos de usuario inmediatamente
+    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    const theme = db.settings?.visualMode || 'kinetic';
+    document.documentElement.className = theme;
 
-    // 1. Sincronizar estado base desde el servidor (Usuarios, etc)
-    await serverSync();
+    const activeUserId = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
+    const activeUserName = sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name');
+    const allUsers = [...(db.supervisors || []), ...(db.technicians || [])];
+    const activeUser = allUsers.find(s => String(s.id) === String(activeUserId) || String(s.email).toLowerCase() === String(sessionStorage.getItem('Velocity_Active_Email') || '').toLowerCase());
+    const nameEl = document.getElementById('active-user-name');
+    if (nameEl) nameEl.textContent = activeUser?.name || activeUserName || 'Supervisor';
 
-    // Cargar NAP overrides del cache
+    // 2. Cargar estado de memoria local de inmediato
     const ordCache = cacheGet('orders');
-    if (ordCache?.napOverrides) state.napOverrides = ordCache.napOverrides;
+    if (ordCache?.orders) {
+        state.orders = ordCache.orders;
+        state.finishedOrders = ordCache.finishedOrders || [];
+        state.napOverrides = ordCache.napOverrides || {};
+    }
 
-    loadTrackedNaps(); // Cargar estado de NAPs manuales
-    loadInventoryData(); // Cargar estado de inventario ISP
+    loadTrackedNaps();
+    loadInventoryData();
+    loadDynamicClients();
+
+    // 3. Renderizar vista de inmediato para eliminar cualquier sensación de bloqueo
+    switchTab(state.tab);
+
+    // 4. Mostrar indicador de sincronización ligero (se autocierra a los 1.2s como máximo)
+    if (window.showLoadingOverlay) window.showLoadingOverlay('Sincronizando con Wispro...');
 
     try {
-        localStorage.removeItem('V_issues'); // Forzar recarga limpia de reportes con nombres de clientes
-        loadDynamicClients();
-        // Carga paralela: datos estáticos + órdenes del día + issues
-        await Promise.all([
+        await serverSync();
+        await Promise.allSettled([
             loadStaticData(),
             loadTodayOrders(),
             loadIssues()
@@ -7555,25 +7570,12 @@ async function initApp() {
         if (window.updateMesaBadge) window.updateMesaBadge();
         if (window.updateNapsBadge) window.updateNapsBadge();
     } catch(e) {
-        console.error('Error en carga inicial:', e);
+        console.error('Error en carga de datos:', e);
+    } finally {
+        if (window.hideLoadingOverlay) window.hideLoadingOverlay();
+        // Re-renderizar con los datos más frescos
+        switchTab(state.tab);
     }
-
-    // Aplicar tema
-    const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    const theme = db.settings?.visualMode || 'kinetic';
-    document.documentElement.className = theme;
-
-    // Mostrar nombre del usuario activo
-    const activeUserId = sessionStorage.getItem('Velocity_Active_User');
-    const activeUser = db.supervisors?.find(s => String(s.id) === String(activeUserId));
-    if (activeUser) {
-        const nameEl = document.getElementById('active-user-name');
-        if (nameEl) nameEl.textContent = activeUser.name;
-    }
-
-    // Renderizar pestaña guardada
-    if (window.hideLoadingOverlay) window.hideLoadingOverlay();
-    switchTab(state.tab);
 
     // Iniciar latido continuo en tiempo real (Heartbeat de presencia)
     startSupervisorHeartbeat();

@@ -277,7 +277,7 @@ window.showLoadingOverlay = function(message = 'Cargando...', isUpdate = false) 
         if (isUpdate) {
             overlay.className = "hidden fixed inset-0 bg-[#f8fafd]/95 backdrop-blur-sm z-[500] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none";
         } else {
-            const isSupervisor = window.location.pathname.includes('supervisor.html');
+            const isSupervisor = window.location.pathname.includes('supervisor');
             if (isSupervisor) {
                 overlay.className = "hidden fixed top-0 md:top-0 right-0 bottom-20 md:bottom-0 left-0 md:left-20 bg-background/90 backdrop-blur-md z-[45] flex flex-col items-center justify-center transition-all duration-300 opacity-0 pointer-events-none";
             } else {
@@ -291,26 +291,21 @@ window.showLoadingOverlay = function(message = 'Cargando...', isUpdate = false) 
         overlay.classList.remove('opacity-0', 'pointer-events-none');
         overlay.classList.add('opacity-100');
 
-        // Safety fallback: nunca quedarse congelado más de 800ms en transiciones de sección
-        if (!isUpdate) {
-            if (window._loadingOverlaySafetyTimer) clearTimeout(window._loadingOverlaySafetyTimer);
-            window._loadingOverlaySafetyTimer = setTimeout(() => {
-                window.hideLoadingOverlay();
-            }, 800);
-        }
+        // Safety fallback: nunca quedarse congelado más de 1.2 segundos bajo ninguna circunstancia
+        if (window._loadingOverlaySafetyTimer) clearTimeout(window._loadingOverlaySafetyTimer);
+        window._loadingOverlaySafetyTimer = setTimeout(() => {
+            window.hideLoadingOverlay();
+        }, isUpdate ? 3000 : 1200);
     }
 };
 
 window.hideLoadingOverlay = function() {
     const overlay = document.getElementById('loading-overlay');
     if (overlay) {
+        if (window._loadingOverlaySafetyTimer) clearTimeout(window._loadingOverlaySafetyTimer);
         overlay.classList.remove('opacity-100');
         overlay.classList.add('opacity-0', 'pointer-events-none');
-        setTimeout(() => {
-            if (overlay.classList.contains('opacity-0')) {
-                overlay.classList.add('hidden');
-            }
-        }, 300);
+        overlay.classList.add('hidden');
     }
 };
 

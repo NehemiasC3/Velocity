@@ -7,5 +7,7 @@ const router = Router();
 
 router.post('/login', loginLimiter, AuthController.login);
 router.get('/verify', validateToken, AuthController.verifySession);
+router.post('/reset-password', AuthController.resetPassword);
+router.post('/update-password', AuthController.resetPassword);
 
 export default router;

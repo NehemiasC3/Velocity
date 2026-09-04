@@ -21,5 +21,17 @@ class AuthController {
             res.status(401).json({ valid: false, error: 'No autorizado' });
         }
     }
+    static resetPassword(req, res) {
+        const { userId, email, newPassword, password } = req.body;
+        const identifier = userId || email;
+        const pass = newPassword || password;
+        try {
+            const response = AuthService_1.authService.updatePassword(identifier, pass);
+            res.status(200).json(response);
+        }
+        catch (error) {
+            res.status(400).json({ success: false, error: error.message || 'Error al actualizar contraseña' });
+        }
+    }
 }
 exports.AuthController = AuthController;

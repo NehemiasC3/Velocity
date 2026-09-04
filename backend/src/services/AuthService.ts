@@ -65,6 +65,36 @@ export class AuthService {
     };
   }
 
+  public updatePassword(identifier: string, newPass: string): { success: boolean; message: string } {
+    if (!identifier || !newPass) {
+      throw new Error('Identificador y contraseña requeridos');
+    }
+    if (newPass.length < 6) {
+      throw new Error('La contraseña debe tener al menos 6 caracteres');
+    }
+
+    const db = dbService.getDB();
+    const cleanId = identifier.trim().toLowerCase();
+
+    // 1. Buscar en supervisores por id o email
+    let user: any = db.supervisors.find((u) => u.id === identifier || u.email.toLowerCase() === cleanId);
+    
+    // 2. Buscar en técnicos por id o email
+    if (!user) {
+      user = db.technicians.find((t) => t.id === identifier || t.email.toLowerCase() === cleanId);
+    }
+
+    if (!user) {
+      throw new Error('Usuario no encontrado');
+    }
+
+    user.password = bcrypt.hashSync(newPass, 10);
+    dbService.persistDB();
+
+    console.log(`[AuthService 🔑] Contraseña actualizada exitosamente para: ${user.email} (${user.id})`);
+    return { success: true, message: `Contraseña actualizada para ${user.name || user.email}` };
+  }
+
   public verifyToken(token: string): TokenPayload {
     return jwt.verify(token, this.jwtSecret) as TokenPayload;
   }

@@ -7135,7 +7135,15 @@ window.saveUser = function(event) {
             user.wisproId = wisproId;
             user.role = role;
             user.disabled = disabled;
-            if (pass && pass.length >= 6) user.password = pass;
+            if (pass && pass.length >= 6) {
+                user.password = pass;
+                // Enviar inmediatamente al endpoint dedicado de contraseñas
+                fetch('/api/users/reset-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: user.id, email: user.email, newPassword: pass })
+                }).catch(e => console.warn('[Velocity] Error en endpoint reset-password:', e));
+            }
 
             // Si cambió entre supervisor/admin y técnico/bodeguero, mover de lista
             if (isNewRoleSup !== isOrigRoleSup) {
@@ -7240,7 +7248,7 @@ window.confirmDeleteUser = function() {
 };
 
 // ── RESTABLECER CONTRASEÑA RÁPIDO ───────────────────────────────────────────
-window.resetUserPassword = function(id, role, name) {
+window.resetUserPassword = async function(id, role, name) {
     const newPass = prompt(`🔑 Restablecer contraseña para ${name}:\nIngresa la nueva contraseña (mínimo 6 caracteres):`, 'Velocity2026');
     if (!newPass) return;
     if (newPass.length < 6) {
@@ -7249,15 +7257,30 @@ window.resetUserPassword = function(id, role, name) {
     }
 
     const db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
-    const isSup = role === 'admin' || role === 'supervisor';
-    const list = isSup ? (db.supervisors || []) : (db.technicians || []);
-    const user = list.find(u => String(u.id || u.email) === String(id));
+    const allUsers = [...(db.supervisors || []), ...(db.technicians || [])];
+    const user = allUsers.find(u => String(u.id || u.email) === String(id) || (u.email && String(u.email).toLowerCase() === String(id).toLowerCase()));
 
     if (user) {
         user.password = newPass;
         localStorage.setItem('Velocity_Sync_State', JSON.stringify(db));
+    }
+
+    try {
+        const res = await fetch('/api/users/reset-password', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId: id, email: user?.email || id, newPassword: newPass })
+        });
+        const data = await res.json();
+        if (data.success) {
+            serverPush(db);
+            showNotification('Contraseña Actualizada', `Se asignó la nueva contraseña para ${name}.`, 'success');
+        } else {
+            alert(`⚠️ Error al actualizar contraseña: ${data.error || 'No se pudo guardar'}`);
+        }
+    } catch (e) {
         serverPush(db);
-        showNotification('Contraseña Actualizada', `Se asignó la nueva contraseña para ${name}.`, 'success');
+        showNotification('Contraseña Guardada', `Se envió la nueva contraseña para ${name}.`, 'success');
     }
 };
 

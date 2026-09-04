@@ -106,7 +106,7 @@ export class DbService {
 
     if (newData.technicians) {
       newData.technicians.forEach((nt) => {
-        const ext = db.technicians.find((t) => t.id === nt.id);
+        const ext = db.technicians.find((t) => t.id === nt.id || (t.email && nt.email && t.email.toLowerCase() === nt.email.toLowerCase()));
         if (ext && !nt.password) nt.password = ext.password;
         if (nt.password && !nt.password.startsWith('$2a$') && !nt.password.startsWith('$2b$')) {
           nt.password = bcrypt.hashSync(nt.password, 10);
@@ -117,7 +117,7 @@ export class DbService {
 
     if (newData.supervisors) {
       newData.supervisors.forEach((ns) => {
-        const exs = db.supervisors.find((s) => s.id === ns.id);
+        const exs = db.supervisors.find((s) => s.id === ns.id || (s.email && ns.email && s.email.toLowerCase() === ns.email.toLowerCase()));
         if (exs && !ns.password) ns.password = exs.password;
         if (ns.password && !ns.password.startsWith('$2a$') && !ns.password.startsWith('$2b$')) {
           ns.password = bcrypt.hashSync(ns.password, 10);

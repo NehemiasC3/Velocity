@@ -296,7 +296,7 @@ app.post('/api/sync', validateToken, (req, res) => {
     
     if (newData.technicians) {
         newData.technicians.forEach(nt => {
-            const ext = db.technicians.find(t => t.id === nt.id);
+            const ext = db.technicians.find(t => t.id === nt.id || (t.email && nt.email && t.email.toLowerCase() === nt.email.toLowerCase()));
             if (ext && !nt.password) nt.password = ext.password;
             // Hashear contraseña si es nueva/cambiada
             if (nt.password && !nt.password.startsWith('$2a$') && !nt.password.startsWith('$2b$')) {
@@ -307,7 +307,7 @@ app.post('/api/sync', validateToken, (req, res) => {
     }
     if (newData.supervisors) {
         newData.supervisors.forEach(ns => {
-            const exs = db.supervisors.find(s => s.id === ns.id);
+            const exs = db.supervisors.find(s => s.id === ns.id || (s.email && ns.email && s.email.toLowerCase() === ns.email.toLowerCase()));
             if (exs && !ns.password) ns.password = exs.password;
             // Hashear contraseña si es nueva/cambiada
             if (ns.password && !ns.password.startsWith('$2a$') && !ns.password.startsWith('$2b$')) {
@@ -322,6 +322,31 @@ app.post('/api/sync', validateToken, (req, res) => {
     
     persistDB();
     res.json({ success: true });
+});
+
+app.post('/api/users/reset-password', (req, res) => {
+    const { userId, email, newPassword, password } = req.body;
+    const identifier = userId || email;
+    const pass = newPassword || password;
+    if (!identifier || !pass || pass.length < 6) {
+        return res.status(400).json({ error: 'Identificador y nueva contraseña (mínimo 6 caracteres) requeridos' });
+    }
+
+    const db = getDB();
+    const cleanId = String(identifier).trim().toLowerCase();
+    let user = db.supervisors.find(u => u.id === identifier || (u.email && u.email.toLowerCase() === cleanId));
+    if (!user) {
+        user = db.technicians.find(u => u.id === identifier || (u.email && u.email.toLowerCase() === cleanId));
+    }
+
+    if (!user) {
+        return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    user.password = bcrypt.hashSync(pass, 10);
+    persistDB();
+    console.log(`[Velocity 🔑] Contraseña actualizada directamente para: ${user.email} (${user.id})`);
+    res.json({ success: true, message: `Contraseña actualizada para ${user.name || user.email}` });
 });
 
 app.post('/api/heartbeat', (req, res) => {

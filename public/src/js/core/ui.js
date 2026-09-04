@@ -468,7 +468,7 @@ function renderTab(tab, subTab) {
         // En producción y desarrollo la app de inventario está montada en /inventory/
         const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
         const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '/inventory';
-        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true`;
+        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&_v=2.3.0`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');
         if (!iframeContainer) {

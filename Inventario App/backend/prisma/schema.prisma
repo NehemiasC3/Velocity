@@ -36,12 +36,15 @@ enum WarehouseStatus {
 
 enum ItemCategory {
   ONU_ONT                // Equipos terminales ópticos
-  ROUTER_WIFI            // Routers inalámbricos, Mesh, APs
+  ROUTER_WIFI            // Routers inalámbricos, APs
+  TV_BOX_OTT             // ONN TV 4K, Android TV Box, Streaming Sticks
+  CAMARA_SEGURIDAD_IOT   // Cámaras de seguridad Ezviz / Tapo / Sensores
+  REPETIDOR_MESH         // Extensores / Repetidores Wi-Fi / Nodos Mesh
   CABLE_DROP             // Bobinas / Carretes de fibra óptica
   CONECTORIZACION        // Conectores SC/APC, Acopladores, Rosetas
   HERRAJE_PLANTA_EXTERNA // Tensores drop, Flejes, Splitters, Cajas NAP
   HERRAMIENTA_EQUIPO     // Fusionadoras, OTDR, Power Meter, VFL
-  MISCELANEOS            // Consumibles generales
+  MISCELANEOS            // Consumibles generales (MicroSD, Patchcords, Fuentes)
 }
 
 enum TrackingType {
@@ -272,11 +275,12 @@ model BatchItem {
   @@map("batch_items")
 }
 
-// C. CONTROL DE EQUIPOS SERIALIZADOS (SERIALIZED) — ONTs, Routers WiFi, Switches
+// C. CONTROL DE EQUIPOS SERIALIZADOS (SERIALIZED) — ONTs, Routers WiFi, TV Boxes, Cámaras Ezviz
 model SerializedItem {
   id                  String             @id @default(uuid())
-  macAddress          String             @unique @map("mac_address")
+  macAddress          String?            @map("mac_address")
   serialNumber        String             @unique @map("serial_number")
+  verificationCode    String?            @map("verification_code") // Código de 6 letras para Ezviz / IoT
   
   productId           String             @map("product_id")
   product             ProductCatalog     @relation(fields: [productId], references: [id])

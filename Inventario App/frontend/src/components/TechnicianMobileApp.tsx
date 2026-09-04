@@ -47,7 +47,7 @@ export const TechnicianMobileApp: React.FC = () => {
         setOnusInVehicle(vehRes.serializedItems);
         setBulkStocks(vehRes.bulkStocks);
         if (vehRes.serializedItems.length > 0) {
-          setSelectedMac(vehRes.serializedItems[0].macAddress);
+          setSelectedMac(vehRes.serializedItems[0].macAddress || vehRes.serializedItems[0].serialNumber);
         }
       }
 
@@ -70,7 +70,7 @@ export const TechnicianMobileApp: React.FC = () => {
     setIsScanning(true);
     setTimeout(() => {
       if (onusInVehicle.length > 0) {
-        setSelectedMac(onusInVehicle[0].macAddress);
+        setSelectedMac(onusInVehicle[0].macAddress || onusInVehicle[0].serialNumber);
       }
       setIsScanning(false);
     }, 1200);
@@ -309,20 +309,23 @@ export const TechnicianMobileApp: React.FC = () => {
             {/* Quick picker from vehicle */}
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
               <span className="text-[10px] text-slate-400">ONUs en tu camioneta:</span>
-              {onusInVehicle.map(onu => (
-                <button
-                  key={onu.id}
-                  type="button"
-                  onClick={() => setSelectedMac(onu.macAddress)}
-                  className={`text-[11px] font-mono px-2 py-0.5 rounded-lg border transition ${
-                    selectedMac === onu.macAddress
-                      ? 'bg-sky-600 text-white border-sky-600 font-bold'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {onu.macAddress} ({onu.brand})
-                </button>
-              ))}
+              {onusInVehicle.map(onu => {
+                const identifier = onu.macAddress || onu.serialNumber;
+                return (
+                  <button
+                    key={onu.id}
+                    type="button"
+                    onClick={() => setSelectedMac(identifier)}
+                    className={`text-[11px] font-mono px-2 py-0.5 rounded-lg border transition ${
+                      selectedMac === identifier
+                        ? 'bg-sky-600 text-white border-sky-600 font-bold'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {identifier} ({onu.product?.name || onu.brand || 'Equipo'})
+                  </button>
+                );
+              })}
             </div>
           </div>
 

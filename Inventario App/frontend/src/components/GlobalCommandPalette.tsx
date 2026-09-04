@@ -315,11 +315,11 @@ export const GlobalCommandPalette: React.FC<GlobalCommandPaletteProps> = ({
                       {/* Quick Action Buttons */}
                       <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                         <button
-                          onClick={(e) => copyToClipboard(item.macAddress, e)}
+                          onClick={(e) => copyToClipboard(item.macAddress || item.serialNumber, e)}
                           className="px-2 py-1 rounded-lg bg-white hover:bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200 transition inline-flex items-center gap-1"
-                          title="Copiar MAC Address"
+                          title="Copiar Identificador"
                         >
-                          {copiedText === item.macAddress ? (
+                          {copiedText === (item.macAddress || item.serialNumber) ? (
                             <>
                               <Check className="w-3 h-3 text-emerald-600" />
                               <span className="text-emerald-700 font-bold">Copiado</span>
@@ -327,7 +327,7 @@ export const GlobalCommandPalette: React.FC<GlobalCommandPaletteProps> = ({
                           ) : (
                             <>
                               <Copy className="w-3 h-3 text-slate-400" />
-                              <span>Copiar MAC</span>
+                              <span>{item.macAddress ? 'Copiar MAC' : 'Copiar Serial'}</span>
                             </>
                           )}
                         </button>

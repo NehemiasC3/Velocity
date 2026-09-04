@@ -31,11 +31,12 @@ export const InboundModule: React.FC = () => {
     { id: '1', batchNumber: '', initialQuantity: 1000, notes: '' }
   ]);
 
-  // 3. Serialized State (ONUs / Routers)
+  // 3. Serialized State (ONUs, Routers, TV Boxes, Ezviz Cameras, Repetidores)
   const [scanMode, setScanMode] = useState<'interactive' | 'paste'>('interactive');
   const [quickMac, setQuickMac] = useState('');
   const [quickSerial, setQuickSerial] = useState('');
-  const [serializedList, setSerializedList] = useState<Array<{ id: string; macAddress: string; serialNumber: string; notes?: string }>>([]);
+  const [quickVerificationCode, setQuickVerificationCode] = useState('');
+  const [serializedList, setSerializedList] = useState<Array<{ id: string; macAddress?: string; serialNumber: string; verificationCode?: string; notes?: string }>>([]);
   const [pasteText, setPasteText] = useState('');
 
   // Submission State
@@ -110,42 +111,52 @@ export const InboundModule: React.FC = () => {
   // Manejo de Equipos Seriados Interactivos
   const handleAddQuickSerial = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanMac = quickMac.trim().toUpperCase();
     const cleanSerial = quickSerial.trim().toUpperCase();
+    const cleanMac = quickMac.trim().toUpperCase();
+    const cleanCode = quickVerificationCode.trim().toUpperCase();
 
-    if (!cleanMac || !cleanSerial) return;
-
-    // Validar duplicados en la lista temporal
-    if (serializedList.some(s => s.macAddress === cleanMac)) {
-      alert(`La MAC "${cleanMac}" ya fue agregada en esta lista.`);
+    if (!cleanSerial) {
+      alert('El número de serie (S/N) es obligatorio.');
       return;
     }
+
+    // Validar duplicados en la lista temporal
     if (serializedList.some(s => s.serialNumber === cleanSerial)) {
       alert(`El Serial "${cleanSerial}" ya fue agregado en esta lista.`);
+      return;
+    }
+    if (cleanMac && serializedList.some(s => s.macAddress === cleanMac)) {
+      alert(`La MAC "${cleanMac}" ya fue agregada en esta lista.`);
       return;
     }
 
     setSerializedList(prev => [
       ...prev,
-      { id: String(Date.now()), macAddress: cleanMac, serialNumber: cleanSerial }
+      {
+        id: String(Date.now()),
+        serialNumber: cleanSerial,
+        macAddress: cleanMac || undefined,
+        verificationCode: cleanCode || undefined
+      }
     ]);
 
-    setQuickMac('');
     setQuickSerial('');
+    setQuickMac('');
+    setQuickVerificationCode('');
   };
 
   const removeSerialItem = (id: string) => {
     setSerializedList(prev => prev.filter(s => s.id !== id));
   };
 
-  // Procesar Pegado Masivo (Ej: "MAC,SERIAL" o "MAC TAB SERIAL" o "MAC SERIAL")
+  // Procesar Pegado Masivo (Ej: "MAC,SERIAL" o "SERIAL,CODE" o "SERIAL")
   const handleProcessBulkPaste = () => {
     if (!pasteText.trim()) return;
 
     const lines = pasteText.split('\n');
-    const newItems: Array<{ id: string; macAddress: string; serialNumber: string }> = [];
-    const seenMacs = new Set(serializedList.map(s => s.macAddress));
+    const newItems: Array<{ id: string; macAddress?: string; serialNumber: string; verificationCode?: string }> = [];
     const seenSerials = new Set(serializedList.map(s => s.serialNumber));
+    const seenMacs = new Set(serializedList.map(s => s.macAddress).filter(Boolean));
     let duplicatesCount = 0;
 
     for (const line of lines) {
@@ -155,31 +166,43 @@ export const InboundModule: React.FC = () => {
       // Separadores admitidos: coma, punto y coma, tabulador, o espacios
       const parts = trimmed.split(/[\t,;]+/).map(p => p.trim());
 
-      let mac = '';
       let serial = '';
+      let mac = '';
+      let code = '';
 
-      if (parts.length >= 2) {
-        mac = parts[0].toUpperCase();
-        serial = parts[1].toUpperCase();
-      } else {
-        // Separación por espacio simple
-        const spaceParts = trimmed.split(/\s+/);
-        if (spaceParts.length >= 2) {
-          mac = spaceParts[0].toUpperCase();
-          serial = spaceParts[1].toUpperCase();
+      if (parts.length >= 3) {
+        serial = parts[0].toUpperCase();
+        code = parts[1].toUpperCase();
+        mac = parts[2].toUpperCase();
+      } else if (parts.length === 2) {
+        // Detectar si la primera parte parece MAC
+        if (parts[0].includes(':') || parts[0].includes('-') || parts[0].length === 12) {
+          mac = parts[0].toUpperCase();
+          serial = parts[1].toUpperCase();
+        } else {
+          serial = parts[0].toUpperCase();
+          // Si tiene 6 caracteres alfanuméricos puede ser verification code
+          if (parts[1].length <= 8 && selectedProduct?.category === 'CAMARA_SEGURIDAD_IOT') {
+            code = parts[1].toUpperCase();
+          } else {
+            mac = parts[1].toUpperCase();
+          }
         }
+      } else {
+        serial = parts[0].toUpperCase();
       }
 
-      if (mac && serial) {
-        if (seenMacs.has(mac) || seenSerials.has(serial)) {
+      if (serial) {
+        if (seenSerials.has(serial) || (mac && seenMacs.has(mac))) {
           duplicatesCount++;
         } else {
-          seenMacs.add(mac);
           seenSerials.add(serial);
+          if (mac) seenMacs.add(mac);
           newItems.push({
             id: String(Date.now() + Math.random()),
-            macAddress: mac,
-            serialNumber: serial
+            serialNumber: serial,
+            macAddress: mac || undefined,
+            verificationCode: code || undefined
           });
         }
       }
@@ -195,7 +218,7 @@ export const InboundModule: React.FC = () => {
       });
       setTimeout(() => setToastMessage(null), 4000);
     } else {
-      alert('No se pudieron extraer pares válidos de MAC y Serial del texto pegado.');
+      alert('No se pudieron extraer seriales válidos del texto pegado.');
     }
   };
 
@@ -258,8 +281,9 @@ export const InboundModule: React.FC = () => {
           productId: selectedProductId,
           trackingType: 'SERIALIZED',
           items: serializedList.map(s => ({
-            macAddress: s.macAddress,
-            serialNumber: s.serialNumber
+            serialNumber: s.serialNumber,
+            macAddress: s.macAddress || undefined,
+            verificationCode: s.verificationCode || undefined
           })),
           notes: notes.trim() || undefined
         });
@@ -641,10 +665,23 @@ export const InboundModule: React.FC = () => {
                 {/* Submodo 1: Escáner Interactivo */}
                 {scanMode === 'interactive' && (
                   <div className="p-4 bg-sky-50/50 dark:bg-sky-950/20 rounded-2xl border border-sky-200 dark:border-sky-900/60 space-y-3">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
                         <label className="block text-slate-700 dark:text-slate-300 font-bold text-xs mb-1">
-                          Escanear MAC Address *
+                          Serial (S/N) *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Ej. HWTC45091238 / E12345678"
+                          value={quickSerial}
+                          onChange={(e) => setQuickSerial(e.target.value.toUpperCase())}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-sky-500 outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-700 dark:text-slate-300 font-bold text-xs mb-1">
+                          MAC Address {selectedProduct?.category === 'ONU_ONT' || selectedProduct?.category === 'ROUTER_WIFI' ? '*' : '(Opcional)'}
                         </label>
                         <input
                           type="text"
@@ -657,13 +694,13 @@ export const InboundModule: React.FC = () => {
 
                       <div>
                         <label className="block text-slate-700 dark:text-slate-300 font-bold text-xs mb-1">
-                          Escanear Serial (S/N) *
+                          Cód. Verif. / QR {selectedProduct?.category === 'CAMARA_SEGURIDAD_IOT' ? '(Ezviz)' : '(Opcional)'}
                         </label>
                         <input
                           type="text"
-                          placeholder="Ej. HWTC45091238"
-                          value={quickSerial}
-                          onChange={(e) => setQuickSerial(e.target.value.toUpperCase())}
+                          placeholder="Ej. ABCDEF"
+                          value={quickVerificationCode}
+                          onChange={(e) => setQuickVerificationCode(e.target.value.toUpperCase())}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-slate-900 dark:text-white focus:ring-2 focus:ring-sky-500 outline-none"
                         />
                       </div>
@@ -672,7 +709,7 @@ export const InboundModule: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleAddQuickSerial}
-                      disabled={!quickMac.trim() || !quickSerial.trim()}
+                      disabled={!quickSerial.trim()}
                       className="w-full py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-sm"
                     >
                       <Plus className="w-4 h-4" />
@@ -685,11 +722,11 @@ export const InboundModule: React.FC = () => {
                 {scanMode === 'paste' && (
                   <div className="space-y-3">
                     <p className="text-xs text-slate-500">
-                      Pega aquí múltiples líneas copiadas de Excel o un archivo de texto en formato: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-sky-600 font-mono">MAC, SERIAL</code>
+                      Pega aquí múltiples líneas copiadas de Excel en formato: <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-sky-600 font-mono">SERIAL, MAC</code> o <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded text-sky-600 font-mono">SERIAL, CODIGO_VERIF</code>
                     </p>
                     <textarea
                       rows={5}
-                      placeholder={`F4:8E:38:AA:01:01, HWTC10001\nF4:8E:38:AA:01:02, HWTC10002\nF4:8E:38:AA:01:03, HWTC10003`}
+                      placeholder={`HWTC10001, F4:8E:38:AA:01:01\nEZV890123, ABCDEF\nONN4K8899, CC:DD:EE:11:22:33`}
                       value={pasteText}
                       onChange={(e) => setPasteText(e.target.value)}
                       className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-xs font-mono text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500"
@@ -712,8 +749,9 @@ export const InboundModule: React.FC = () => {
                       <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800 text-[11px]">
                         <tr>
                           <th className="py-2 px-3">#</th>
-                          <th className="py-2 px-3">MAC Address</th>
                           <th className="py-2 px-3">Serial (S/N)</th>
+                          <th className="py-2 px-3">MAC Address</th>
+                          <th className="py-2 px-3">Cód. Verif.</th>
                           <th className="py-2 px-3 text-right">Acción</th>
                         </tr>
                       </thead>
@@ -721,8 +759,9 @@ export const InboundModule: React.FC = () => {
                         {serializedList.map((item, idx) => (
                           <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
                             <td className="py-2 px-3 text-slate-400 text-[10px]">{idx + 1}</td>
-                            <td className="py-2 px-3 font-bold text-sky-600 dark:text-sky-400">{item.macAddress}</td>
-                            <td className="py-2 px-3 text-slate-800 dark:text-slate-200">{item.serialNumber}</td>
+                            <td className="py-2 px-3 font-bold text-slate-900 dark:text-white">{item.serialNumber}</td>
+                            <td className="py-2 px-3 text-sky-600 dark:text-sky-400">{item.macAddress || '—'}</td>
+                            <td className="py-2 px-3 text-amber-600 dark:text-amber-400">{item.verificationCode || '—'}</td>
                             <td className="py-2 px-3 text-right">
                               <button
                                 type="button"

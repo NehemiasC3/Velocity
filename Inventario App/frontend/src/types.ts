@@ -56,11 +56,12 @@ export type SerializedStatus =
 
 export interface SerializedItem {
   id: string;
-  macAddress: string;
+  macAddress?: string;
   serialNumber: string;
+  verificationCode?: string;
   brand?: string;
   model?: string;
-  category?: 'ONU_GPON' | 'ONU_EPON' | 'ROUTER' | 'OLT' | 'SWITCH' | 'MININODE' | string;
+  category?: 'ONU_GPON' | 'ONU_EPON' | 'ROUTER' | 'TV_BOX_OTT' | 'CAMARA_SEGURIDAD_IOT' | 'REPETIDOR_MESH' | 'OLT' | 'SWITCH' | 'MININODE' | string;
   productId?: string;
   product?: ProductCatalog;
   currentWarehouseId: string;
@@ -266,6 +267,9 @@ export interface TechnicianMetric {
 export type ItemCategory = 
   | 'ONU_ONT' 
   | 'ROUTER_WIFI' 
+  | 'TV_BOX_OTT'
+  | 'CAMARA_SEGURIDAD_IOT'
+  | 'REPETIDOR_MESH'
   | 'CABLE_DROP' 
   | 'CONECTORIZACION' 
   | 'HERRAJE_PLANTA_EXTERNA' 

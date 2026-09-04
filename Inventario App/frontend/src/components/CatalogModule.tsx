@@ -60,6 +60,9 @@ export const CatalogModule: React.FC = () => {
     const prefixMap: Record<ItemCategory, string> = {
       ONU_ONT: 'ONU',
       ROUTER_WIFI: 'RTR',
+      TV_BOX_OTT: 'TVB',
+      CAMARA_SEGURIDAD_IOT: 'CAM',
+      REPETIDOR_MESH: 'MSH',
       CABLE_DROP: 'DRP',
       CONECTORIZACION: 'CON',
       HERRAJE_PLANTA_EXTERNA: 'HER',
@@ -81,13 +84,19 @@ export const CatalogModule: React.FC = () => {
     let suggestedTracking: TrackingType = 'BULK';
     let suggestedUnit: UnitOfMeasure = 'UNIDADES';
 
-    if (cat === 'ONU_ONT' || cat === 'ROUTER_WIFI') {
+    if (
+      cat === 'ONU_ONT' || 
+      cat === 'ROUTER_WIFI' || 
+      cat === 'TV_BOX_OTT' || 
+      cat === 'CAMARA_SEGURIDAD_IOT' || 
+      cat === 'REPETIDOR_MESH'
+    ) {
       suggestedTracking = 'SERIALIZED';
       suggestedUnit = 'UNIDADES';
     } else if (cat === 'CABLE_DROP') {
       suggestedTracking = 'BATCHED';
       suggestedUnit = 'METROS';
-    } else if (cat === 'CONECTORIZACION' || cat === 'HERRAJE_PLANTA_EXTERNA') {
+    } else if (cat === 'CONECTORIZACION' || cat === 'HERRAJE_PLANTA_EXTERNA' || cat === 'MISCELANEOS') {
       suggestedTracking = 'BULK';
       suggestedUnit = 'UNIDADES';
     }
@@ -177,6 +186,9 @@ export const CatalogModule: React.FC = () => {
     switch (cat) {
       case 'ONU_ONT': return 'ONU / ONT';
       case 'ROUTER_WIFI': return 'Router WiFi';
+      case 'TV_BOX_OTT': return 'TV Box / OTT';
+      case 'CAMARA_SEGURIDAD_IOT': return 'Cámaras & IoT';
+      case 'REPETIDOR_MESH': return 'Repetidores Mesh';
       case 'CABLE_DROP': return 'Cable Drop';
       case 'CONECTORIZACION': return 'Conectorización';
       case 'HERRAJE_PLANTA_EXTERNA': return 'Herrajes & NAPs';
@@ -330,6 +342,9 @@ export const CatalogModule: React.FC = () => {
             { id: 'ALL', label: 'Todas' },
             { id: 'ONU_ONT', label: 'ONUs / ONTs' },
             { id: 'ROUTER_WIFI', label: 'Routers WiFi' },
+            { id: 'REPETIDOR_MESH', label: 'Repetidores Mesh' },
+            { id: 'TV_BOX_OTT', label: 'TV Box / ONN TV' },
+            { id: 'CAMARA_SEGURIDAD_IOT', label: 'Cámaras Ezviz / IoT' },
             { id: 'CABLE_DROP', label: 'Cable Drop' },
             { id: 'CONECTORIZACION', label: 'Conectorización' },
             { id: 'HERRAJE_PLANTA_EXTERNA', label: 'Herrajes & NAPs' },
@@ -505,12 +520,15 @@ export const CatalogModule: React.FC = () => {
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3.5 py-2.5 text-slate-900 dark:text-white font-semibold text-xs focus:ring-2 focus:ring-sky-500 outline-none"
                 >
                   <option value="ONU_ONT">🔌 ONU / ONT (Terminal Óptico)</option>
-                  <option value="ROUTER_WIFI">📶 Router WiFi / Access Point / Mesh</option>
+                  <option value="ROUTER_WIFI">📶 Router WiFi / Access Point</option>
+                  <option value="REPETIDOR_MESH">🌐 Repetidor WiFi / Nodo Mesh (Halo, Deco, TP-Link)</option>
+                  <option value="TV_BOX_OTT">📺 TV Box / OTT (ONN TV 4K, Android TV, FireStick)</option>
+                  <option value="CAMARA_SEGURIDAD_IOT">📷 Cámara de Seguridad / IoT (Ezviz, Tapo, Sensores)</option>
                   <option value="CABLE_DROP">🌀 Cable Drop (Bobinas / Fibra Óptica)</option>
                   <option value="CONECTORIZACION">🧩 Conectorización (SC/APC, Acopladores)</option>
                   <option value="HERRAJE_PLANTA_EXTERNA">🏗️ Herrajes, Tensores & Cajas NAP</option>
                   <option value="HERRAMIENTA_EQUIPO">🛠️ Herramientas & Equipos de Medición</option>
-                  <option value="MISCELANEOS">📦 Consumibles y Misceláneos</option>
+                  <option value="MISCELANEOS">📦 Consumibles y Misceláneos (MicroSD, Fuentes, Patchcords)</option>
                 </select>
               </div>
 

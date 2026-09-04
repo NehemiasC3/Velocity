@@ -142,7 +142,7 @@ class ApiService {
     batchNumber?: string;
     initialQuantity?: number;
     batches?: { batchNumber: string; initialQuantity: number; notes?: string }[];
-    items?: { macAddress: string; serialNumber: string; notes?: string }[];
+    items?: { macAddress?: string; serialNumber: string; verificationCode?: string; notes?: string }[];
     notes?: string;
   }): Promise<{
     success: boolean;

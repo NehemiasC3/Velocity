@@ -655,9 +655,10 @@ export const WarehousesModule: React.FC = () => {
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[11px]">
                 <tr>
-                  <th className="py-3 px-4">MAC Address</th>
                   <th className="py-3 px-4">Serial (S/N)</th>
-                  <th className="py-3 px-4">Marca & Modelo</th>
+                  <th className="py-3 px-4">MAC Address</th>
+                  <th className="py-3 px-4">Cód. Verif.</th>
+                  <th className="py-3 px-4">Producto / Modelo</th>
                   <th className="py-3 px-4">Bodega Actual</th>
                   <th className="py-3 px-4">Estado</th>
                   <th className="py-3 px-4 text-right">Acciones</th>
@@ -666,24 +667,28 @@ export const WarehousesModule: React.FC = () => {
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                 {filteredSerialized.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-8 text-slate-400">
+                    <td colSpan={7} className="text-center py-8 text-slate-400">
                       No se encontraron equipos seriados en esta bodega con el filtro actual.
                     </td>
                   </tr>
                 ) : (
                   filteredSerialized.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                      <td className="py-3 px-4 font-mono font-bold text-sky-600 dark:text-sky-400">
-                        {item.macAddress}
-                      </td>
-                      <td className="py-3 px-4 font-mono font-medium text-slate-800 dark:text-slate-200">
+                      <td className="py-3 px-4 font-mono font-bold text-slate-900 dark:text-white">
                         {item.serialNumber}
                       </td>
+                      <td className="py-3 px-4 font-mono text-sky-600 dark:text-sky-400">
+                        {item.macAddress || '—'}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-amber-600 dark:text-amber-400 font-semibold">
+                        {item.verificationCode || '—'}
+                      </td>
                       <td className="py-3 px-4">
-                        <span className="font-semibold text-slate-900 dark:text-white">{item.brand}</span> {item.model}
+                        <span className="font-semibold text-slate-900 dark:text-white">{item.product?.name || item.brand || 'Equipo'}</span>
+                        {item.model && <span className="text-slate-500 ml-1 font-mono text-[11px]">({item.model})</span>}
                       </td>
                       <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
-                        {item.currentWarehouseName || item.currentWarehouseId}
+                        {item.currentWarehouseName || item.currentWarehouse?.name || item.currentWarehouseId}
                       </td>
                       <td className="py-3 px-4">
                         {getStatusBadge(item.status)}

@@ -170,19 +170,23 @@ export class CatalogController {
       // Generar SKU único si no se suministra
       let finalSku = sku?.trim()?.toUpperCase();
       if (!finalSku) {
-        const catPrefix = {
+        const catPrefix: Record<ItemCategory, string> = {
           ONU_ONT: 'ONU',
           ROUTER_WIFI: 'RTR',
+          TV_BOX_OTT: 'TVB',
+          CAMARA_SEGURIDAD_IOT: 'CAM',
+          REPETIDOR_MESH: 'MSH',
           CABLE_DROP: 'DRP',
           CONECTORIZACION: 'CON',
           HERRAJE_PLANTA_EXTERNA: 'HER',
           HERRAMIENTA_EQUIPO: 'EQP',
           MISCELANEOS: 'MISC'
-        }[category as ItemCategory] || 'PRD';
+        };
+        const prefix = catPrefix[category as ItemCategory] || 'PRD';
 
         const rand = Math.floor(1000 + Math.random() * 9000);
         const namePart = name.trim().slice(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
-        finalSku = `${catPrefix}-${namePart}-${rand}`;
+        finalSku = `${prefix}-${namePart}-${rand}`;
       }
 
       // Verificar si el SKU ya existe

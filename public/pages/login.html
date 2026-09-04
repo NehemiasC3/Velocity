@@ -267,7 +267,7 @@
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('../sw.js?v=4.2.0').then(reg => {
+                navigator.serviceWorker.register('../sw.js?v=4.4.0').then(reg => {
                     console.log('[Velocity PWA] Login SW registrado');
                 }).catch(err => {
                     console.warn('[Velocity PWA] Error SW:', err);

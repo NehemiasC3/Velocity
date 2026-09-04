@@ -349,24 +349,24 @@ app.post('/api/users/reset-password', (req, res) => {
     res.json({ success: true, message: `Contraseña actualizada para ${user.name || user.email}` });
 });
 
-app.post('/api/heartbeat', (req, res) => {
-    const userId = req.body.userId || req.body.techId || (req.user && req.user.userId);
+app.post(['/api/heartbeat', '/api/sync/heartbeat'], (req, res) => {
+    const techId = req.body.techId || req.body.userId || (req.user && req.user.userId);
     const { tracking } = req.body;
-    if (!userId) return res.status(400).json({ error: 'userId/techId missing' });
+    if (!techId) return res.status(400).json({ error: 'userId/techId missing' });
     
-    onlineStatus[userId] = Date.now();
+    onlineStatus[techId] = Date.now();
     
     if (tracking) {
         // Eliminar órdenes previas pertenecientes a este técnico
         Object.keys(activeTracking).forEach(orderId => {
-            if (String(activeTracking[orderId].empId) === String(techId)) {
+            if (String(activeTracking[orderId]?.empId) === String(techId)) {
                 delete activeTracking[orderId];
             }
         });
         
         // Agregar las órdenes activas en curso
         Object.entries(tracking).forEach(([orderId, entry]) => {
-            if (entry.status === 'started') {
+            if (entry && entry.status === 'started') {
                 activeTracking[orderId] = {
                     status: 'started',
                     startTime: entry.startTime,

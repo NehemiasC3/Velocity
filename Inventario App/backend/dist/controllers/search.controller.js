@@ -47,6 +47,7 @@ class SearchController {
                             { macAddress: { contains: formattedMacColons, mode: 'insensitive' } },
                             { macAddress: { contains: formattedMacDashes, mode: 'insensitive' } },
                             { serialNumber: { contains: rawQuery, mode: 'insensitive' } },
+                            { verificationCode: { contains: rawQuery, mode: 'insensitive' } },
                             { installedClientName: { contains: rawQuery, mode: 'insensitive' } },
                             { installedContractId: { contains: rawQuery, mode: 'insensitive' } },
                             {

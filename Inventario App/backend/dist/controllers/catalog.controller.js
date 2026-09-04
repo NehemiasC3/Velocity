@@ -83,7 +83,8 @@ class CatalogController {
                         include: { currentWarehouse: true }
                     },
                     serializedItems: {
-                        take: 50,
+                        take: 250,
+                        orderBy: { createdAt: 'desc' },
                         include: { currentWarehouse: true }
                     },
                     _count: {
@@ -150,15 +151,19 @@ class CatalogController {
                 const catPrefix = {
                     ONU_ONT: 'ONU',
                     ROUTER_WIFI: 'RTR',
+                    TV_BOX_OTT: 'TVB',
+                    CAMARA_SEGURIDAD_IOT: 'CAM',
+                    REPETIDOR_MESH: 'MSH',
                     CABLE_DROP: 'DRP',
                     CONECTORIZACION: 'CON',
                     HERRAJE_PLANTA_EXTERNA: 'HER',
                     HERRAMIENTA_EQUIPO: 'EQP',
                     MISCELANEOS: 'MISC'
-                }[category] || 'PRD';
+                };
+                const prefix = catPrefix[category] || 'PRD';
                 const rand = Math.floor(1000 + Math.random() * 9000);
                 const namePart = name.trim().slice(0, 3).toUpperCase().replace(/[^A-Z0-9]/g, 'X');
-                finalSku = `${catPrefix}-${namePart}-${rand}`;
+                finalSku = `${prefix}-${namePart}-${rand}`;
             }
             // Verificar si el SKU ya existe
             const existingSku = await db_1.prisma.productCatalog.findUnique({

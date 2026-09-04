@@ -1,4 +1,4 @@
-const CACHE_NAME = 'velocity-v4.3.0';
+const CACHE_NAME = 'velocity-v4.4.0';
 const ASSETS = [
   '/',
   '/manifest.json',
@@ -35,7 +35,13 @@ self.addEventListener('fetch', (event) => {
   const url = event.request.url;
   
   // No interceptar llamadas API ni peticiones no-GET
-  if (event.request.method !== 'GET' || url.includes('/api/')) {
+  if (
+    event.request.method !== 'GET' || 
+    url.includes('/api/') || 
+    url.includes('/inventory-api/') ||
+    url.includes('/api') ||
+    url.includes('/inventory-api')
+  ) {
     return;
   }
 

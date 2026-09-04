@@ -211,14 +211,15 @@ class InventoryController {
                 for (let i = 0; i < items.length; i++) {
                     const rawMac = String(items[i].macAddress || '').trim().toUpperCase();
                     const rawSerial = String(items[i].serialNumber || '').trim().toUpperCase();
-                    if (!rawMac || !rawSerial) {
+                    const rawVerificationCode = String(items[i].verificationCode || '').trim().toUpperCase();
+                    if (!rawSerial) {
                         res.status(400).json({
                             success: false,
-                            error: `El ítem en la posición #${i + 1} debe contener tanto MAC Address como Serial (S/N)`
+                            error: `El ítem en la posición #${i + 1} debe contener un Número de Serie (S/N)`
                         });
                         return;
                     }
-                    if (macSet.has(rawMac)) {
+                    if (rawMac && macSet.has(rawMac)) {
                         res.status(400).json({
                             success: false,
                             error: `La MAC Address "${rawMac}" está duplicada dentro del lote a ingresar`
@@ -232,27 +233,28 @@ class InventoryController {
                         });
                         return;
                     }
-                    macSet.add(rawMac);
+                    if (rawMac)
+                        macSet.add(rawMac);
                     serialSet.add(rawSerial);
                     sanitizedItems.push({
-                        macAddress: rawMac,
+                        macAddress: rawMac || undefined,
                         serialNumber: rawSerial,
+                        verificationCode: rawVerificationCode || undefined,
                         notes: items[i].notes?.trim() || notes?.trim() || undefined
                     });
                 }
                 // Verificar colisiones con la base de datos
-                const allMacs = sanitizedItems.map(i => i.macAddress);
+                const allMacs = sanitizedItems.map(i => i.macAddress).filter(Boolean);
                 const allSerials = sanitizedItems.map(i => i.serialNumber);
+                const orConditions = [{ serialNumber: { in: allSerials } }];
+                if (allMacs.length > 0) {
+                    orConditions.push({ macAddress: { in: allMacs } });
+                }
                 const existingItems = await db_1.prisma.serializedItem.findMany({
-                    where: {
-                        OR: [
-                            { macAddress: { in: allMacs } },
-                            { serialNumber: { in: allSerials } }
-                        ]
-                    }
+                    where: { OR: orConditions }
                 });
                 if (existingItems.length > 0) {
-                    const conflicting = existingItems.map(e => `MAC: ${e.macAddress} (S/N: ${e.serialNumber})`).join(', ');
+                    const conflicting = existingItems.map(e => `S/N: ${e.serialNumber}${e.macAddress ? ` (MAC: ${e.macAddress})` : ''}`).join(', ');
                     res.status(409).json({
                         success: false,
                         error: `Los siguientes equipos ya existen registrados en el inventario: ${conflicting}`
@@ -267,8 +269,9 @@ class InventoryController {
                             data: {
                                 productId,
                                 currentWarehouseId: warehouseId,
-                                macAddress: item.macAddress,
+                                macAddress: item.macAddress || null,
                                 serialNumber: item.serialNumber,
+                                verificationCode: item.verificationCode || null,
                                 status: client_1.SerializedStatus.EN_BODEGA,
                                 notes: item.notes || null
                             }
@@ -277,11 +280,11 @@ class InventoryController {
                             await tx.auditLog.create({
                                 data: {
                                     eventType: client_1.AuditEventType.ALTA_INVENTARIO,
-                                    macAddress: item.macAddress,
+                                    macAddress: item.macAddress || null,
                                     serialNumber: item.serialNumber,
                                     toWarehouseId: warehouseId,
                                     userId: systemUser.id,
-                                    details: `Alta de Equipo Seriado: ${product.name} (MAC: ${item.macAddress}, S/N: ${item.serialNumber}) en bodega ${warehouse.name}`
+                                    details: `Alta de Equipo Seriado: ${product.name} (S/N: ${item.serialNumber}${item.macAddress ? `, MAC: ${item.macAddress}` : ''}${item.verificationCode ? `, Code: ${item.verificationCode}` : ''}) en bodega ${warehouse.name}`
                                 }
                             });
                         }

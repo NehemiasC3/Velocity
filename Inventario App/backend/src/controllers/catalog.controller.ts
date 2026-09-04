@@ -90,7 +90,8 @@ export class CatalogController {
             include: { currentWarehouse: true }
           },
           serializedItems: {
-            take: 50,
+            take: 250,
+            orderBy: { createdAt: 'desc' },
             include: { currentWarehouse: true }
           },
           _count: {

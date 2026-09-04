@@ -292,6 +292,9 @@ export interface ProductCatalog {
   unitOfMeasure: UnitOfMeasure;
   minStockAlert: number;
   isActive: boolean;
+  serializedItems?: SerializedItem[];
+  batchItems?: BatchItem[];
+  bulkStocks?: BulkStock[];
   _count?: {
     serializedItems?: number;
     batchItems?: number;

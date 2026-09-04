@@ -9,4 +9,6 @@ router.post('/login', rateLimitMiddleware_1.loginLimiter, authController_1.AuthC
 router.get('/verify', authMiddleware_1.validateToken, authController_1.AuthController.verifySession);
 router.post('/reset-password', authController_1.AuthController.resetPassword);
 router.post('/update-password', authController_1.AuthController.resetPassword);
+router.post('/users/reset-password', authController_1.AuthController.resetPassword);
+router.post('/users/update-password', authController_1.AuthController.resetPassword);
 exports.default = router;

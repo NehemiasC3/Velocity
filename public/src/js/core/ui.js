@@ -416,17 +416,12 @@ window.switchTab = function(tab, subTab = 'dashboard') {
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
-    // 5. Section loader overlay
-    window.showLoadingOverlay('Abriendo sección...');
-    setTimeout(() => {
-        try {
-            renderTab(tab, subTab);
-        } catch (err) {
-            console.error('[Velocity UI] Error al renderizar sección:', err);
-        } finally {
-            window.hideLoadingOverlay();
-        }
-    }, 100);
+    // 5. Renderizado Instantáneo (0 ms sin overlay artificial bloqueante)
+    try {
+        renderTab(tab, subTab);
+    } catch (err) {
+        console.error('[Velocity UI] Error al renderizar sección:', err);
+    }
 }
 
 /**
@@ -469,12 +464,11 @@ function renderTab(tab, subTab) {
             'audit': 'audit'
         };
         const canonicalTab = tabMap[sub] || 'dashboard';
-        const timestamp = Date.now();
         
         // En producción y desarrollo la app de inventario está montada en /inventory/
         const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
         const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '/inventory';
-        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&t=${timestamp}`;
+        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');
         if (!iframeContainer) {
@@ -493,7 +487,7 @@ function renderTab(tab, subTab) {
             const iframe = document.getElementById('inventory-react-iframe');
             if (iframe) {
                 try {
-                    // Envío postMessage para cambio de tab instantáneo (< 5ms) sin recargar la página entera
+                    // Envío postMessage para cambio de tab instantáneo (< 2ms) sin recargar
                     iframe.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: canonicalTab }, '*');
                 } catch (e) {}
             }

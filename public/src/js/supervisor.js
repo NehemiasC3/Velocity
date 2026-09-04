@@ -725,7 +725,7 @@ Views.dashboard = () => {
         </div>
 
         <!-- Grid técnicos -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             ${techCards}
         </div>
     </div>`;
@@ -1882,7 +1882,7 @@ Views.reports = () => {
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">${dateFilters}</div>
         ${allIssues.length === 0
             ? `<div style="text-align:center;padding:60px;color:#9ca3af;"><span class="material-symbols-outlined" style="font-size:48px;display:block;margin-bottom:8px;">search_off</span><p style="font-weight:700;font-size:14px;text-transform:uppercase;">Sin reportes pendientes</p></div>`
-            : `<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-4 gap-4 md:gap-5 items-start">${techCards}</div>`
+            : `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px;align-items:start;">${techCards}</div>`
         }
 
         ${(() => {
@@ -4422,7 +4422,7 @@ function renderMainInventoryTable(filtered, filter) {
 // ── RESUMEN DE STOCK POR CUADRILLA TÉCNICA ────────────────────────────────
 function renderTechStockSummary(inv) {
     return `
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         ${TECNICOS_ACTIVOS.map(nombre => {
             const techItems = inv.filter(i => (i.assignedTech || '').toLowerCase().includes(nombre.split(' ')[0].toLowerCase()));
             const onusCount = techItems.filter(i => i.category === 'onu' && i.status === 'asignado').length;
@@ -5935,7 +5935,7 @@ Views.users = () => {
 
         <!-- GRILLA DE USUARIOS -->
         ${userCards ? `
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             ${userCards}
         </div>` : `
         <div class="bg-white p-12 rounded-2xl border border-outline-variant/20 text-center space-y-3">

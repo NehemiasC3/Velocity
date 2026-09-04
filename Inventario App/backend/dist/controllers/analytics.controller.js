@@ -140,20 +140,29 @@ class AnalyticsController {
         try {
             const { eventType, userId, search, dateFrom, dateTo, limit = '100', offset = '0' } = req.query;
             const where = {};
-            if (eventType && typeof eventType === 'string' && eventType !== 'TODOS') {
+            if (eventType && typeof eventType === 'string' && eventType !== 'TODOS' && eventType !== 'undefined' && eventType !== 'null') {
                 where.eventType = eventType;
             }
-            if (userId && typeof userId === 'string') {
+            if (userId && typeof userId === 'string' && userId !== 'undefined' && userId !== 'null') {
                 where.userId = userId;
             }
-            if (dateFrom || dateTo) {
-                where.timestamp = {};
-                if (dateFrom)
-                    where.timestamp.gte = new Date(String(dateFrom));
-                if (dateTo)
-                    where.timestamp.lte = new Date(String(dateTo));
+            const timestampFilter = {};
+            if (dateFrom && typeof dateFrom === 'string' && dateFrom !== 'undefined') {
+                const d = new Date(dateFrom);
+                if (!isNaN(d.getTime())) {
+                    timestampFilter.gte = d;
+                }
             }
-            if (search && typeof search === 'string') {
+            if (dateTo && typeof dateTo === 'string' && dateTo !== 'undefined') {
+                const d = new Date(dateTo);
+                if (!isNaN(d.getTime())) {
+                    timestampFilter.lte = d;
+                }
+            }
+            if (Object.keys(timestampFilter).length > 0) {
+                where.timestamp = timestampFilter;
+            }
+            if (search && typeof search === 'string' && search.trim() !== '' && search !== 'undefined' && search !== 'null') {
                 const q = search.trim();
                 where.OR = [
                     { macAddress: { contains: q, mode: 'insensitive' } },

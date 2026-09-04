@@ -14,7 +14,7 @@ const jwt = require('jsonwebtoken');
 dotenv.config();
 
 const app = express();
-app.set('trust proxy', 1);
+app.set('trust proxy', true);
 const PORT = process.env.PORT || 3000;
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -30,13 +30,18 @@ app.use(helmet({
 
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 10000, // Aumentado a 10000 para evitar bloqueos por carga en paralelo y fast-polling de comentarios
+    max: 100000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => ['GET', 'HEAD', 'OPTIONS'].includes(req.method) || req.path.startsWith('/health') || req.path.startsWith('/sync'),
     message: { error: 'Demasiadas peticiones desde esta IP. Por favor intenta más tarde.' }
 });
 
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 15,
+    max: 60,
+    standardHeaders: true,
+    legacyHeaders: false,
     message: { error: 'Demasiados intentos de inicio de sesión. Por favor intenta en 15 minutos.' }
 });
 

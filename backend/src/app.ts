@@ -10,7 +10,9 @@ import { generalLimiter } from './middlewares/rateLimitMiddleware';
 export function createApp(): Application {
   const app: Application = express();
 
-  app.set('trust proxy', 1);
+  // Habilitar trust proxy para resolver IPs reales detrás de Nginx / Cloudflare / Docker
+  app.set('trust proxy', true);
+
 
   // 1. Compresión HTTP Gzip / Deflate (Reduce el payload en un 85-92%)
   app.use(

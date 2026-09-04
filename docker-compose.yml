@@ -5,7 +5,7 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: velocity-postgres
-    restart: unless-stopped
+    restart: always
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-velocity_admin}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-VelocitySecure2026!}
@@ -14,6 +14,12 @@ services:
       - ./data/postgres:/var/lib/postgresql/data
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-velocity_admin} -d ${POSTGRES_DB:-velocity_inventory}"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - velocity-net
     logging:
@@ -30,7 +36,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: velocity-backend
-    restart: unless-stopped
+    restart: always
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     env_file:
@@ -43,6 +49,12 @@ services:
       - ./data:/usr/src/app/data
       - ./public:/usr/src/app/public
       - ./public:/public
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - velocity-net
     logging:
@@ -59,7 +71,7 @@ services:
       context: "./Inventario App/backend"
       dockerfile: Dockerfile
     container_name: velocity-inventory-api
-    restart: unless-stopped
+    restart: always
     ports:
       - "${INVENTORY_API_PORT:-4000}:4000"
     environment:
@@ -68,7 +80,14 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public
       - JWT_SECRET=${JWT_SECRET:-velocity_secret_key_production_2026}
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     networks:
       - velocity-net
     logging:
@@ -85,7 +104,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: velocity-frontend
-    restart: unless-stopped
+    restart: always
     ports:
       - "${FRONTEND_PORT:-3080}:80"
     depends_on:
@@ -93,6 +112,12 @@ services:
       - inventory-backend
     volumes:
       - ./data/cache:/var/cache/nginx
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:80/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - velocity-net
     logging:

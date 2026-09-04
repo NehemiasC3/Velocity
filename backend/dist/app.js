@@ -14,7 +14,8 @@ const routes_1 = __importDefault(require("./routes"));
 const rateLimitMiddleware_1 = require("./middlewares/rateLimitMiddleware");
 function createApp() {
     const app = (0, express_1.default)();
-    app.set('trust proxy', 1);
+    // Habilitar trust proxy para resolver IPs reales detrás de Nginx / Cloudflare / Docker
+    app.set('trust proxy', true);
     // 1. Compresión HTTP Gzip / Deflate (Reduce el payload en un 85-92%)
     app.use((0, compression_1.default)({
         level: 6,

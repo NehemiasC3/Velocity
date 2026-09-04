@@ -535,23 +535,12 @@ export const WarehousesModule: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Footer con conteos y botón de edición */}
+                  {/* Footer con conteos */}
                   <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                    <div>
-                      <span className="text-slate-500 block text-[10px]">Equipos Asignados:</span>
-                      <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
-                        {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => handleOpenEditModal(wh, e)}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-700 bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/80 px-3 py-1.5 rounded-xl border border-sky-200 dark:border-sky-800 transition active:scale-95 shadow-2xs"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>Editar</span>
-                    </button>
+                    <span className="text-slate-500 text-xs">Equipos Asignados:</span>
+                    <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
+                      {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
+                    </span>
                   </div>
                 </div>
               );

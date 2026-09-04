@@ -313,8 +313,34 @@
             </div>
         </div>
 
+        <!-- Barra de Búsqueda Universal Instantánea (Ctrl + K) -->
+        <div class="hidden md:flex items-center flex-1 max-w-md mx-6">
+            <button 
+                type="button" 
+                onclick="window.openUniversalSearch()" 
+                class="w-full flex items-center justify-between px-3.5 py-1.5 rounded-xl bg-surface-container-low/70 hover:bg-surface-container-high/80 border border-outline-variant/30 text-xs text-on-surface-variant transition-all shadow-2xs group cursor-pointer"
+                title="Abrir Motor de Búsqueda Universal (Ctrl+K)"
+            >
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-secondary text-lg group-hover:scale-110 transition-transform">search</span>
+                    <span class="font-medium text-slate-500">Buscar MAC, Serial, Cliente, SKU...</span>
+                </div>
+                <kbd class="px-1.5 py-0.5 rounded bg-surface-container text-[10px] font-mono font-bold text-secondary border border-outline-variant/40 shadow-2xs">Ctrl K</kbd>
+            </button>
+        </div>
+
         <!-- Usuario y Estado -->
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 sm:gap-3">
+            <!-- Botón Búsqueda en Móvil -->
+            <button 
+                type="button" 
+                onclick="window.openUniversalSearch()" 
+                class="md:hidden p-2 rounded-xl text-on-surface-variant hover:text-secondary hover:bg-surface-container-low transition-all cursor-pointer" 
+                title="Búsqueda Universal (Ctrl+K)"
+            >
+                <span class="material-symbols-outlined text-[22px]">search</span>
+            </button>
+
             <div class="hidden sm:flex flex-col items-end">
                 <span id="active-user-name" class="text-[12px] font-black text-on-surface leading-tight mb-0.5">...</span>
                 <span class="text-[9px] font-bold text-on-surface bg-tertiary-fixed-dim/30 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1" id="system-status-container">
@@ -888,6 +914,7 @@
     <script src="../src/js/core/state.js"></script>
     <script src="../src/js/core/api.js?v=2.0.3"></script>
     <script src="../src/js/core/ui.js"></script>
+    <script src="../src/js/core/universalSearch.js?v=2.0.1"></script>
     <script src="../src/js/supervisor.js?v=2.0.4"></script>
     <script>
         if ('serviceWorker' in navigator) {

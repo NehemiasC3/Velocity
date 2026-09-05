@@ -7538,6 +7538,9 @@ async function initApp() {
     const nameEl = document.getElementById('active-user-name');
     if (nameEl) nameEl.textContent = activeUser?.name || activeUserName || 'Supervisor';
 
+    // Aplicar permisos visuales según rol (ej: ocultar Cuentas si no es Admin)
+    if (window.applyRoleAccessControl) window.applyRoleAccessControl();
+
     // 2. Cargar estado de memoria local de inmediato
     const ordCache = cacheGet('orders');
     if (ordCache?.orders) {

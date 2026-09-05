@@ -344,11 +344,54 @@ window.toggleNavAccordion = function(accordionId) {
     }
 };
 
+window.isAdminRole = function() {
+    const rawRole = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
+    const activeUserId = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
+    const activeUserEmail = sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email');
+    
+    let db = {};
+    try {
+        db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
+    } catch(e) {}
+    
+    const allUsers = [...(db.supervisors || []), ...(db.technicians || [])];
+    const activeUser = allUsers.find(s => 
+        (activeUserId && String(s.id) === String(activeUserId)) || 
+        (activeUserEmail && s.email && String(s.email).toLowerCase() === String(activeUserEmail).toLowerCase())
+    );
+    
+    const role = (activeUser?.role || rawRole || '').toLowerCase();
+    return role === 'admin' || role === 'superadmin';
+};
+
+window.applyRoleAccessControl = function() {
+    const isAdmin = window.isAdminRole();
+    const navUsersBtn = document.getElementById('nav-users');
+    if (navUsersBtn) {
+        if (isAdmin) {
+            navUsersBtn.classList.remove('hidden');
+        } else {
+            navUsersBtn.classList.add('hidden');
+        }
+    }
+};
+
 window.switchTab = function(tab, subTab = 'dashboard') {
+    // Control de acceso RBAC estricto: Solo administradores pueden ver la pestaña Cuentas
+    if (tab === 'users' && !window.isAdminRole()) {
+        if (typeof showNotification === 'function') {
+            showNotification('Acceso Restringido', 'Solo los administradores tienen permiso para acceder a la pestaña de Cuentas.', 'warning');
+        }
+        tab = 'dashboard';
+    }
+
     state.tab = tab;
     state.inventorySubTab = subTab;
     sessionStorage.setItem('V_Tab', tab);
     if (subTab) sessionStorage.setItem('V_SubTab', subTab);
+
+    // Aplicar visibilidad del sidebar según rol
+    window.applyRoleAccessControl();
 
     // 1. Actualizar botones directos
     document.querySelectorAll('.nav-btn').forEach(btn => {
@@ -427,11 +470,14 @@ window.toggleSidebarCollapse = function() {
     localStorage.setItem('V_Sidebar_Collapsed', isCollapsed ? 'true' : 'false');
 };
 
-// Restaurar estado del sidebar al cargar
+// Restaurar estado del sidebar y control de acceso al cargar
 if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', () => {
         if (localStorage.getItem('V_Sidebar_Collapsed') === 'true') {
             document.body.classList.add('sidebar-collapsed');
+        }
+        if (typeof window.applyRoleAccessControl === 'function') {
+            window.applyRoleAccessControl();
         }
     });
 }
@@ -439,6 +485,23 @@ if (typeof window !== 'undefined') {
 function renderTab(tab, subTab) {
     const el = document.getElementById('main-content');
     if (!el) return;
+
+    // Bloquear renderizado de Cuentas si no es Administrador
+    if (tab === 'users' && !window.isAdminRole()) {
+        el.innerHTML = `
+            <div class="p-8 max-w-lg mx-auto mt-12 bg-surface-container-lowest border border-outline-variant/30 rounded-3xl shadow-sm text-center">
+                <div class="w-16 h-16 rounded-2xl bg-error/10 text-error flex items-center justify-center mx-auto mb-4">
+                    <span class="material-symbols-outlined text-3xl">lock</span>
+                </div>
+                <h2 class="text-xl font-black text-on-surface mb-2">Acceso Restringido</h2>
+                <p class="text-xs text-on-surface-variant mb-6">Solo los usuarios con el rol de <strong>Administrador</strong> tienen permisos para ver y gestionar cuentas de usuario.</p>
+                <button onclick="switchTab('dashboard')" class="px-5 py-2.5 rounded-xl bg-primary-container text-white font-bold text-xs shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer">
+                    Volver al Inicio
+                </button>
+            </div>
+        `;
+        return;
+    }
 
     // ── INTEGRACIÓN DINÁMICA DE REACT PARA INVENTARIO (HUB & SPOKE) ──
     if (tab === 'inventory') {

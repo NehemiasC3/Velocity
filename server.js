@@ -227,13 +227,13 @@ app.post('/api/login', (req, res) => {
     const { email, password } = req.body;
     const db = getDB();
     
-    // Buscar en supervisores
+    // Buscar en supervisores / administradores
     let user = db.supervisors.find(u => u.email.toLowerCase() === email.toLowerCase());
-    let role = 'supervisor';
+    let role = user?.role || 'supervisor';
     
     if (!user) {
         user = db.technicians.find(u => u.email.toLowerCase() === email.toLowerCase());
-        role = 'technician';
+        role = user?.role || 'technician';
     }
     
     if (!user) {

@@ -232,7 +232,8 @@ export const CatalogModule: React.FC = () => {
     try {
       setErrorToast(null);
       const res = await api.deleteCatalogProduct(product.id);
-      setSuccessToast(res.message || 'Producto eliminado o desactivado.');
+      setProducts(prev => prev.filter(p => p.id !== product.id));
+      setSuccessToast(res.message || 'Producto eliminado del catálogo.');
       setTimeout(() => setSuccessToast(null), 4000);
       await loadCatalog();
     } catch (err: any) {

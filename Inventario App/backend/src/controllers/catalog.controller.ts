@@ -9,12 +9,15 @@ export class CatalogController {
    */
   public static async getCatalog(req: Request, res: Response): Promise<void> {
     try {
-      const { category, trackingType, search, isActive } = req.query;
+      const { category, trackingType, search, isActive, includeInactive } = req.query;
 
       const where: any = {};
 
       if (isActive !== undefined) {
         where.isActive = isActive === 'true';
+      } else if (includeInactive !== 'true') {
+        // Por defecto, mostrar únicamente productos activos para que los eliminados desaparezcan de inmediato
+        where.isActive = true;
       }
 
       if (category && typeof category === 'string') {
@@ -311,62 +314,79 @@ export class CatalogController {
   public static async deleteCatalogProduct(req: Request, res: Response): Promise<void> {
     try {
       const id = String(req.params.id);
+      const force = req.query.force === 'true' || req.body?.force === true;
 
       const product = await prisma.productCatalog.findUnique({
         where: { id },
         include: {
-          _count: {
-            select: {
-              serializedItems: true,
-              batchItems: true,
-              bulkStocks: true
-            }
-          }
+          bulkStocks: true,
+          batchItems: true,
+          serializedItems: true,
+          transferItems: true
         }
       });
 
       if (!product) {
         res.status(404).json({
           success: false,
-          error: 'Producto no encontrado'
+          error: 'Producto no encontrado en el catálogo'
         });
         return;
       }
 
-      const totalItems =
-        (product._count?.serializedItems || 0) +
-        (product._count?.batchItems || 0) +
-        (product._count?.bulkStocks || 0);
+      const activeSerializedCount = product.serializedItems.length;
+      const activeBatchesCount = product.batchItems.length;
+      const activeBulkQty = product.bulkStocks.reduce((sum, b) => sum + (b.quantity || 0), 0);
+      const totalPhysicalStock = activeSerializedCount + activeBatchesCount + activeBulkQty;
 
-      if (totalItems > 0) {
-        // Desactivación lógica (Soft delete) si tiene registros asociados
-        const disabled = await prisma.productCatalog.update({
-          where: { id },
-          data: { isActive: false }
+      // Si no tiene stock físico activo o se solicita eliminación forzada
+      if (force || totalPhysicalStock === 0) {
+        await prisma.$transaction(async (tx) => {
+          // 1. Limpiar items de transferencias
+          await tx.transferOrderItem.deleteMany({
+            where: { productId: id }
+          });
+          // 2. Limpiar registros de stock a granel
+          await tx.bulkStock.deleteMany({
+            where: { productId: id }
+          });
+          // 3. Limpiar lotes/bobinas si aplica
+          await tx.batchItem.deleteMany({
+            where: { productId: id }
+          });
+          // 4. Limpiar serializados si aplica
+          await tx.serializedItem.deleteMany({
+            where: { productId: id }
+          });
+          // 5. Eliminar el producto del catálogo
+          await tx.productCatalog.delete({
+            where: { id }
+          });
         });
 
         res.status(200).json({
           success: true,
-          message: `El producto tiene ${totalItems} registro(s) de stock asociados. Se ha desactivado del catálogo para preservar la integridad histórica.`,
-          product: disabled
+          message: `Producto "${product.name}" (${product.sku}) eliminado definitivamente del catálogo.`
         });
         return;
       }
 
-      // Eliminación física si no tiene ningún stock vinculado
-      await prisma.productCatalog.delete({
-        where: { id }
+      // Si tiene stock físico activo y no se forzó, desactivarlo para preservar trazabilidad
+      const disabled = await prisma.productCatalog.update({
+        where: { id },
+        data: { isActive: false }
       });
 
       res.status(200).json({
         success: true,
-        message: 'Producto eliminado definitivamente del catálogo'
+        message: `El producto tiene existencias registradas (${totalPhysicalStock} ítems/unidades). Se ha retirado del catálogo activo.`,
+        product: disabled
       });
     } catch (error: any) {
       console.error('Error al eliminar producto del catálogo:', error);
       res.status(500).json({
         success: false,
-        error: 'Error interno al eliminar el producto',
+        error: 'Error interno al procesar la eliminación del producto',
         details: error.message
       });
     }

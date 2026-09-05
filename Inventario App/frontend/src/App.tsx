@@ -11,6 +11,7 @@ import { ForensicAuditModule } from './components/ForensicAuditModule';
 import { PersonnelMetricsModule } from './components/PersonnelMetricsModule';
 import { TechnicianMobileApp } from './components/TechnicianMobileApp';
 import { WisproModule } from './components/WisproModule';
+import { ClientEquipmentModule } from './components/ClientEquipmentModule';
 import { InventorySearch } from './components/InventorySearch';
 import { GlobalCommandPalette } from './components/GlobalCommandPalette';
 import { Login } from './components/Login';
@@ -46,6 +47,10 @@ const mapTabParam = (rawTab: string | null): string => {
       return 'mobile';
     case 'wispro':
       return 'wispro';
+    case 'client-equipment':
+    case 'equipos-cliente':
+    case 'clientes':
+      return 'client-equipment';
     case 'personnel':
     case 'metricas':
       return 'personnel';
@@ -261,6 +266,9 @@ const AppContent: React.FC = () => {
           </div>
           <div className={`w-full ${activeTab === 'wispro' ? 'block' : 'hidden'}`}>
             <WisproModule />
+          </div>
+          <div className={`w-full ${activeTab === 'client-equipment' ? 'block' : 'hidden'}`}>
+            <ClientEquipmentModule />
           </div>
         </div>
       </main>

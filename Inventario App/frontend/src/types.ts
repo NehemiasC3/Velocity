@@ -324,6 +324,63 @@ export interface AnalyticsKPIs {
   total_tickets_month: number;
 }
 
+// ─── Client Equipment View (Vista 360° de Equipos por Cliente) ───────────────
+
+export interface InstalledEquipmentItem {
+  id: string;
+  serialNumber?: string;
+  macAddress?: string;
+  category?: string;
+  productName?: string;
+  brand?: string;
+  model?: string;
+  installedDate?: string;
+  installedTicketId?: string;
+  technicianName?: string;
+}
+
+export interface ClientTicketSummary {
+  id?: string;
+  ticketNumber: string;
+  type?: string;
+  technicianName?: string;
+  createdAt: string;
+}
+
+export interface ClientEquipmentView {
+  id: string;
+  name: string;
+  contractId: string;
+  address: string;
+  nodeName: string;
+  planName: string;
+  status: 'ACTIVO' | 'PENDIENTE_INSTALACION' | 'SUSPENDIDO';
+  currentOnuMac?: string;
+  installedEquipment: InstalledEquipmentItem[];
+  ticketHistory: ClientTicketSummary[];
+  equipmentSummary: {
+    ONU_GPON?: number;
+    ONU_EPON?: number;
+    TV_BOX_OTT?: number;
+    CAMARA_SEGURIDAD_IOT?: number;
+    REPETIDOR_MESH?: number;
+    ROUTER_WIFI?: number;
+    [key: string]: number | undefined;
+  };
+}
+
+export interface ClientEquipmentResponse {
+  success: boolean;
+  clients: ClientEquipmentView[];
+  totals: {
+    totalClients: number;
+    withEquipment: number;
+    withCamera: number;
+    withTvBox: number;
+    withRepeater: number;
+  };
+}
+
 export interface UniversalSearchResults {
   query: string;
   cleanMac: string;

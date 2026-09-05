@@ -28,69 +28,35 @@ export const verifyToken = async (
 ): Promise<void> => {
   try {
     const authHeader = req.headers['authorization'];
-    const userIdHeader = req.headers['x-user-id'] as string;
-
     let token: string | undefined;
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-    }
-
-    // 1. Si viene token JWT real
-    if (token && !token.startsWith('usr-') && token !== 'dev-token') {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET) as UserPayload;
-        req.user = decoded;
-        return next();
-      } catch (jwtErr: any) {
-        res.status(401).json({
-          success: false,
-          error: 'Token inválido o expirado. Por favor, inicia sesión de nuevo.'
-        });
-        return;
+    if (authHeader) {
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7).trim();
+      } else {
+        token = authHeader.trim();
       }
     }
 
-    // 2. Fallback de desarrollo: Buscar usuario por ID (x-user-id o dev-token)
-    const targetUserId = (token && token.startsWith('usr-')) 
-      ? token 
-      : (userIdHeader || 'usr-admin-1');
+    if (!token) {
+      res.status(401).json({
+        success: false,
+        error: 'No autorizado. Se requiere token Bearer en el encabezado Authorization.'
+      });
+      return;
+    }
 
-    const user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { id: targetUserId },
-          { email: targetUserId }
-        ]
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        baseWarehouseId: true
-      }
-    });
-
-    if (user) {
-      req.user = {
-        ...user,
-        assignedWarehouseId: user.baseWarehouseId
-      };
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as UserPayload;
+      req.user = decoded;
       return next();
+    } catch (jwtErr: any) {
+      res.status(401).json({
+        success: false,
+        error: 'Token inválido o expirado. Por favor, inicia sesión de nuevo.'
+      });
+      return;
     }
-
-    // Si no encontramos usuario en Prisma pero hay ID de desarrollo
-    req.user = {
-      id: targetUserId,
-      name: 'Admin Supervisor',
-      email: 'admin@rappidopanama.com',
-      role: Role.SUPERADMIN,
-      baseWarehouseId: null,
-      assignedWarehouseId: null
-    };
-
-    return next();
   } catch (error: any) {
     console.error('Error en verifyToken middleware:', error);
     res.status(500).json({

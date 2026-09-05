@@ -138,7 +138,132 @@ router.get('/technician/tickets', authMiddleware, async (req: AuthenticatedReque
 });
 
 // ==========================================
-// 11. INTEGRACIÓN WISPRO CLOUD
+// 11. VISTA 360° EQUIPOS POR CLIENTE
+// ==========================================
+router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { search, category, status } = req.query as Record<string, string>;
+
+    // 1. Obtener todos los clientes Wispro de la BD local
+    const whereClause: any = {};
+    if (status && status !== 'ALL') whereClause.status = status;
+    if (search) {
+      whereClause.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { contractId: { contains: search, mode: 'insensitive' } },
+        { address: { contains: search, mode: 'insensitive' } },
+        { nodeName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
+    const wisproClients = await prisma.wisproClient.findMany({
+      where: whereClause,
+      orderBy: { name: 'asc' }
+    });
+
+    // 2. Para cada cliente, buscar sus equipos instalados y tickets
+    const clientIds = wisproClients.map(c => c.id);
+
+    const [serializedItems, installationTickets] = await Promise.all([
+      // Equipos serializados actualmente instalados en clientes
+      prisma.serializedItem.findMany({
+        where: {
+          status: 'INSTALADO_CLIENTE',
+          installedClientId: { in: clientIds },
+          ...(category && category !== 'ALL' ? { category: category as any } : {})
+        },
+        include: {
+          product: {
+            select: { name: true, brand: true, model: true, category: true }
+          }
+        }
+      }),
+      // Historial de tickets de instalación
+      prisma.installationTicket.findMany({
+        where: { wisproClientId: { in: clientIds } },
+        include: { technician: { select: { name: true } } },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
+
+    // 3. Construir mapa: clientId => { equipos, tickets }
+    const equipmentByClient = new Map<string, typeof serializedItems>();
+    const ticketsByClient = new Map<string, typeof installationTickets>();
+
+    for (const item of serializedItems) {
+      if (!item.installedClientId) continue;
+      const arr = equipmentByClient.get(item.installedClientId) || [];
+      arr.push(item);
+      equipmentByClient.set(item.installedClientId, arr);
+    }
+
+    for (const tk of installationTickets) {
+      const arr = ticketsByClient.get(tk.wisproClientId) || [];
+      arr.push(tk);
+      ticketsByClient.set(tk.wisproClientId, arr);
+    }
+
+    // 4. Construir respuesta enriquecida
+    const clients = wisproClients.map(client => {
+      const equip = equipmentByClient.get(client.id) || [];
+      const tickets = ticketsByClient.get(client.id) || [];
+
+      // Summary por categoria
+      const summary: Record<string, number> = {};
+      for (const eq of equip) {
+        const cat = eq.product?.category || 'OTRO';
+        summary[cat] = (summary[cat] || 0) + 1;
+      }
+
+      return {
+        id: client.id,
+        name: client.name,
+        contractId: client.contractId,
+        address: client.address,
+        nodeName: client.nodeName,
+        planName: client.planName,
+        status: client.status,
+        currentOnuMac: client.currentOnuMac,
+        installedEquipment: equip.map(eq => ({
+          id: eq.id,
+          serialNumber: eq.serialNumber,
+          macAddress: eq.macAddress,
+          category: eq.product?.category,
+          productName: eq.product?.name,
+          brand: eq.product?.brand,
+          model: eq.product?.model,
+          installedDate: eq.installedDate,
+          installedTicketId: eq.installedTicketId,
+        })),
+        ticketHistory: tickets.map(tk => ({
+          id: tk.id,
+          ticketNumber: tk.ticketNumber,
+          type: tk.type,
+          technicianName: tk.technician?.name,
+          createdAt: tk.createdAt,
+        })),
+        equipmentSummary: summary,
+      };
+    });
+
+    // 5. Totales globales
+    const totals = {
+      totalClients: clients.length,
+      withEquipment: clients.filter(c => c.installedEquipment.length > 0).length,
+      withCamera: clients.filter(c => (c.equipmentSummary['CAMARA_SEGURIDAD_IOT'] ?? 0) > 0).length,
+      withTvBox: clients.filter(c => (c.equipmentSummary['TV_BOX_OTT'] ?? 0) > 0).length,
+      withRepeater: clients.filter(c => (c.equipmentSummary['REPETIDOR_MESH'] ?? 0) > 0).length,
+    };
+
+    res.json({ success: true, clients, totals });
+  } catch (error: any) {
+    console.error('[equipment-view] Error:', error);
+    res.status(500).json({ success: false, error: 'Error generando vista de equipos por cliente', details: error.message });
+  }
+});
+
+// ==========================================
+// 12. INTEGRACIÓN WISPRO CLOUD
 // ==========================================
 router.use('/wispro', wisproRoutes);
 

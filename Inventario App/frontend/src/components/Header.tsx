@@ -102,6 +102,12 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
       icon: Wifi,
       roleLimit: ['SUPERADMIN', 'ADMIN_BODEGA', 'SUPERVISOR_MESA'] 
     },
+    { 
+      id: 'client-equipment', 
+      label: 'Equipos por Cliente', 
+      icon: Users,
+      roleLimit: ['SUPERADMIN', 'ADMIN_BODEGA', 'SUPERVISOR_MESA', 'AUDITOR_INTERNO'] 
+    },
   ];
 
   return (

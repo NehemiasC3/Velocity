@@ -97,24 +97,6 @@ class AuthController {
             catch (dbError) {
                 console.warn('[AuthController] Base de datos no conectada directamente, usando modo demostración.');
             }
-            // 2. Si no se encontró en DB o la DB no está disponible, revisar mapa de demo
-            if (!user) {
-                if (DEMO_USERS_MAP[normalizedEmail]) {
-                    user = DEMO_USERS_MAP[normalizedEmail];
-                }
-                else if (normalizedEmail.includes('admin') || normalizedEmail.includes('mendoza')) {
-                    user = SUPERADMIN_USER;
-                }
-                else if (normalizedEmail.includes('bodega') || normalizedEmail.includes('perez') || normalizedEmail.includes('tocumen')) {
-                    user = BODEGUERO_USER;
-                }
-                else if (normalizedEmail.includes('david') || normalizedEmail.includes('tech') || normalizedEmail.includes('tecnico')) {
-                    user = TECNICO_USER;
-                }
-                else {
-                    user = SUPERADMIN_USER; // Default fallback to allow testing
-                }
-            }
             if (!user) {
                 res.status(401).json({
                     success: false,
@@ -122,18 +104,32 @@ class AuthController {
                 });
                 return;
             }
-            // Validar contraseña
-            let isPasswordValid = true;
+            // Validar contraseña de forma segura
+            let isPasswordValid = false;
             if (user.password) {
                 if (user.password.startsWith('$2a$') || user.password.startsWith('$2b$')) {
                     isPasswordValid = await bcryptjs_1.default.compare(password, user.password);
                 }
                 else {
-                    isPasswordValid = password === user.password || password === '123456' || password === 'admin123';
+                    // Si por migración previa estaba en texto plano, validar y migrar a hash bcrypt
+                    isPasswordValid = password === user.password;
+                    if (isPasswordValid && user.id) {
+                        try {
+                            const hashedPassword = await bcryptjs_1.default.hash(password, 10);
+                            await db_1.prisma.user.update({
+                                where: { id: user.id },
+                                data: { password: hashedPassword }
+                            });
+                        }
+                        catch (hashErr) {
+                            console.warn('[AuthController] No se pudo auto-hashear contraseña en DB:', hashErr);
+                        }
+                    }
                 }
             }
             else {
-                isPasswordValid = password === '123456' || password === 'admin123' || password.length >= 4;
+                // En caso de que el usuario no tenga contraseña asignada aún
+                isPasswordValid = false;
             }
             if (!isPasswordValid) {
                 res.status(401).json({
@@ -142,7 +138,7 @@ class AuthController {
                 });
                 return;
             }
-            // Generar JWT
+            // Generar JWT firmado
             const token = jsonwebtoken_1.default.sign({
                 id: user.id,
                 name: user.name,
@@ -162,7 +158,7 @@ class AuthController {
                     phone: user.phone,
                     baseWarehouseId: user.baseWarehouseId,
                     baseWarehouseName: user.baseWarehouse?.name,
-                    managedWarehouses: user.managedWarehouses.map(w => ({ id: w.id, name: w.name, type: w.type }))
+                    managedWarehouses: (user.managedWarehouses || []).map((w) => ({ id: w.id, name: w.name, type: w.type }))
                 }
             });
         }

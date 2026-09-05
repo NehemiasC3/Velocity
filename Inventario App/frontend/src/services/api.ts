@@ -2,7 +2,7 @@ import {
   User, Warehouse, SerializedItem, BulkItem, BulkStock, 
   TransferOrder, InstallationTicket, AuditLog, WisproClient, 
   DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
-  UniversalSearchResults
+  UniversalSearchResults, ClientEquipmentResponse
 } from '../types';
 
 const API_BASE_URL = 
@@ -471,6 +471,16 @@ class ApiService {
   }): Promise<{ success: boolean; count: number; total: number; logs: any[] }> {
     const query = new URLSearchParams(params as any).toString();
     return this.request(`/analytics/audit-log${query ? `?${query}` : ''}`);
+  }
+
+  // Cliente Equipment View (Vista 360° equipos por cliente)
+  public async getClientEquipmentView(params?: {
+    search?: string;
+    category?: string;
+    status?: string;
+  }): Promise<ClientEquipmentResponse> {
+    const query = params ? new URLSearchParams(params as any).toString() : '';
+    return this.request<ClientEquipmentResponse>(`/clients/equipment-view${query ? `?${query}` : ''}`);
   }
 
   // Reset

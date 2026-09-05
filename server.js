@@ -199,16 +199,14 @@ async function syncFromGoogleDrive() {
     }
 }
 
-// ── SEGURIDAD (TOKEN Y SESIONES EFÍMERAS CON JWT) ───────────────────────────
-
 function validateToken(req, res, next) {
     const authHeader = req.headers['authorization'] || req.headers['x-api-secret'];
     if (!authHeader) {
         return res.status(401).json({ error: 'No autorizado. Se requiere token.' });
     }
 
-    // Bypass maestro para compatibilidad de herramientas administrativas/desarrollo
-    if (authHeader === API_SECRET || authHeader === 'dev-token' || authHeader === 'demo') {
+    // Bypass solo si API_SECRET fue configurado explícitamente en el archivo .env
+    if (process.env.API_SECRET && authHeader === process.env.API_SECRET) {
         req.user = { userId: 'S-ROOT-1', role: 'supervisor', name: 'Nehemias' };
         return next();
     }
@@ -324,7 +322,7 @@ app.post('/api/sync', validateToken, (req, res) => {
     res.json({ success: true });
 });
 
-app.post('/api/users/reset-password', (req, res) => {
+app.post('/api/users/reset-password', validateToken, (req, res) => {
     const { userId, email, newPassword, password } = req.body;
     const identifier = userId || email;
     const pass = newPassword || password;
@@ -343,9 +341,18 @@ app.post('/api/users/reset-password', (req, res) => {
         return res.status(404).json({ error: 'Usuario no encontrado' });
     }
 
+    // Solo un supervisor o el propio usuario autenticado puede cambiar su contraseña
+    const requester = req.user;
+    const isSupervisor = requester?.role === 'supervisor';
+    const isSelf = requester?.userId === user.id || (requester?.email && requester.email.toLowerCase() === user.email?.toLowerCase());
+
+    if (!isSupervisor && !isSelf) {
+        return res.status(403).json({ error: 'No autorizado. Solo un supervisor o el propio usuario pueden cambiar la contraseña.' });
+    }
+
     user.password = bcrypt.hashSync(pass, 10);
     persistDB();
-    console.log(`[Velocity 🔑] Contraseña actualizada directamente para: ${user.email} (${user.id})`);
+    console.log(`[Velocity 🔑] Contraseña actualizada de forma segura para: ${user.email} (${user.id}) por ${requester.name || requester.userId}`);
     res.json({ success: true, message: `Contraseña actualizada para ${user.name || user.email}` });
 });
 
@@ -573,6 +580,28 @@ function mapWisproItem(raw) {
     };
 }
 
+async function fetchWithRetry(url, options, maxRetries = 3, delayMs = 500) {
+    let lastError = null;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            const res = await fetch(url, options);
+            if (res.ok) return res;
+            if (res.status === 429 || res.status >= 500) {
+                // Rate limit o error temporal de servidor: reintentar con backoff
+                await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+                continue;
+            }
+            return res;
+        } catch (err) {
+            lastError = err;
+            if (attempt < maxRetries) {
+                await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+            }
+        }
+    }
+    throw lastError || new Error(`Fallo de conexión tras ${maxRetries} intentos.`);
+}
+
 app.get('/api/v1/inventory', async (req, res) => {
     try {
         const forceRefresh = req.query.force === 'true' || req.query.refresh === 'true';
@@ -598,9 +627,9 @@ app.get('/api/v1/inventory', async (req, res) => {
         let totalPages = 1;
         const allItems = [];
 
-        // Página 1
+        // Página 1 con reintentos
         const firstUrl = `${baseUrl}/contracts?per_page=${perPage}&page=1`;
-        const firstRes = await fetch(firstUrl, {
+        const firstRes = await fetchWithRetry(firstUrl, {
             headers: {
                 'Authorization': token,
                 'Accept': 'application/json'
@@ -619,7 +648,7 @@ app.get('/api/v1/inventory', async (req, res) => {
             totalPages = firstJson.meta.pagination.total_pages;
         }
 
-        // Bucle dinámico por lotes
+        // Bucle dinámico por lotes con reintentos
         currentPage = 2;
         const BATCH_SIZE = 5;
         while (currentPage <= totalPages) {
@@ -628,9 +657,12 @@ app.get('/api/v1/inventory', async (req, res) => {
             for (let p = currentPage; p <= batchEnd; p++) {
                 const url = `${baseUrl}/contracts?per_page=${perPage}&page=${p}`;
                 batchPromises.push(
-                    fetch(url, { headers: { 'Authorization': token, 'Accept': 'application/json' } })
+                    fetchWithRetry(url, { headers: { 'Authorization': token, 'Accept': 'application/json' } })
                         .then(r => r.ok ? r.json() : { data: [] })
-                        .catch(() => ({ data: [] }))
+                        .catch(err => {
+                            console.warn(`[Inventory API] Fallo al consultar página ${p}:`, err.message);
+                            return { data: [] };
+                        })
                 );
             }
             const results = await Promise.all(batchPromises);
@@ -659,6 +691,18 @@ app.get('/api/v1/inventory', async (req, res) => {
         });
     } catch (err) {
         console.error('[Inventory API Error]', err);
+        // Si hay caché previa aunque haya expirado, servirla como fallback antes de fallar
+        if (inventoryCache.data && inventoryCache.data.length > 0) {
+            console.warn('[Inventory API] Sirviendo caché existente como fallback ante error de red.');
+            return res.json({
+                success: true,
+                count: inventoryCache.data.length,
+                cached: true,
+                fallback: true,
+                timestamp: new Date(inventoryCache.timestamp).toISOString(),
+                data: inventoryCache.data
+            });
+        }
         res.status(500).json({
             success: false,
             error: 'InternalServerError',
@@ -680,7 +724,7 @@ async function warmInventoryCache() {
     try {
         console.log('[Inventory API ⚡] Precalentando caché de inventario en RAM...');
         const baseUrl = (process.env.WISPRO_API_URL || process.env.WISPRO_BASE_URL || 'https://www.cloud.wispro.co/api/v1').replace(/\/+$/, '');
-        const firstRes = await fetch(`${baseUrl}/contracts?per_page=100&page=1`, {
+        const firstRes = await fetchWithRetry(`${baseUrl}/contracts?per_page=100&page=1`, {
             headers: { 'Authorization': token, 'Accept': 'application/json' }
         });
         if (firstRes.ok) {
@@ -693,11 +737,14 @@ async function warmInventoryCache() {
                 const batchPromises = [];
                 const batchEnd = Math.min(currentPage + BATCH_SIZE - 1, totalPages);
                 for (let p = currentPage; p <= batchEnd; p++) {
-                    const url = `${baseUrl}/contracts?per_page=100&page=${p}`;
+                    const url = `${baseUrl}/contracts?per_page=${perPage}&page=${p}`;
                     batchPromises.push(
-                        fetch(url, { headers: { 'Authorization': token, 'Accept': 'application/json' } })
+                        fetchWithRetry(url, { headers: { 'Authorization': token, 'Accept': 'application/json' } })
                             .then(r => r.ok ? r.json() : { data: [] })
-                            .catch(() => ({ data: [] }))
+                            .catch(err => {
+                                console.warn(`[Inventory Prewarm] Fallo en página ${p}:`, err.message);
+                                return { data: [] };
+                            })
                     );
                 }
                 const results = await Promise.all(batchPromises);
@@ -706,11 +753,13 @@ async function warmInventoryCache() {
                 }
                 currentPage = batchEnd + 1;
             }
-            inventoryCache = {
-                data: allItems.map(mapWisproItem),
-                timestamp: Date.now()
-            };
-            console.log(`[Inventory API ✅] Precalentamiento completado. ${inventoryCache.data.length} registros en RAM.`);
+            if (allItems.length > 0) {
+                inventoryCache = {
+                    data: allItems.map(mapWisproItem),
+                    timestamp: Date.now()
+                };
+                console.log(`[Inventory API ✅] Precalentamiento completado. ${inventoryCache.data.length} registros en RAM.`);
+            }
         }
     } catch (e) {
         console.warn('[Inventory API] Error en precalentamiento:', e.message);

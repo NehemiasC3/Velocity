@@ -267,20 +267,18 @@ class CatalogController {
         }
     }
     /**
-     * Elimina o desactiva un producto del catálogo
+     * Elimina un producto del catálogo de forma definitiva
      * DELETE /api/catalog/:id
      */
     static async deleteCatalogProduct(req, res) {
         try {
-            const id = String(req.params.id);
-            const force = req.query.force === 'true' || req.body?.force === true;
-            const product = await db_1.prisma.productCatalog.findUnique({
-                where: { id },
-                include: {
-                    bulkStocks: true,
-                    batchItems: true,
-                    serializedItems: true,
-                    transferItems: true
+            const target = String(req.params.id);
+            const product = await db_1.prisma.productCatalog.findFirst({
+                where: {
+                    OR: [
+                        { id: target },
+                        { sku: target }
+                    ]
                 }
             });
             if (!product) {
@@ -290,49 +288,33 @@ class CatalogController {
                 });
                 return;
             }
-            const activeSerializedCount = product.serializedItems.length;
-            const activeBatchesCount = product.batchItems.length;
-            const activeBulkQty = product.bulkStocks.reduce((sum, b) => sum + (b.quantity || 0), 0);
-            const totalPhysicalStock = activeSerializedCount + activeBatchesCount + activeBulkQty;
-            // Si no tiene stock físico activo o se solicita eliminación forzada
-            if (force || totalPhysicalStock === 0) {
-                await db_1.prisma.$transaction(async (tx) => {
-                    // 1. Limpiar items de transferencias
-                    await tx.transferOrderItem.deleteMany({
-                        where: { productId: id }
-                    });
-                    // 2. Limpiar registros de stock a granel
-                    await tx.bulkStock.deleteMany({
-                        where: { productId: id }
-                    });
-                    // 3. Limpiar lotes/bobinas si aplica
-                    await tx.batchItem.deleteMany({
-                        where: { productId: id }
-                    });
-                    // 4. Limpiar serializados si aplica
-                    await tx.serializedItem.deleteMany({
-                        where: { productId: id }
-                    });
-                    // 5. Eliminar el producto del catálogo
-                    await tx.productCatalog.delete({
-                        where: { id }
-                    });
+            const productId = product.id;
+            // Eliminación física y en cascada completa dentro de una transacción segura
+            await db_1.prisma.$transaction(async (tx) => {
+                // 1. Limpiar items de transferencias asociados
+                await tx.transferOrderItem.deleteMany({
+                    where: { productId }
                 });
-                res.status(200).json({
-                    success: true,
-                    message: `Producto "${product.name}" (${product.sku}) eliminado definitivamente del catálogo.`
+                // 2. Limpiar registros de stock a granel
+                await tx.bulkStock.deleteMany({
+                    where: { productId }
                 });
-                return;
-            }
-            // Si tiene stock físico activo y no se forzó, desactivarlo para preservar trazabilidad
-            const disabled = await db_1.prisma.productCatalog.update({
-                where: { id },
-                data: { isActive: false }
+                // 3. Limpiar lotes / bobinas
+                await tx.batchItem.deleteMany({
+                    where: { productId }
+                });
+                // 4. Limpiar serializados
+                await tx.serializedItem.deleteMany({
+                    where: { productId }
+                });
+                // 5. Eliminar el producto del catálogo definitivamente
+                await tx.productCatalog.delete({
+                    where: { id: productId }
+                });
             });
             res.status(200).json({
                 success: true,
-                message: `El producto tiene existencias registradas (${totalPhysicalStock} ítems/unidades). Se ha retirado del catálogo activo.`,
-                product: disabled
+                message: `Producto "${product.name}" (${product.sku}) eliminado definitivamente del catálogo.`
             });
         }
         catch (error) {

@@ -52,7 +52,13 @@
       }
     </script>
     <style>
-        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; min-height: 100vh; overflow: hidden; zoom: 0.93; }
+        @media (min-width: 768px) {
+            body { zoom: 0.93; }
+        }
+        @media (max-width: 767px) {
+            body { zoom: 1 !important; }
+        }
+        body { font-family: 'Inter', system-ui, -apple-system, sans-serif; min-height: 100dvh; overflow-y: auto; }
         .kinetic-gradient { background: linear-gradient(135deg, #0059bb 0%, #0070ea 100%); }
         .glass-panel { backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); }
         .floating-shape { animation: float 12s infinite ease-in-out alternate; }

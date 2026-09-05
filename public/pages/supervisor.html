@@ -146,7 +146,15 @@
             --gradient: linear-gradient(135deg, #000000 0%, #333333 100%);
         }
 
-        body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; min-height: 100dvh; transition: background-color 0.3s ease, color 0.3s ease; zoom: 0.93; }
+        @media (min-width: 768px) {
+            body { zoom: 0.93; }
+        }
+        @media (max-width: 767px) {
+            body { zoom: 1 !important; padding-left: 0 !important; }
+            body.sidebar-collapsed { padding-left: 0 !important; }
+        }
+
+        body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; min-height: 100dvh; transition: background-color 0.3s ease, color 0.3s ease; }
         .material-symbols-outlined {
             font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
         }
@@ -188,7 +196,8 @@
         aside, nav, body {
             transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
                         padding-left 0.25s cubic-bezier(0.4, 0, 0.2, 1), 
-                        left 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+                        left 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+                        transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         .accordion-content {
@@ -224,53 +233,70 @@
             border-radius: 2px;
         }
 
-        /* ── MODO SOLO ICONOS (COLLAPSED SIDEBAR) ── */
-        body.sidebar-collapsed {
-            padding-left: 4.5rem !important;
+        /* ── MODO SOLO ICONOS (COLLAPSED SIDEBAR EN DESKTOP) ── */
+        @media (min-width: 768px) {
+            body.sidebar-collapsed {
+                padding-left: 4.5rem !important;
+            }
+            body.sidebar-collapsed aside {
+                width: 4.5rem !important;
+                padding-left: 0.375rem !important;
+                padding-right: 0.375rem !important;
+            }
+            body.sidebar-collapsed .nav-label,
+            body.sidebar-collapsed .subnav-label {
+                display: none !important;
+            }
+            body.sidebar-collapsed .nav-btn,
+            body.sidebar-collapsed .parent-nav-btn {
+                justify-content: center !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                width: 3rem !important;
+                height: 3rem !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+                gap: 0 !important;
+            }
+            body.sidebar-collapsed .parent-nav-btn .chevron-icon {
+                display: none !important;
+            }
+            body.sidebar-collapsed .submenu-tree {
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                background: rgba(0, 89, 187, 0.05);
+                border-radius: 0.75rem;
+                margin: 0.25rem 0;
+                padding-top: 0.25rem;
+                padding-bottom: 0.25rem;
+            }
+            body.sidebar-collapsed .submenu-tree::before {
+                display: none !important;
+            }
+            body.sidebar-collapsed .subnav-btn {
+                justify-content: center !important;
+                padding-left: 0 !important;
+                padding-right: 0 !important;
+                width: 2.5rem !important;
+                height: 2.5rem !important;
+                margin-left: auto !important;
+                margin-right: auto !important;
+            }
         }
-        body.sidebar-collapsed aside {
-            width: 4.5rem !important;
-            padding-left: 0.375rem !important;
-            padding-right: 0.375rem !important;
-        }
-        body.sidebar-collapsed .nav-label,
-        body.sidebar-collapsed .subnav-label {
-            display: none !important;
-        }
-        body.sidebar-collapsed .nav-btn,
-        body.sidebar-collapsed .parent-nav-btn {
-            justify-content: center !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            width: 3rem !important;
-            height: 3rem !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-            gap: 0 !important;
-        }
-        body.sidebar-collapsed .parent-nav-btn .chevron-icon {
-            display: none !important;
-        }
-        body.sidebar-collapsed .submenu-tree {
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            background: rgba(0, 89, 187, 0.05);
-            border-radius: 0.75rem;
-            margin: 0.25rem 0;
-            padding-top: 0.25rem;
-            padding-bottom: 0.25rem;
-        }
-        body.sidebar-collapsed .submenu-tree::before {
-            display: none !important;
-        }
-        body.sidebar-collapsed .subnav-btn {
-            justify-content: center !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            width: 2.5rem !important;
-            height: 2.5rem !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
+
+        /* ── MOBILE DRAWER OVERRIDES ── */
+        @media (max-width: 767px) {
+            aside {
+                transform: translateX(-100%);
+            }
+            body.mobile-menu-open aside {
+                transform: translateX(0) !important;
+            }
+            body.mobile-menu-open #mobile-backdrop {
+                display: block !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
         }
 
         /* ── CONTROL DE BURBUJAS (BADGES) EN SIDEBAR ── */
@@ -290,16 +316,19 @@
 </head>
 <body class="bg-background text-on-background pt-14 pb-20 md:pb-0 md:pl-64 flex flex-col md:flex-row transition-all duration-200">
     
+    <!-- Backdrop oscuro para menú móvil -->
+    <div id="mobile-backdrop" onclick="window.closeMobileMenu()" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-40 hidden opacity-0 transition-opacity duration-300 md:hidden pointer-events-none"></div>
+
     <!-- Top Nav / Head (Barra Superior Estilo Wispro) -->
     <nav id="top-navbar" class="fixed top-0 left-0 w-full z-40 bg-surface/95 backdrop-blur-md flex justify-between items-center px-4 h-14 border-b border-surface-container-high shadow-sm">
         <div class="flex items-center">
             <!-- Botón 3 Rayitas (Hamburguesa) -->
             <button 
                 type="button" 
-                onclick="window.toggleSidebarCollapse()" 
-                class="p-2 rounded-xl text-on-surface-variant hover:text-secondary hover:bg-surface-container-low transition-all active:scale-95 flex items-center justify-center mr-2"
-                title="Alternar Menú (Modo Íconos / Expandido)"
-                aria-label="Alternar barra lateral"
+                onclick="window.handleMenuToggle()" 
+                class="p-2 rounded-xl text-on-surface-variant hover:text-secondary hover:bg-surface-container-low transition-all active:scale-95 flex items-center justify-center mr-2 cursor-pointer"
+                title="Menú"
+                aria-label="Alternar menú"
             >
                 <span class="material-symbols-outlined text-[24px]">menu</span>
             </button>
@@ -310,19 +339,18 @@
             </div>
 
             <!-- Separador Vertical -->
-            <div class="h-5 w-[1.5px] bg-outline-variant/30 mx-3"></div>
+            <div class="h-5 w-[1.5px] bg-outline-variant/30 mx-2.5 sm:mx-3"></div>
 
             <!-- Empresa / Título de Página -->
             <div class="flex items-center gap-1.5">
                 <span class="text-xs md:text-sm font-black text-on-surface tracking-wide uppercase" id="header-company">Velocity</span>
                 <span class="text-xs text-outline-variant hidden sm:inline">/</span>
-                <h1 class="text-xs md:text-sm font-semibold text-secondary tracking-tight hidden sm:inline" id="header-title">Resumen</h1>
+                <h1 class="text-xs md:text-sm font-semibold text-secondary tracking-tight truncate max-w-[150px] sm:max-w-none" id="header-title">Resumen</h1>
             </div>
         </div>
 
         <!-- Usuario y Estado -->
         <div class="flex items-center gap-2 sm:gap-3">
-
             <div class="hidden sm:flex flex-col items-end">
                 <span id="active-user-name" class="text-[12px] font-black text-on-surface leading-tight mb-0.5">...</span>
                 <span class="text-[9px] font-bold text-on-surface bg-tertiary-fixed-dim/30 px-2 py-0.5 rounded-full uppercase tracking-widest flex items-center gap-1" id="system-status-container">
@@ -330,18 +358,31 @@
                     <span id="status-text">Conectado</span>
                 </span>
             </div>
-            <div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container flex items-center justify-center border-2 border-secondary relative">
+            <div class="w-8 h-8 rounded-full overflow-hidden bg-surface-container flex items-center justify-center border-2 border-secondary relative shrink-0">
                 <span class="material-symbols-outlined text-secondary text-sm">person</span>
                 <div class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-tertiary-fixed-dim rounded-full border border-white"></div>
             </div>
         </div>
     </nav>
 
-    <!-- Side/Bottom Navigation (Wispro Inspired Sidebar) -->
-    <aside class="fixed top-14 bottom-0 left-0 w-full md:w-64 md:h-[calc(100vh-3.5rem)] bg-surface-container-lowest md:bg-surface border-r border-outline-variant/15 z-30 flex flex-col justify-between items-stretch pt-3 pb-6 px-2.5 overflow-y-auto glass-panel shadow-[0_-12px_32px_-4px_rgba(26,43,72,0.05)] md:shadow-none transition-all duration-200">
+    <!-- Side/Bottom Navigation (Wispro Inspired Sidebar & Mobile Off-canvas Drawer) -->
+    <aside class="fixed top-0 bottom-0 left-0 w-72 max-w-[85vw] md:w-64 md:top-14 md:bottom-0 h-full md:h-[calc(100vh-3.5rem)] bg-surface-container-lowest md:bg-surface border-r border-outline-variant/15 z-50 md:z-30 flex flex-col justify-between items-stretch pt-3 pb-6 px-2.5 overflow-y-auto glass-panel shadow-2xl md:shadow-none transition-all duration-200">
         
+        <!-- Header exclusivo para Móvil en el Drawer -->
+        <div class="flex md:hidden items-center justify-between px-2 pb-3 mb-2 border-b border-outline-variant/20">
+            <div class="flex items-center gap-2">
+                <div class="w-7 h-7 rounded-lg bg-secondary/10 p-1 border border-secondary/20 flex items-center justify-center">
+                    <img src="../logo-velocity.svg" class="w-full h-full object-contain" alt="Velocity">
+                </div>
+                <span class="text-sm font-black text-on-surface tracking-wider uppercase">Velocity Pro</span>
+            </div>
+            <button onclick="window.closeMobileMenu()" class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high transition-colors active:scale-95" title="Cerrar menú">
+                <span class="material-symbols-outlined text-[20px]">close</span>
+            </button>
+        </div>
+
         <!-- Sidebar Navigation Items -->
-        <nav class="flex md:flex-col gap-1 w-full flex-1" id="sidebar-menu">
+        <nav class="flex flex-col gap-1 w-full flex-1" id="sidebar-menu">
             
             <!-- 1. Inicio -->
             <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl font-medium text-xs transition-all duration-200 active:scale-95 bg-primary-container text-white shadow-sm" title="Inicio / Resumen">
@@ -970,6 +1011,40 @@
             </div>
         </div>
     </div>
+
+    <!-- ── BARRA DE NAVEGACIÓN INFERIOR PARA CELULARES (MOBILE BOTTOM NAV) ── -->
+    <nav id="mobile-bottom-nav" class="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-surface/95 backdrop-blur-lg border-t border-surface-container-high flex items-center justify-around px-2 z-30 shadow-[0_-4px_20px_rgba(0,0,0,0.08)]">
+        <!-- 1. Inicio -->
+        <button onclick="switchTab('dashboard')" id="bnav-dashboard" class="flex flex-col items-center justify-center flex-1 py-1 text-secondary active:scale-95 transition-all">
+            <span class="material-symbols-outlined text-[22px]" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+            <span class="text-[10px] font-bold mt-0.5 tracking-tight">Inicio</span>
+        </button>
+
+        <!-- 2. Mesa de Órdenes -->
+        <button onclick="switchTab('prueba')" id="bnav-prueba" class="flex flex-col items-center justify-center flex-1 py-1 text-on-surface-variant hover:text-secondary active:scale-95 transition-all relative">
+            <span class="material-symbols-outlined text-[22px]">receipt_long</span>
+            <span class="text-[10px] font-medium mt-0.5 tracking-tight">Órdenes</span>
+            <span id="mesa-bnav-badge" class="absolute top-1 right-3 bg-[#ff3b30] text-white font-black text-[9px] px-1 rounded-full min-w-[14px] h-[14px] flex items-center justify-center hidden">0</span>
+        </button>
+
+        <!-- 3. Técnicos -->
+        <button onclick="switchTab('technicians')" id="bnav-technicians" class="flex flex-col items-center justify-center flex-1 py-1 text-on-surface-variant hover:text-secondary active:scale-95 transition-all">
+            <span class="material-symbols-outlined text-[22px]">engineering</span>
+            <span class="text-[10px] font-medium mt-0.5 tracking-tight">Técnicos</span>
+        </button>
+
+        <!-- 4. Inventario -->
+        <button onclick="switchTab('inventory')" id="bnav-inventory" class="flex flex-col items-center justify-center flex-1 py-1 text-on-surface-variant hover:text-secondary active:scale-95 transition-all">
+            <span class="material-symbols-outlined text-[22px]">inventory_2</span>
+            <span class="text-[10px] font-medium mt-0.5 tracking-tight">Inventario</span>
+        </button>
+
+        <!-- 5. Menú Completo -->
+        <button onclick="window.openMobileMenu()" class="flex flex-col items-center justify-center flex-1 py-1 text-on-surface-variant hover:text-secondary active:scale-95 transition-all">
+            <span class="material-symbols-outlined text-[22px]">menu</span>
+            <span class="text-[10px] font-medium mt-0.5 tracking-tight">Más</span>
+        </button>
+    </nav>
 
     <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

@@ -432,6 +432,24 @@ window.switchTab = function(tab, subTab = 'dashboard') {
         subBtn.classList.toggle('text-on-surface-variant', !isSubActive);
     });
 
+    // 3.1. Resaltar Botones de Barra Inferior Móvil (Mobile Bottom Nav)
+    ['dashboard', 'prueba', 'technicians', 'inventory'].forEach(bTab => {
+        const bBtn = document.getElementById(`bnav-${bTab}`);
+        if (bBtn) {
+            const isBActive = (tab === bTab);
+            bBtn.classList.toggle('text-secondary', isBActive);
+            bBtn.classList.toggle('font-bold', isBActive);
+            bBtn.classList.toggle('text-on-surface-variant', !isBActive);
+            const bIcon = bBtn.querySelector('.material-symbols-outlined');
+            if (bIcon) bIcon.style.fontVariationSettings = isBActive ? "'FILL' 1" : "'FILL' 0";
+        }
+    });
+
+    // Auto-cerrar menú móvil si se selecciona una pestaña en celular
+    if (typeof window.closeMobileMenu === 'function') {
+        window.closeMobileMenu();
+    }
+
     // 4. Título Dinámico
     const subTabTitles = {
         dashboard: 'Dashboard',
@@ -463,6 +481,43 @@ window.switchTab = function(tab, subTab = 'dashboard') {
 }
 
 /**
+ * Control del Menú Móvil (Drawer & Backdrop)
+ */
+window.openMobileMenu = function() {
+    document.body.classList.add('mobile-menu-open');
+    const backdrop = document.getElementById('mobile-backdrop');
+    if (backdrop) {
+        backdrop.classList.remove('hidden');
+        setTimeout(() => {
+            backdrop.classList.remove('opacity-0', 'pointer-events-none');
+            backdrop.classList.add('opacity-100');
+        }, 10);
+    }
+};
+
+window.closeMobileMenu = function() {
+    document.body.classList.remove('mobile-menu-open');
+    const backdrop = document.getElementById('mobile-backdrop');
+    if (backdrop) {
+        backdrop.classList.remove('opacity-100');
+        backdrop.classList.add('opacity-0', 'pointer-events-none');
+        setTimeout(() => backdrop.classList.add('hidden'), 250);
+    }
+};
+
+window.handleMenuToggle = function() {
+    if (window.innerWidth < 768) {
+        if (document.body.classList.contains('mobile-menu-open')) {
+            window.closeMobileMenu();
+        } else {
+            window.openMobileMenu();
+        }
+    } else {
+        window.toggleSidebarCollapse();
+    }
+};
+
+/**
  * Alterna el modo del sidebar entre expandido (texto + iconos) y colapsado (solo iconos estilo Wispro).
  */
 window.toggleSidebarCollapse = function() {
@@ -473,7 +528,7 @@ window.toggleSidebarCollapse = function() {
 // Restaurar estado del sidebar y control de acceso al cargar
 if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', () => {
-        if (localStorage.getItem('V_Sidebar_Collapsed') === 'true') {
+        if (window.innerWidth >= 768 && localStorage.getItem('V_Sidebar_Collapsed') === 'true') {
             document.body.classList.add('sidebar-collapsed');
         }
         if (typeof window.applyRoleAccessControl === 'function') {

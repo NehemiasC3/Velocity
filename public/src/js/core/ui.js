@@ -472,11 +472,32 @@ window.switchTab = function(tab, subTab = 'dashboard') {
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;
 
-    // 5. Renderizado Instantáneo (0 ms sin overlay artificial bloqueante)
+    // 5. Renderizado Instantáneo con Error Boundary integrado
     try {
         renderTab(tab, subTab);
     } catch (err) {
         console.error('[Velocity UI] Error al renderizar sección:', err);
+        const el = document.getElementById('main-content');
+        if (el) {
+            el.innerHTML = `
+                <div class="p-8 max-w-lg mx-auto mt-12 bg-surface-container-lowest border border-rose-200 rounded-3xl shadow-sm text-center animate-fade-in">
+                    <div class="w-16 h-16 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto mb-4">
+                        <span class="material-symbols-outlined text-3xl">warning</span>
+                    </div>
+                    <h2 class="text-xl font-black text-on-surface mb-2">Error Inesperado en la Vista</h2>
+                    <p class="text-xs text-on-surface-variant mb-4">Ocurrió un problema al renderizar esta sección. El sistema aisló el fallo para no interrumpir tu sesión.</p>
+                    <p class="text-[11px] font-mono text-rose-700 bg-rose-50 p-2 rounded-lg mb-6 max-w-md mx-auto truncate">${err?.message || 'Error desconocido'}</p>
+                    <div class="flex items-center justify-center gap-3">
+                        <button onclick="switchTab('${tab}', '${subTab}')" class="px-5 py-2.5 rounded-xl bg-primary-container text-white font-bold text-xs shadow-sm hover:brightness-110 active:scale-95 transition-all cursor-pointer">
+                            Reintentar
+                        </button>
+                        <button onclick="switchTab('dashboard')" class="px-5 py-2.5 rounded-xl bg-surface-container border border-outline-variant/30 text-on-surface font-bold text-xs hover:bg-surface-container-high active:scale-95 transition-all cursor-pointer">
+                            Ir al Inicio
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
     }
 }
 

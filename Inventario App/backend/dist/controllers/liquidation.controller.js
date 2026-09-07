@@ -214,7 +214,7 @@ class LiquidationController {
                         }
                     });
                 }
-                // C. Descontar existencias a granel en el vehículo
+                // C. Descontar existencias a granel en el vehículo con validación estricta
                 for (const b of sanitizedBulkUsage) {
                     const currentStock = await tx.bulkStock.findUnique({
                         where: {
@@ -222,15 +222,18 @@ class LiquidationController {
                                 productId: b.productId,
                                 warehouseId: vehicleWarehouseId
                             }
-                        }
+                        },
+                        include: { product: true }
                     });
-                    if (currentStock) {
-                        const newQty = Math.max(0, currentStock.quantity - b.quantity);
-                        await tx.bulkStock.update({
-                            where: { id: currentStock.id },
-                            data: { quantity: newQty }
-                        });
+                    const available = currentStock?.quantity || 0;
+                    if (!currentStock || available < b.quantity) {
+                        throw new Error(`Stock insuficiente en la bodega origen: Material "${currentStock?.product?.name || b.productId}" insuficiente en el vehículo. Disponible: ${available}, Solicitado: ${b.quantity}`);
                     }
+                    const newQty = currentStock.quantity - b.quantity;
+                    await tx.bulkStock.update({
+                        where: { id: currentStock.id },
+                        data: { quantity: newQty }
+                    });
                 }
                 // D. Registrar el Ticket de Liquidación
                 const ticket = await tx.installationTicket.create({
@@ -274,9 +277,14 @@ class LiquidationController {
         }
         catch (error) {
             console.error('Error al procesar liquidación:', error);
-            res.status(500).json({
+            const isStockOrValidationError = error.message && (error.message.includes('Stock insuficiente') ||
+                error.message.includes('no se encuentra asignado') ||
+                error.message.includes('ya figura como INSTALADO') ||
+                error.message.includes('Metraje insuficiente'));
+            const status = isStockOrValidationError ? 400 : 500;
+            res.status(status).json({
                 success: false,
-                error: 'Error interno al procesar la liquidación de materiales',
+                error: error.message || 'Error interno al procesar la liquidación de materiales',
                 details: error.message
             });
         }

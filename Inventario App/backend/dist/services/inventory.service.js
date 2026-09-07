@@ -114,7 +114,184 @@ class InventoryService {
         };
     }
     /**
-     * Cierre de ticket / Liquidación de campo
+     * Ejecuta un traslado transaccional con validación estricta de existencias
+     */
+    async executeTransfer(dto) {
+        const { sourceWarehouseId, destinationWarehouseId, createdById, notes, directReceive = true, serializedItemIds = [], batchIds = [], bulkItems = [] } = dto;
+        if (!sourceWarehouseId || !destinationWarehouseId) {
+            throw new Error('Debe especificar bodega de origen y destino');
+        }
+        if (sourceWarehouseId === destinationWarehouseId) {
+            throw new Error('La bodega de origen y destino no pueden ser la misma');
+        }
+        const [sourceWarehouse, destinationWarehouse] = await Promise.all([
+            db_1.prisma.warehouse.findUnique({ where: { id: sourceWarehouseId } }),
+            db_1.prisma.warehouse.findUnique({ where: { id: destinationWarehouseId } })
+        ]);
+        if (!sourceWarehouse) {
+            throw new Error('Bodega de origen no encontrada');
+        }
+        if (!destinationWarehouse) {
+            throw new Error('Bodega de destino no encontrada');
+        }
+        let defaultUserId = createdById;
+        if (!defaultUserId) {
+            const u = await db_1.prisma.user.findFirst();
+            defaultUserId = u?.id || 'usr-system';
+        }
+        // ─────────────────────────────────────────────────────────────
+        // EJECUCIÓN 100% TRANSACCIONAL CON BARRERA DE PROTECCIÓN (ZERO CORRUPCIÓN)
+        // ─────────────────────────────────────────────────────────────
+        return await db_1.prisma.$transaction(async (tx) => {
+            const sanitizedBulk = [];
+            // 1. Validar y descontar material a granel
+            for (const item of bulkItems) {
+                const qty = Number(item.quantity);
+                if (!item.productId || isNaN(qty) || qty <= 0)
+                    continue;
+                const currentStock = await tx.bulkStock.findUnique({
+                    where: {
+                        productId_warehouseId: {
+                            productId: item.productId,
+                            warehouseId: sourceWarehouseId
+                        }
+                    },
+                    include: { product: true }
+                });
+                const available = currentStock?.quantity || 0;
+                const productName = currentStock?.product?.name || item.productId;
+                if (!currentStock || available < qty) {
+                    throw new Error(`Stock insuficiente en la bodega origen: "${productName}". Disponible en ${sourceWarehouse.name}: ${available}, Solicitado: ${qty}`);
+                }
+                // Restar en origen
+                await tx.bulkStock.update({
+                    where: {
+                        productId_warehouseId: {
+                            productId: item.productId,
+                            warehouseId: sourceWarehouseId
+                        }
+                    },
+                    data: {
+                        quantity: { decrement: qty }
+                    }
+                });
+                // Sumar en destino
+                await tx.bulkStock.upsert({
+                    where: {
+                        productId_warehouseId: {
+                            productId: item.productId,
+                            warehouseId: destinationWarehouseId
+                        }
+                    },
+                    create: {
+                        productId: item.productId,
+                        warehouseId: destinationWarehouseId,
+                        quantity: qty
+                    },
+                    update: {
+                        quantity: { increment: qty }
+                    }
+                });
+                sanitizedBulk.push({
+                    productId: item.productId,
+                    quantity: qty,
+                    unitOfMeasure: currentStock.product.unitOfMeasure
+                });
+            }
+            // 2. Validar y trasladar Bobinas
+            if (batchIds.length > 0) {
+                const availableBatches = await tx.batchItem.findMany({
+                    where: {
+                        id: { in: batchIds },
+                        currentWarehouseId: sourceWarehouseId,
+                        status: client_1.BatchStatus.DISPONIBLE
+                    }
+                });
+                if (availableBatches.length !== batchIds.length) {
+                    throw new Error(`Stock insuficiente en la bodega origen: Una o más bobinas ya no están disponibles en ${sourceWarehouse.name}`);
+                }
+                await tx.batchItem.updateMany({
+                    where: { id: { in: batchIds } },
+                    data: {
+                        currentWarehouseId: destinationWarehouseId,
+                        status: directReceive ? client_1.BatchStatus.DISPONIBLE : client_1.BatchStatus.EN_TRANSITO
+                    }
+                });
+            }
+            // 3. Validar y trasladar Equipos Seriados
+            if (serializedItemIds.length > 0) {
+                const availableSerialized = await tx.serializedItem.findMany({
+                    where: {
+                        id: { in: serializedItemIds },
+                        currentWarehouseId: sourceWarehouseId,
+                        status: { in: [client_1.SerializedStatus.EN_BODEGA, client_1.SerializedStatus.EN_VEHICULO] }
+                    }
+                });
+                if (availableSerialized.length !== serializedItemIds.length) {
+                    throw new Error(`Stock insuficiente en la bodega origen: Uno o más equipos seriados no están disponibles en ${sourceWarehouse.name}`);
+                }
+                const newStatus = destinationWarehouse.type === client_1.WarehouseType.VEHICULO
+                    ? client_1.SerializedStatus.EN_VEHICULO
+                    : client_1.SerializedStatus.EN_BODEGA;
+                await tx.serializedItem.updateMany({
+                    where: { id: { in: serializedItemIds } },
+                    data: {
+                        currentWarehouseId: destinationWarehouseId,
+                        status: directReceive ? newStatus : client_1.SerializedStatus.EN_TRANSITO
+                    }
+                });
+            }
+            // 4. Crear la orden de traslado
+            const orderNumber = `TRF-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
+            const order = await tx.transferOrder.create({
+                data: {
+                    orderNumber,
+                    sourceWarehouseId,
+                    destinationWarehouseId,
+                    status: directReceive ? client_1.TransferStatus.RECIBIDO : client_1.TransferStatus.EN_TRANSITO,
+                    createdByUserId: defaultUserId,
+                    dispatchedByUserId: defaultUserId,
+                    dispatchedAt: new Date(),
+                    receivedByUserId: directReceive ? defaultUserId : null,
+                    receivedAt: directReceive ? new Date() : null,
+                    notes: notes?.trim() || null,
+                    items: {
+                        create: sanitizedBulk.map(b => ({
+                            productId: b.productId,
+                            quantity: b.quantity,
+                            unitOfMeasure: b.unitOfMeasure
+                        }))
+                    },
+                    batchItems: batchIds.length > 0 ? {
+                        connect: batchIds.map(id => ({ id }))
+                    } : undefined,
+                    serializedItems: serializedItemIds.length > 0 ? {
+                        connect: serializedItemIds.map(id => ({ id }))
+                    } : undefined
+                },
+                include: {
+                    items: { include: { product: true } },
+                    batchItems: { include: { product: true } },
+                    serializedItems: { include: { product: true } },
+                    sourceWarehouse: true,
+                    destinationWarehouse: true
+                }
+            });
+            // 5. Registrar Auditoría Forense
+            await tx.auditLog.create({
+                data: {
+                    eventType: destinationWarehouse.type === client_1.WarehouseType.VEHICULO ? client_1.AuditEventType.CARGA_VEHICULO : client_1.AuditEventType.DESPACHO_TRASLADO,
+                    fromWarehouseId: sourceWarehouseId,
+                    toWarehouseId: destinationWarehouseId,
+                    userId: defaultUserId,
+                    details: `Orden de Traslado ${orderNumber} ejecutada. Origen: ${sourceWarehouse.name} -> Destino: ${destinationWarehouse.name}. Contenido: ${sanitizedBulk.length} a granel, ${batchIds.length} bobina(s), ${serializedItemIds.length} serial(es).`
+                }
+            });
+            return order;
+        });
+    }
+    /**
+     * Cierre de ticket / Liquidación de campo con transacción atómica y validación de stock
      */
     async closeInstallationTicket(dto) {
         const [tech, client] = await Promise.all([
@@ -131,38 +308,108 @@ class InventoryService {
             })
         ]);
         const vehicleWarehouse = tech?.managedWarehouses?.[0];
-        const ticket = await db_1.prisma.installationTicket.create({
-            data: {
-                ticketNumber: `TICK-${Date.now().toString().slice(-4)}`,
-                technicianId: dto.technicianId,
-                vehicleWarehouseId: vehicleWarehouse?.id || 'wh-veh-01',
-                wisproClientId: dto.wisproClientId,
-                wisproClientName: client?.name || 'Cliente Wispro',
-                wisproContractId: client?.contractId || 'CONT-000',
-                clientAddress: client?.address || 'Panamá',
-                installedOnuMac: dto.installedOnuMac,
-                installedRouterMac: dto.installedRouterMac,
-                retiredDeviceMac: dto.retiredOnuMac,
-                retiredDeviceStatus: dto.retiredOnuStatus,
-                cableDropMetersUsed: dto.cableDropMetersUsed,
-                connectorsUsed: dto.connectorsUsed,
-                tensorsUsed: dto.tensorsUsed,
-                otherMaterialsUsed: dto.otherMaterialsUsed,
-                installationPhotoUrl: dto.installationPhotoUrl,
-                notes: dto.notes
+        const vehicleWarehouseId = vehicleWarehouse?.id || 'wh-veh-01';
+        return await db_1.prisma.$transaction(async (tx) => {
+            // 1. Validar y descontar ONU instalada
+            let targetOnu = null;
+            if (dto.installedOnuMac) {
+                const cleanMac = dto.installedOnuMac.trim().toUpperCase();
+                targetOnu = await tx.serializedItem.findFirst({
+                    where: {
+                        macAddress: cleanMac,
+                        currentWarehouseId: vehicleWarehouseId
+                    },
+                    include: { product: true }
+                });
+                if (!targetOnu) {
+                    throw new Error(`Stock insuficiente en la bodega origen: El equipo con MAC ${cleanMac} no se encuentra disponible en la bodega de este vehículo (${vehicleWarehouse?.name || 'Camioneta'})`);
+                }
+                if (targetOnu.status === client_1.SerializedStatus.INSTALADO_CLIENTE) {
+                    throw new Error(`Stock insuficiente en la bodega origen: El equipo con MAC ${cleanMac} ya se encuentra instalado en otro cliente`);
+                }
+                await tx.serializedItem.update({
+                    where: { id: targetOnu.id },
+                    data: {
+                        status: client_1.SerializedStatus.INSTALADO_CLIENTE,
+                        installedClientId: dto.wisproClientId,
+                        installedClientName: client?.name || 'Cliente Wispro',
+                        installedContractId: client?.contractId || 'CONT-000',
+                        installedDate: new Date(),
+                        notes: `Instalado en cliente ${client?.name || 'Wispro'}. ${dto.notes || ''}`
+                    }
+                });
+                await tx.auditLog.create({
+                    data: {
+                        eventType: client_1.AuditEventType.INSTALACION_CLIENTE,
+                        macAddress: targetOnu.macAddress,
+                        serialNumber: targetOnu.serialNumber,
+                        fromWarehouseId: vehicleWarehouseId,
+                        userId: dto.technicianId,
+                        details: `Equipo ${targetOnu.product?.name || 'ONU'} (MAC: ${targetOnu.macAddress}) instalado en cliente ${client?.name || 'Wispro'}`
+                    }
+                });
             }
-        });
-        if (dto.installedOnuMac) {
-            await db_1.prisma.serializedItem.updateMany({
-                where: { macAddress: dto.installedOnuMac },
+            // 2. Validar y descontar metraje de cable drop
+            const metersUsed = Number(dto.cableDropMetersUsed) || 0;
+            let usedBatchNumber = null;
+            if (metersUsed > 0) {
+                const availableBatch = await tx.batchItem.findFirst({
+                    where: {
+                        currentWarehouseId: vehicleWarehouseId,
+                        status: client_1.BatchStatus.DISPONIBLE,
+                        currentQuantity: { gte: metersUsed }
+                    }
+                });
+                if (!availableBatch) {
+                    throw new Error(`Stock insuficiente en la bodega origen: Metraje de cable drop insuficiente en el vehículo. Se requieren ${metersUsed}m.`);
+                }
+                const remaining = availableBatch.currentQuantity - metersUsed;
+                await tx.batchItem.update({
+                    where: { id: availableBatch.id },
+                    data: {
+                        currentQuantity: remaining,
+                        status: remaining <= 0 ? client_1.BatchStatus.AGOTADO : client_1.BatchStatus.DISPONIBLE
+                    }
+                });
+                usedBatchNumber = availableBatch.batchNumber;
+                await tx.auditLog.create({
+                    data: {
+                        eventType: client_1.AuditEventType.CONSUMO_BOBINA,
+                        batchNumber: availableBatch.batchNumber,
+                        fromWarehouseId: vehicleWarehouseId,
+                        userId: dto.technicianId,
+                        details: `Consumo de ${metersUsed}m de cable drop de bobina ${availableBatch.batchNumber} en instalación cliente ${client?.name || 'Wispro'}. Remanente: ${remaining}m`
+                    }
+                });
+            }
+            // 3. Crear el ticket de instalación
+            const ticketNumber = `TICK-${Date.now().toString().slice(-4)}`;
+            const ticket = await tx.installationTicket.create({
                 data: {
-                    status: client_1.SerializedStatus.INSTALADO_CLIENTE,
-                    installedClientId: dto.wisproClientId,
-                    installedDate: new Date()
+                    ticketNumber,
+                    technicianId: dto.technicianId,
+                    vehicleWarehouseId,
+                    wisproClientId: dto.wisproClientId,
+                    wisproClientName: client?.name || 'Cliente Wispro',
+                    wisproContractId: client?.contractId || 'CONT-000',
+                    clientAddress: client?.address || 'Panamá',
+                    installedOnuMac: dto.installedOnuMac || null,
+                    installedRouterMac: dto.installedRouterMac || null,
+                    retiredDeviceMac: dto.retiredOnuMac || null,
+                    retiredDeviceStatus: dto.retiredOnuStatus ? dto.retiredOnuStatus : null,
+                    usedSpoolBatchNumber: usedBatchNumber,
+                    cableDropMetersUsed: metersUsed,
+                    connectorsUsed: Number(dto.connectorsUsed) || 0,
+                    tensorsUsed: Number(dto.tensorsUsed) || 0,
+                    otherMaterialsUsed: dto.otherMaterialsUsed || null,
+                    installationPhotoUrl: dto.installationPhotoUrl || null,
+                    notes: dto.notes || null,
+                    wisproSynced: true,
+                    wisproSyncMessage: 'Sincronizado exitosamente'
                 }
             });
-        }
-        return ticket;
+            return ticket;
+        });
     }
     /**
      * Métricas de Cuadrillas

@@ -358,8 +358,23 @@ export class TransferController {
           }
         });
 
-        // B. Trasladar Granel (Resta en Origen, Suma/Upsert en Destino)
+        // B. Trasladar Granel con verificación atómica de stock en origen
         for (const b of sanitizedBulk) {
+          const currentStock = await tx.bulkStock.findUnique({
+            where: {
+              productId_warehouseId: {
+                productId: b.productId,
+                warehouseId: sourceWarehouseId
+              }
+            },
+            include: { product: true }
+          });
+
+          const available = currentStock?.quantity || 0;
+          if (!currentStock || available < b.quantity) {
+            throw new Error(`Stock insuficiente en la bodega origen: "${currentStock?.product?.name || b.productId}". Disponible: ${available}, Solicitado: ${b.quantity}`);
+          }
+
           // Resta en origen
           await tx.bulkStock.update({
             where: {
@@ -394,6 +409,18 @@ export class TransferController {
 
         // C. Trasladar Bobinas (Actualizar currentWarehouseId)
         if (hasBatches) {
+          const availableBatches = await tx.batchItem.findMany({
+            where: {
+              id: { in: batchIds },
+              currentWarehouseId: sourceWarehouseId,
+              status: BatchStatus.DISPONIBLE
+            }
+          });
+
+          if (availableBatches.length !== batchIds.length) {
+            throw new Error(`Stock insuficiente en la bodega origen: Una o más bobinas seleccionadas ya no están disponibles en ${sourceWarehouse.name}`);
+          }
+
           await tx.batchItem.updateMany({
             where: { id: { in: batchIds } },
             data: {
@@ -405,6 +432,18 @@ export class TransferController {
 
         // D. Trasladar Equipos Seriados
         if (hasSerialized) {
+          const availableSerialized = await tx.serializedItem.findMany({
+            where: {
+              id: { in: serializedIds },
+              currentWarehouseId: sourceWarehouseId,
+              status: { in: [SerializedStatus.EN_BODEGA, SerializedStatus.EN_VEHICULO] }
+            }
+          });
+
+          if (availableSerialized.length !== serializedIds.length) {
+            throw new Error(`Stock insuficiente en la bodega origen: Uno o más equipos seriados seleccionados ya no están en ${sourceWarehouse.name}`);
+          }
+
           // Si el destino es vehículo, cambiar status a EN_VEHICULO, sino EN_BODEGA
           const newStatus = destinationWarehouse.type === WarehouseType.VEHICULO 
             ? SerializedStatus.EN_VEHICULO 
@@ -444,9 +483,15 @@ export class TransferController {
       });
     } catch (error: any) {
       console.error('Error al procesar traslado:', error);
-      res.status(500).json({
+      const isStockOrValidationError = error.message && (
+        error.message.includes('Stock insuficiente') ||
+        error.message.includes('no están disponibles') ||
+        error.message.includes('no encontrada')
+      );
+      const status = isStockOrValidationError ? 400 : 500;
+      res.status(status).json({
         success: false,
-        error: 'Error interno al ejecutar la orden de traslado',
+        error: error.message || 'Error interno al ejecutar la orden de traslado',
         details: error.message
       });
     }

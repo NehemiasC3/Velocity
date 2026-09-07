@@ -15,6 +15,7 @@ import { ClientEquipmentModule } from './components/ClientEquipmentModule';
 import { InventorySearch } from './components/InventorySearch';
 import { GlobalCommandPalette } from './components/GlobalCommandPalette';
 import { Login } from './components/Login';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react';
 import { api } from './services/api';
 
@@ -231,44 +232,68 @@ const AppContent: React.FC = () => {
         />
       )}
 
-      {/* Main Content Area - Keep-Alive DOM Caching (0ms Tab Switching) */}
+      {/* Main Content Area - Keep-Alive DOM Caching (0ms Tab Switching) with Error Boundaries */}
       <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6">
         <div key={refreshKey} className="w-full">
           <div className={`w-full ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
-            <DashboardHome onNavigateTab={handleNavigateTab} />
+            <ErrorBoundary moduleName="Dashboard General" onReset={handleRefreshAll}>
+              <DashboardHome onNavigateTab={handleNavigateTab} />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'warehouses' ? 'block' : 'hidden'}`}>
-            <WarehousesModule />
+            <ErrorBoundary moduleName="Bodegas y Sucursales" onReset={handleRefreshAll}>
+              <WarehousesModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'catalog' ? 'block' : 'hidden'}`}>
-            <CatalogModule />
+            <ErrorBoundary moduleName="Catálogo de Materiales" onReset={handleRefreshAll}>
+              <CatalogModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'inbound' ? 'block' : 'hidden'}`}>
-            <InboundModule />
+            <ErrorBoundary moduleName="Recepción e Ingreso Inbound" onReset={handleRefreshAll}>
+              <InboundModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'transfers' ? 'block' : 'hidden'}`}>
-            <TransfersModule />
+            <ErrorBoundary moduleName="Traslados y Despachos" onReset={handleRefreshAll}>
+              <TransfersModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'rma' ? 'block' : 'hidden'}`}>
-            <RmaReturn />
+            <ErrorBoundary moduleName="Garantías y Devoluciones RMA" onReset={handleRefreshAll}>
+              <RmaReturn />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'audit' ? 'block' : 'hidden'}`}>
-            <ForensicAuditModule initialSearch={auditInitialQuery} />
+            <ErrorBoundary moduleName="Auditoría Forense y Trazabilidad" onReset={handleRefreshAll}>
+              <ForensicAuditModule initialSearch={auditInitialQuery} />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'inventory-search' ? 'block' : 'hidden'}`}>
-            <InventorySearch />
+            <ErrorBoundary moduleName="Búsqueda Universal" onReset={handleRefreshAll}>
+              <InventorySearch />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'personnel' ? 'block' : 'hidden'}`}>
-            <PersonnelMetricsModule />
+            <ErrorBoundary moduleName="Métricas de Cuadrillas" onReset={handleRefreshAll}>
+              <PersonnelMetricsModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'mobile' ? 'block' : 'hidden'}`}>
-            <TechnicianMobileApp />
+            <ErrorBoundary moduleName="App Móvil de Cuadrillas" onReset={handleRefreshAll}>
+              <TechnicianMobileApp />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'wispro' ? 'block' : 'hidden'}`}>
-            <WisproModule />
+            <ErrorBoundary moduleName="Sincronización Wispro Cloud" onReset={handleRefreshAll}>
+              <WisproModule />
+            </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'client-equipment' ? 'block' : 'hidden'}`}>
-            <ClientEquipmentModule />
+            <ErrorBoundary moduleName="Equipos por Cliente" onReset={handleRefreshAll}>
+              <ClientEquipmentModule />
+            </ErrorBoundary>
           </div>
         </div>
       </main>
@@ -307,9 +332,11 @@ const AppContent: React.FC = () => {
 
 export const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ErrorBoundary moduleName="Sistema de Inventario Velocity Pro">
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 };
 

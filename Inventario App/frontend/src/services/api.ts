@@ -1,5 +1,5 @@
 import { 
-  User, Warehouse, SerializedItem, BulkItem, BulkStock, 
+  User, Warehouse, SerializedItem, BulkItem, BulkStock, BatchItem,
   TransferOrder, InstallationTicket, AuditLog, WisproClient, 
   DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
   UniversalSearchResults, ClientEquipmentResponse
@@ -26,7 +26,14 @@ class ApiService {
   }
 
   public getToken(): string | null {
-    return this.token || localStorage.getItem('Velocity_Token') || localStorage.getItem('token');
+    if (typeof window !== 'undefined') {
+      return this.token || 
+             sessionStorage.getItem('Velocity_Token') || 
+             localStorage.getItem('Velocity_Token') || 
+             localStorage.getItem('token') || 
+             sessionStorage.getItem('token');
+    }
+    return this.token;
   }
 
   public setActiveUserId(userId: string) {
@@ -59,6 +66,37 @@ class ApiService {
       } catch (e) {
         // Fallback
       }
+
+      // Interceptor Global para 401 Unauthorized y 403 Forbidden
+      if ((response.status === 401 || response.status === 403) && !endpoint.includes('/auth/login')) {
+        console.warn(`[Velocity API Interceptor] HTTP ${response.status} detectado en ${endpoint}.`);
+        
+        const isEmbedded = (typeof window !== 'undefined') && (
+          window.top !== window.self || 
+          new URLSearchParams(window.location.search).get('embedded') === 'true'
+        );
+
+        if (isEmbedded) {
+          // En modo embebido en iframe dentro de /supervisor, NUNCA redirigir a /login ni destruir storage del supervisor
+          console.warn('[Velocity API Interceptor] Modo embebido activo: suprimiendo redirección a /login para proteger la sesión del Supervisor.');
+          window.dispatchEvent(new CustomEvent('velocity:unauthorized', { detail: { endpoint, status: response.status, isEmbedded: true } }));
+        } else {
+          // Modo Standalone (acceso directo o ventana principal independiente)
+          this.setToken(null);
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('Velocity_Token');
+            localStorage.removeItem('token');
+            sessionStorage.removeItem('Velocity_Token');
+            sessionStorage.removeItem('token');
+            window.dispatchEvent(new CustomEvent('velocity:unauthorized', { detail: { endpoint, status: response.status, isEmbedded: false } }));
+            
+            if (!window.location.pathname.includes('/login')) {
+              window.location.href = '/login';
+            }
+          }
+        }
+      }
+
       throw new Error(errorMsg);
     }
 
@@ -133,6 +171,12 @@ class ApiService {
     });
   }
 
+  public async deleteSerializedItem(id: string): Promise<{ success: boolean; message: string }> {
+    return this.request(`/inventory/serialized/${id}`, {
+      method: 'DELETE'
+    });
+  }
+
   // Inbound Inventory (Alta de Stock Físico Transaccional)
   public async inboundInventory(data: {
     warehouseId: string;
@@ -196,6 +240,12 @@ class ApiService {
   public async getSerializedItems(params?: { warehouseId?: string; status?: string; search?: string }): Promise<{ items: SerializedItem[] }> {
     const query = new URLSearchParams(params as any).toString();
     return this.request(`/inventory/serialized${query ? `?${query}` : ''}`);
+  }
+
+  // Batched Inventory (Bobinas y Lotes)
+  public async getBatchItems(params?: { warehouseId?: string; status?: string; search?: string }): Promise<{ items: BatchItem[] }> {
+    const query = new URLSearchParams(params as any).toString();
+    return this.request(`/inventory/batches${query ? `?${query}` : ''}`);
   }
 
   public async createSerializedItem(data: {
@@ -442,6 +492,11 @@ class ApiService {
   public async getWisproClients(params?: { status?: string; search?: string }): Promise<{ clients: WisproClient[] }> {
     const query = new URLSearchParams(params as any).toString();
     return this.request(`/wispro/clients${query ? `?${query}` : ''}`);
+  }
+
+  public async getWisproContracts(params?: { page?: number; perPage?: number | string; loadAll?: boolean }): Promise<{ success: boolean; count: number; total?: number; totalPages?: number; page?: number; perPage?: number; contracts: any[] }> {
+    const query = params ? new URLSearchParams(params as any).toString() : '';
+    return this.request(`/wispro/contracts/active${query ? `?${query}` : ''}`);
   }
 
   public async syncWispro(): Promise<{ success: boolean; message: string; clientsSynced: number; timestamp: string }> {

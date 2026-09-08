@@ -3,10 +3,10 @@ import {
   Building2, Store, Truck, Plus, Search, ShieldAlert, 
   Package, AlertCircle, RefreshCw, Layers, ArrowRight,
   MapPin, Check, GitFork, X, ChevronRight, Info,
-  Edit2, Trash2
+  Edit2, Trash2, Disc
 } from 'lucide-react';
 import { api } from '../services/api';
-import { Warehouse, SerializedItem, BulkItem, BulkStock, WarehouseType } from '../types';
+import { Warehouse, SerializedItem, BulkItem, BulkStock, BatchItem, WarehouseType } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 export const WarehousesModule: React.FC = () => {
@@ -19,9 +19,10 @@ export const WarehousesModule: React.FC = () => {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('all');
   const [warehouseTypeFilter, setWarehouseTypeFilter] = useState<string>('ALL');
-  const [activeSubTab, setActiveSubTab] = useState<'serialized' | 'bulk'>('serialized');
+  const [activeSubTab, setActiveSubTab] = useState<'serialized' | 'batched' | 'bulk'>('serialized');
   
   const [serializedItems, setSerializedItems] = useState<SerializedItem[]>([]);
+  const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkStocks, setBulkStocks] = useState<BulkStock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,15 +79,17 @@ export const WarehousesModule: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [whRes, serRes, bulkRes] = await Promise.all([
+      const [whRes, serRes, batchRes, bulkRes] = await Promise.all([
         api.getWarehouses(),
         api.getSerializedItems().catch(() => ({ items: [] })),
+        api.getBatchItems().catch(() => ({ items: [] })),
         api.getBulkInventory().catch(() => ({ items: [], stocks: [] }))
       ]);
 
       const loadedWarehouses = whRes.warehouses || [];
       setWarehouses(loadedWarehouses);
       setSerializedItems(serRes.items || []);
+      setBatchItems(batchRes.items || []);
       setBulkItems(bulkRes.items || []);
       setBulkStocks(bulkRes.stocks || []);
       
@@ -294,7 +297,18 @@ export const WarehousesModule: React.FC = () => {
       item.macAddress?.toLowerCase().includes(q) ||
       item.serialNumber?.toLowerCase().includes(q) ||
       item.model?.toLowerCase().includes(q) ||
-      item.brand?.toLowerCase().includes(q);
+      item.brand?.toLowerCase().includes(q) ||
+      item.product?.name?.toLowerCase().includes(q);
+    return matchesWh && matchesSearch;
+  });
+
+  const filteredBatches = batchItems.filter(batch => {
+    const matchesWh = selectedWarehouseId === 'all' || batch.currentWarehouseId === selectedWarehouseId;
+    const q = searchQuery.toLowerCase();
+    const matchesSearch = !q || 
+      batch.batchNumber?.toLowerCase().includes(q) ||
+      batch.product?.name?.toLowerCase().includes(q) ||
+      batch.notes?.toLowerCase().includes(q);
     return matchesWh && matchesSearch;
   });
 
@@ -474,10 +488,15 @@ export const WarehousesModule: React.FC = () => {
                 </div>
 
                 <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                  <span className="text-slate-500">Total Seriados:</span>
-                  <span className="font-mono font-bold text-slate-900 dark:text-white text-sm">
-                    {serializedItems.length}
-                  </span>
+                  <span className="text-slate-500">Total Existencias:</span>
+                  <div className="flex items-center gap-1.5 font-mono font-bold text-xs">
+                    <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                      {serializedItems.length} ONUs
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      {batchItems.length} Bob.
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -496,6 +515,11 @@ export const WarehousesModule: React.FC = () => {
               const badge = getWarehouseTypeBadge(wh.type);
               const isSelected = selectedWarehouseId === wh.id;
               const countSer = serializedItems.filter(i => i.currentWarehouseId === wh.id).length;
+              const countBatches = batchItems.filter(b => b.currentWarehouseId === wh.id).length;
+              const totalMeters = batchItems
+                .filter(b => b.currentWarehouseId === wh.id)
+                .reduce((acc, b) => acc + (Number(b.currentQuantity) || 0), 0);
+              const countBulk = bulkStocks.filter(s => s.warehouseId === wh.id && s.quantity > 0).length;
               const childCount = wh.childWarehouses?.length || 0;
 
               return (
@@ -593,12 +617,24 @@ export const WarehousesModule: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Footer con conteos */}
-                  <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                    <span className="text-slate-500 text-xs">Equipos Asignados:</span>
-                    <span className="font-mono font-bold text-sky-600 dark:text-sky-400 text-sm">
-                      {countSer} {countSer === 1 ? 'equipo' : 'equipos'}
-                    </span>
+                  {/* Footer con conteos reales */}
+                  <div className="mt-4 pt-2.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px]">
+                    <span className="text-slate-500">Existencias:</span>
+                    <div className="flex items-center gap-1.5 font-mono font-bold">
+                      <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800" title={`${countSer} Equipos Seriados`}>
+                        {countSer} {countSer === 1 ? 'ONU' : 'ONUs'}
+                      </span>
+                      {countBatches > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800" title={`${countBatches} bobina(s) (${totalMeters}m)`}>
+                          {totalMeters}m
+                        </span>
+                      )}
+                      {countBulk > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" title={`${countBulk} tipos de granel`}>
+                          {countBulk} granel
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
@@ -607,32 +643,85 @@ export const WarehousesModule: React.FC = () => {
         )}
       </div>
 
+      {/* ── Banner Contextual de Bodega Seleccionada ── */}
+      {selectedWarehouseId !== 'all' && (
+        <div className="p-4 bg-sky-50/80 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-sky-100 dark:bg-sky-900/60 text-sky-700 dark:text-sky-300">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider">
+                  Existencias en Bodega Seleccionada:
+                </span>
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-sky-200/60 dark:bg-sky-900/80 text-sky-800 dark:text-sky-200">
+                  {warehouses.find(w => w.id === selectedWarehouseId)?.code || 'BOD'}
+                </span>
+              </div>
+              <h3 className="font-heading font-bold text-base sm:text-lg text-slate-900 dark:text-white">
+                {warehouses.find(w => w.id === selectedWarehouseId)?.name || 'Bodega'}
+              </h3>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
+            <div className="flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 border border-sky-200 dark:border-sky-800 text-slate-700 dark:text-slate-300">
+              <span>💻 <strong>{filteredSerialized.length}</strong> Seriados</span>
+              <span>&bull;</span>
+              <span>⭕ <strong>{filteredBatches.length}</strong> Bobinas</span>
+              <span>&bull;</span>
+              <span>📦 <strong>{filteredBulkStocks.length}</strong> Granel</span>
+            </div>
+
+            <button
+              onClick={() => setSelectedWarehouseId('all')}
+              className="px-3 py-1.5 rounded-xl bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5 text-slate-400" />
+              <span>Ver Todas</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Tabla Principal de Existencias Físicas ── */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
         
         {/* Header de Pestañas y Buscador */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
           
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto">
+          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl w-full sm:w-auto overflow-x-auto">
             <button
               onClick={() => setActiveSubTab('serialized')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
                 activeSubTab === 'serialized'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              Artículos Seriados ({filteredSerialized.length} ONUs/Routers)
+              💻 Artículos Seriados ({filteredSerialized.length})
+            </button>
+            <button
+              onClick={() => setActiveSubTab('batched')}
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${
+                activeSubTab === 'batched'
+                  ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Disc className="w-3.5 h-3.5" />
+              <span>⭕ Bobinas / Cable Drop ({filteredBatches.length})</span>
             </button>
             <button
               onClick={() => setActiveSubTab('bulk')}
-              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition ${
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap ${
                 activeSubTab === 'bulk'
                   ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
               }`}
             >
-              Artículos a Granel ({filteredBulkStocks.length} Registros)
+              📦 Material a Granel ({filteredBulkStocks.length})
             </button>
           </div>
 
@@ -640,7 +729,7 @@ export const WarehousesModule: React.FC = () => {
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder={activeSubTab === 'serialized' ? "Buscar por MAC, Serial, Modelo..." : "Buscar material a granel..."}
+              placeholder={activeSubTab === 'serialized' ? "Buscar por MAC, Serial, Modelo..." : activeSubTab === 'batched' ? "Buscar por no. bobina, lote, cable..." : "Buscar material a granel..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl pl-9 pr-4 py-1.5 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
@@ -708,6 +797,104 @@ export const WarehousesModule: React.FC = () => {
                       </td>
                     </tr>
                   ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Tab 2: Bobinas de Cable Drop */}
+        {activeSubTab === 'batched' && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800 uppercase tracking-wider text-[11px]">
+                <tr>
+                  <th className="py-3 px-4">No. Bobina / Lote</th>
+                  <th className="py-3 px-4">Producto / Fibra</th>
+                  <th className="py-3 px-4">Bodega Asignada</th>
+                  <th className="py-3 px-4">Metros Iniciales</th>
+                  <th className="py-3 px-4">Metros Disponibles</th>
+                  <th className="py-3 px-4">Estado</th>
+                  <th className="py-3 px-4 text-right">Fecha Registro</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
+                {filteredBatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="text-center py-8 text-slate-400">
+                      No se encontraron bobinas de cable drop en esta bodega.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredBatches.map((batch) => {
+                    const percentRemaining = batch.initialQuantity > 0 
+                      ? Math.round((batch.currentQuantity / batch.initialQuantity) * 100) 
+                      : 0;
+                    
+                    return (
+                      <tr key={batch.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                        <td className="py-3 px-4 font-mono font-bold text-amber-600 dark:text-amber-400">
+                          {batch.batchNumber}
+                        </td>
+                        <td className="py-3 px-4 font-semibold text-slate-900 dark:text-white">
+                          {batch.product?.name || 'Cable Drop Fibra'}
+                        </td>
+                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
+                          {batch.currentWarehouse?.name || 'Bodega'}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-slate-500">
+                          {batch.initialQuantity.toLocaleString()} m
+                        </td>
+                        <td className="py-3 px-4">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-sm text-slate-900 dark:text-white">
+                              {batch.currentQuantity.toLocaleString()} m
+                            </span>
+                            <span className="text-[10px] text-slate-400">
+                              ({percentRemaining}%)
+                            </span>
+                          </div>
+                          <div className="w-24 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full mt-1 overflow-hidden">
+                            <div 
+                              className={`h-full rounded-full ${
+                                percentRemaining > 50 
+                                  ? 'bg-emerald-500' 
+                                  : percentRemaining > 20 
+                                    ? 'bg-amber-500' 
+                                    : 'bg-rose-500'
+                              }`} 
+                              style={{ width: `${Math.min(100, percentRemaining)}%` }} 
+                            />
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          {batch.status === 'DISPONIBLE' && (
+                            <span className="bg-emerald-100 text-emerald-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-300">
+                              Disponible
+                            </span>
+                          )}
+                          {batch.status === 'EN_USO' && (
+                            <span className="bg-sky-100 text-sky-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-sky-950 dark:text-sky-300">
+                              En Uso
+                            </span>
+                          )}
+                          {batch.status === 'AGOTADO' && (
+                            <span className="bg-slate-100 text-slate-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-300">
+                              Agotada
+                            </span>
+                          )}
+                          {batch.status === 'EN_TRANSITO' && (
+                            <span className="bg-amber-100 text-amber-800 text-xs font-semibold px-2.5 py-0.5 rounded-full dark:bg-amber-950 dark:text-amber-300 animate-pulse">
+                              En Tránsito
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-right text-slate-400 text-[11px]">
+                          {batch.createdAt ? new Date(batch.createdAt).toLocaleDateString() : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -789,8 +976,8 @@ export const WarehousesModule: React.FC = () => {
 
       {/* ── MODAL: NUEVA BODEGA (Hub & Spoke Form) ── */}
       {showNewWarehouseModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowNewWarehouseModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-5 my-auto max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -943,8 +1130,8 @@ export const WarehousesModule: React.FC = () => {
 
       {/* ── MODAL: EDITAR BODEGA (Administrador) ── */}
       {showEditWarehouseModal && editingWarehouse && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowEditWarehouseModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-5 my-auto max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
             
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2.5">
@@ -1103,8 +1290,8 @@ export const WarehousesModule: React.FC = () => {
 
       {/* Modal: Alta de ONU */}
       {showAddOnuModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowAddOnuModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-4 my-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-heading font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
               <Package className="w-5 h-5 text-sky-500" />
               <span>Alta de Equipo Seriado (ONU / Router)</span>
@@ -1113,17 +1300,6 @@ export const WarehousesModule: React.FC = () => {
             <form onSubmit={handleCreateOnu} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">MAC Address *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej. F4:8E:38:AA:BB:CC"
-                    value={newOnu.macAddress}
-                    onChange={(e) => setNewOnu({ ...newOnu, macAddress: e.target.value })}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
                   <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">Serial (S/N) *</label>
                   <input
                     type="text"
@@ -1131,6 +1307,16 @@ export const WarehousesModule: React.FC = () => {
                     placeholder="Ej. HWTC12345678"
                     value={newOnu.serialNumber}
                     onChange={(e) => setNewOnu({ ...newOnu, serialNumber: e.target.value })}
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-300 font-semibold mb-1">MAC Address</label>
+                  <input
+                    type="text"
+                    placeholder="Ej. F4:8E:38:AA:BB:CC"
+                    value={newOnu.macAddress}
+                    onChange={(e) => setNewOnu({ ...newOnu, macAddress: e.target.value })}
                     className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-sky-500"
                   />
                 </div>
@@ -1198,8 +1384,8 @@ export const WarehousesModule: React.FC = () => {
 
       {/* Modal: Ajustar Stock Granel */}
       {showAdjustBulkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowAdjustBulkModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-4 my-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-heading font-bold text-lg text-slate-900 dark:text-white flex items-center gap-2">
               <Layers className="w-5 h-5 text-sky-500" />
               <span>Ajuste Manual de Material a Granel</span>
@@ -1279,8 +1465,8 @@ export const WarehousesModule: React.FC = () => {
 
       {/* Modal: Reportar RMA */}
       {showRmaModal && selectedItemForRma && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowRmaModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-4 my-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-heading font-bold text-lg text-rose-600 dark:text-rose-400 flex items-center gap-2">
               <ShieldAlert className="w-5 h-5" />
               <span>Reportar Equipo en Garantía (RMA)</span>

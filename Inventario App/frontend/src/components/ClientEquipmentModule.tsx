@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   Users, Wifi, Camera, Tv2, Radio, Search, ChevronDown, ChevronRight,
   RefreshCw, Download, X, MapPin, FileText, Clock, Package,
@@ -60,9 +60,9 @@ const ClientDetailModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-end bg-transparent" onClick={onClose}>
       <div
-        className="relative w-full max-w-2xl h-full bg-white shadow-2xl overflow-y-auto flex flex-col"
+        className="relative w-full max-w-2xl h-full bg-white shadow-2xl ring-1 ring-slate-900/10 overflow-y-auto flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -208,6 +208,8 @@ export const ClientEquipmentModule: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [selectedClient, setSelectedClient] = useState<ClientEquipmentView | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -221,6 +223,21 @@ export const ClientEquipmentModule: React.FC = () => {
       setLoading(false);
     }
   }, []);
+
+  const handleSyncWispro = async () => {
+    try {
+      setSyncing(true);
+      const res = await api.syncWispro();
+      setSyncMessage(res.message || 'Se conciliaron equipos de la API de Wispro');
+      await loadData();
+      setTimeout(() => setSyncMessage(null), 6000);
+    } catch (err: any) {
+      setSyncMessage(`Error sincronizando: ${err.message}`);
+      setTimeout(() => setSyncMessage(null), 6000);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -311,7 +328,16 @@ export const ClientEquipmentModule: React.FC = () => {
               Cruce en tiempo real entre inventario y contratos Wispro.
             </p>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button 
+              onClick={handleSyncWispro} 
+              disabled={syncing} 
+              className="flex items-center gap-2 bg-sky-500 hover:bg-sky-400 text-slate-950 text-xs font-bold px-4 py-2 rounded-xl transition shadow-lg active:scale-95"
+              title="Conciliar equipos desde la API de Wispro con bodegas móviles"
+            >
+              <RefreshCw className={`w-4 h-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? 'Sincronizando...' : '🔄 Sincronizar con Wispro'}
+            </button>
             <button onClick={handleExportCSV} className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold px-4 py-2 rounded-xl transition border border-white/20">
               <Download className="w-4 h-4" /> Exportar CSV
             </button>
@@ -322,6 +348,13 @@ export const ClientEquipmentModule: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {syncMessage && (
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-300 dark:border-emerald-800 rounded-2xl text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+          <span className="font-semibold">{syncMessage}</span>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

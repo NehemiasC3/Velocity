@@ -63,6 +63,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         } catch (meErr) {
           console.warn('Token expirado o inválido:', meErr);
+          if (!isEmbeddedMode()) {
+            api.setToken(null);
+            setTokenState(null);
+            setCurrentUser(null);
+            localStorage.removeItem('Velocity_Token');
+            localStorage.removeItem('token');
+            sessionStorage.removeItem('Velocity_Token');
+            sessionStorage.removeItem('token');
+          } else {
+            // Modo embebido: mantener DEFAULT_SUPERADMIN_USER y no destruir la sesión del panel
+            setCurrentUser(DEFAULT_SUPERADMIN_USER);
+            api.setActiveUserId(DEFAULT_SUPERADMIN_USER.id);
+          }
         }
       }
 
@@ -103,6 +116,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     initAuth();
+
+    const handleUnauthorized = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail?.isEmbedded || isEmbeddedMode()) {
+        console.info('[AuthContext] 401 en modo embebido: manteniendo sesión activa de supervisor');
+        return;
+      }
+      setCurrentUser(null);
+      setTokenState(null);
+      api.setToken(null);
+    };
+
+    window.addEventListener('velocity:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('velocity:unauthorized', handleUnauthorized);
   }, []);
 
   const login = async (email: string, password: string) => {

@@ -40,20 +40,15 @@ async function apiFetch(path, opts = {}, silent = false) {
                 throw err;
             });
 
-            // 1. Manejo de 401 solo si es la API principal de Velocity y no es una llamada secundaria/silenciosa
-            if (res.status === 401) {
-                if (isLocalApi && !silent && !isLoginPage) {
-                    console.warn('[Velocity Auth] Sesión inválida en servidor Velocity (HTTP 401). Limpiando sesión...');
-                    sessionStorage.removeItem('Velocity_Token');
-                    sessionStorage.removeItem('Velocity_Role');
-                    sessionStorage.removeItem('Velocity_Active_User');
-                    sessionStorage.removeItem('Velocity_User_Name');
-                    localStorage.removeItem('Velocity_Token');
-                    localStorage.removeItem('Velocity_Role');
+            // 1. Interceptor Global de Autenticación: 401 Unauthorized / 403 Forbidden
+            if ((res.status === 401 || res.status === 403) && !path.includes('/api/login') && !path.includes('/auth/login')) {
+                console.warn(`[Velocity Auth Interceptor] HTTP ${res.status} recibido desde ${path}. Purgando sesión completa...`);
+                if (!isLoginPage) {
+                    localStorage.clear();
+                    sessionStorage.clear();
                     window.location.href = '/login';
                 }
-                if (silent) return null;
-                throw new Error('Sesión inválida o expirada.');
+                throw new Error('Sesión inválida o expirada. Redirigiendo a inicio de sesión...');
             }
 
             if (res.ok) return await res.json();
@@ -98,6 +93,25 @@ async function serverSync() {
         if (remoteState) {
             localStorage.setItem('Velocity_Sync_State', JSON.stringify(remoteState));
             console.log('[Velocity] Estado sincronizado desde el servidor');
+
+            // Notificaciones en tiempo real de alertas de seguridad y webhooks de Wispro
+            if (remoteState.alerts && Array.isArray(remoteState.alerts)) {
+                let seenAlerts = [];
+                try {
+                    seenAlerts = JSON.parse(sessionStorage.getItem('Velocity_Seen_Alerts') || '[]');
+                } catch(e) {}
+
+                remoteState.alerts.forEach(alt => {
+                    if (alt && alt.id && !seenAlerts.includes(alt.id)) {
+                        if (typeof showNotification === 'function') {
+                            showNotification('🚨 Alerta Wispro Webhook', alt.message, 'warning');
+                        }
+                        seenAlerts.push(alt.id);
+                    }
+                });
+                sessionStorage.setItem('Velocity_Seen_Alerts', JSON.stringify(seenAlerts.slice(-100)));
+            }
+
             if (typeof window.updateActiveTechs === 'function') {
                 window.updateActiveTechs();
             }

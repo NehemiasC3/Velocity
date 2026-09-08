@@ -66,6 +66,18 @@ if (fs.existsSync(inventoryDist)) {
     app.use('/inventario', express.static(inventoryAltDist));
 }
 
+// Pretty URLs para vistas web
+app.get(['/supervisor', '/supervisor/*', '/supervisor/contratos'], (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public/pages/supervisor.html'));
+});
+app.get('/login', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public/pages/login.html'));
+});
+app.get('/technician', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public/pages/technician.html'));
+});
+
+
 // Asegurar que existe la carpeta de datos
 if (!fs.existsSync(DATA_DIR)) {
     console.log(`[Velocity] Creando directorio de datos en: ${DATA_DIR}`);
@@ -284,7 +296,8 @@ app.get('/api/sync', validateToken, (req, res) => {
     res.json({
         ...sanitizedDB,
         onlineStatus: onlineStatus,
-        activeTracking: activeTracking
+        activeTracking: activeTracking,
+        alerts: db.alerts || []
     });
 });
 
@@ -452,6 +465,56 @@ app.put('/api/wispro/assign', validateToken, async (req, res) => {
     } catch (error) {
         console.error('Error en /api/wispro/assign:', error);
         res.status(500).json({ error: 'Error al asignar ticket', details: error.message });
+    }
+});
+
+// ── ENDPOINT DE SINCRONIZACIÓN REST WISPRO (INVENTARIO EN PUERTO 4000) ────
+app.post(['/api/wispro/sync', '/api/v1/wispro/sync'], async (req, res) => {
+    console.log('[Velocity Gateway 🔄] Solicitud de sincronización Wispro recibida...');
+    const inventoryApiUrl = process.env.INVENTORY_API_URL || 'http://localhost:4000/api';
+
+    try {
+        const response = await fetch(`${inventoryApiUrl}/wispro/sync`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(req.body || {})
+        });
+
+        const data = await response.json().catch(() => ({}));
+        return res.status(response.status).json(data);
+    } catch (err) {
+        console.error('[Velocity Gateway ❌] Error conectando con backend de inventario (Puerto 4000):', err.message);
+        return res.status(502).json({
+            success: false,
+            error: 'Gateway Error',
+            message: `No se pudo contactar el servicio de inventario en puerto 4000: ${err.message}`
+        });
+    }
+});
+
+app.get(['/api/wispro/contracts/active', '/api/v1/wispro/contracts/active'], async (req, res) => {
+    const inventoryApiUrl = process.env.INVENTORY_API_URL || 'http://localhost:4000/api';
+    const query = req.originalUrl.includes('?') ? req.originalUrl.split('?')[1] : '';
+    try {
+        const response = await fetch(`${inventoryApiUrl}/wispro/contracts/active${query ? '?' + query : ''}`);
+        const data = await response.json();
+        return res.status(response.status).json(data);
+    } catch (err) {
+        return res.status(502).json({ error: err.message });
+    }
+});
+
+app.get(['/api/wispro/contracts/:id', '/api/v1/wispro/contracts/:id'], async (req, res) => {
+    const inventoryApiUrl = process.env.INVENTORY_API_URL || 'http://localhost:4000/api';
+    try {
+        const response = await fetch(`${inventoryApiUrl}/wispro/contracts/${encodeURIComponent(req.params.id)}`);
+        const data = await response.json();
+        return res.status(response.status).json(data);
+    } catch (err) {
+        return res.status(502).json({ error: err.message });
     }
 });
 
@@ -737,7 +800,7 @@ async function warmInventoryCache() {
                 const batchPromises = [];
                 const batchEnd = Math.min(currentPage + BATCH_SIZE - 1, totalPages);
                 for (let p = currentPage; p <= batchEnd; p++) {
-                    const url = `${baseUrl}/contracts?per_page=${perPage}&page=${p}`;
+                    const url = `${baseUrl}/contracts?per_page=100&page=${p}`;
                     batchPromises.push(
                         fetchWithRetry(url, { headers: { 'Authorization': token, 'Accept': 'application/json' } })
                             .then(r => r.ok ? r.json() : { data: [] })
@@ -808,6 +871,78 @@ setInterval(() => {
         }
     });
 }, 60000);
+
+// ── SISTEMA DE ALERTAS OPERATIVAS & SUPERVISOR ────────────────────────────
+function addSystemAlert(message, type = 'warning', details = {}) {
+    const db = getDB();
+    if (!db.alerts) db.alerts = [];
+    const alertObj = {
+        id: 'alt-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        message,
+        type,
+        details,
+        timestamp: new Date().toISOString(),
+        read: false
+    };
+    db.alerts.unshift(alertObj);
+    if (db.alerts.length > 100) db.alerts = db.alerts.slice(0, 100);
+    persistDB();
+    console.warn(`[Velocity 🚨 ALERTA SUPERVISOR]: ${message}`);
+    return alertObj;
+}
+
+app.post('/api/internal/alerts', (req, res) => {
+    const { message, type, details } = req.body;
+    if (!message) return res.status(400).json({ error: 'message is required' });
+    const alert = addSystemAlert(message, type || 'warning', details || {});
+    res.json({ success: true, alert });
+});
+
+// ── WEBHOOK LISTENER: ACTIVACIÓN ZERO-TOUCH WISPRO ─────────────────────────
+app.post(['/api/webhooks/wispro/activation', '/api/webhooks/activation'], async (req, res) => {
+    console.log('[Velocity Gateway 📡] Webhook de activación recibido:', JSON.stringify(req.body));
+    const inventoryApiUrl = process.env.INVENTORY_API_URL || 'http://localhost:4000/api';
+
+    try {
+        const response = await fetch(`${inventoryApiUrl}/webhooks/wispro/activation`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify(req.body)
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 422) {
+            const mac = req.body.macAddress || req.body.mac || req.body.serial || req.body.serialNumber || 'Desconocida';
+            const alertMsg = data.message || `Equipo desconocido intentó ser activado en Wispro: [${mac}]`;
+            addSystemAlert(alertMsg, 'error', {
+                contractId: req.body.contractId,
+                clientName: req.body.clientName,
+                payload: req.body
+            });
+            return res.status(422).json(data);
+        }
+
+        return res.status(response.status).json(data);
+    } catch (err) {
+        console.error('[Velocity Gateway ❌] Error conectando con API de Inventario (Puerto 4000):', err.message);
+        const mac = req.body.macAddress || req.body.mac || req.body.serial || 'Desconocida';
+        const alertMsg = `Equipo desconocido intentó ser activado en Wispro: [${mac}]`;
+        addSystemAlert(alertMsg, 'error', {
+            error: err.message,
+            payload: req.body
+        });
+        return res.status(422).json({
+            success: false,
+            error: 'Unprocessable Entity',
+            message: alertMsg,
+            macAddress: mac
+        });
+    }
+});
 
 app.post('/api/test-report-email', validateToken, async (req, res) => {
     try {

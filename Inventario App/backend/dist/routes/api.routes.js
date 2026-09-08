@@ -21,6 +21,7 @@ const rma_routes_1 = __importDefault(require("./rma.routes"));
 const wispro_routes_1 = __importDefault(require("./wispro.routes"));
 const analytics_routes_1 = __importDefault(require("./analytics.routes"));
 const auth_routes_1 = __importDefault(require("./auth.routes"));
+const webhook_routes_1 = __importDefault(require("./webhook.routes"));
 const router = (0, express_1.Router)();
 // ==========================================
 // 0. BÚSQUEDA UNIVERSAL GLOBAL (COMMAND PALETTE)
@@ -241,7 +242,7 @@ router.get('/clients/equipment-view', auth_middleware_1.authMiddleware, async (r
 // 12. INTEGRACIÓN WISPRO CLOUD
 // ==========================================
 router.use('/wispro', wispro_routes_1.default);
-router.get('/wispro/clients', auth_middleware_1.authMiddleware, async (req, res) => {
+router.get('/wispro/clients', async (req, res) => {
     const { status, search } = req.query;
     const clients = await wispro_service_1.wisproService.getClients({
         status: status,
@@ -249,10 +250,10 @@ router.get('/wispro/clients', auth_middleware_1.authMiddleware, async (req, res)
     });
     res.json({ clients });
 });
-router.post('/wispro/sync', auth_middleware_1.authMiddleware, (0, auth_middleware_1.requireRole)(['SUPERADMIN', 'ADMIN_BODEGA', 'ENCARGADO_PERSONAL']), async (req, res) => {
-    const result = await wispro_service_1.wisproService.syncWithWispro();
-    res.json(result);
-});
+// ==========================================
+// 12.1. WEBHOOKS AUTOMATIZACIÓN ZERO-TOUCH (WISPRO)
+// ==========================================
+router.use('/webhooks', webhook_routes_1.default);
 // ==========================================
 // 12. MÉTRICAS DE PERSONAL Y MERMAS DE CABLE
 // ==========================================

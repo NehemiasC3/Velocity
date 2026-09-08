@@ -315,6 +315,378 @@ class InventoryController {
             });
         }
     }
+    /**
+     * Obtiene todos los artículos seriados con filtros por bodega, estado y búsqueda
+     * GET /api/inventory/serialized
+     */
+    static async getSerializedItems(req, res) {
+        try {
+            const warehouseId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+            const status = req.query.status ? String(req.query.status) : undefined;
+            const search = req.query.search ? String(req.query.search).trim() : undefined;
+            const where = {};
+            if (warehouseId && warehouseId !== 'all') {
+                where.currentWarehouseId = warehouseId;
+            }
+            if (status && status !== 'ALL') {
+                where.status = status;
+            }
+            if (search) {
+                where.OR = [
+                    { serialNumber: { contains: search, mode: 'insensitive' } },
+                    { macAddress: { contains: search, mode: 'insensitive' } },
+                    { verificationCode: { contains: search, mode: 'insensitive' } },
+                    { product: { name: { contains: search, mode: 'insensitive' } } },
+                    { product: { model: { contains: search, mode: 'insensitive' } } },
+                    { product: { brand: { contains: search, mode: 'insensitive' } } }
+                ];
+            }
+            const items = await db_1.prisma.serializedItem.findMany({
+                where,
+                include: {
+                    product: true,
+                    currentWarehouse: true
+                },
+                orderBy: [
+                    { currentWarehouse: { name: 'asc' } },
+                    { serialNumber: 'asc' }
+                ]
+            });
+            res.status(200).json({
+                success: true,
+                count: items.length,
+                items
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.getSerializedItems] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al consultar equipos seriados',
+                details: error.message
+            });
+        }
+    }
+    /**
+     * Registra un equipo seriado individual
+     * POST /api/inventory/serialized
+     */
+    static async createSerializedItem(req, res) {
+        try {
+            const { macAddress, serialNumber, brand, model, category, currentWarehouseId, productId } = req.body;
+            if (!serialNumber || !currentWarehouseId) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Número de serial y bodega destino son obligatorios'
+                });
+                return;
+            }
+            let targetProductId = productId;
+            if (!targetProductId) {
+                const existingProduct = await db_1.prisma.productCatalog.findFirst({
+                    where: {
+                        OR: [
+                            { model: model || undefined },
+                            { name: { contains: model || brand || 'ONU', mode: 'insensitive' } }
+                        ]
+                    }
+                });
+                if (existingProduct) {
+                    targetProductId = existingProduct.id;
+                }
+                else {
+                    const createdProduct = await db_1.prisma.productCatalog.create({
+                        data: {
+                            sku: `ONU-${Date.now().toString().slice(-6)}`,
+                            name: `${brand || 'ONU'} ${model || 'Estándar'}`,
+                            brand: brand || 'Genérico',
+                            model: model || 'Estándar',
+                            category: category || 'ONU_ONT',
+                            trackingType: client_1.TrackingType.SERIALIZED,
+                            unitOfMeasure: 'UNIDADES',
+                            minStockAlert: 5
+                        }
+                    });
+                    targetProductId = createdProduct.id;
+                }
+            }
+            const item = await db_1.prisma.serializedItem.create({
+                data: {
+                    serialNumber: String(serialNumber).trim(),
+                    macAddress: macAddress ? String(macAddress).trim().toUpperCase() : null,
+                    currentWarehouseId,
+                    productId: targetProductId,
+                    status: client_1.SerializedStatus.EN_BODEGA
+                },
+                include: {
+                    product: true,
+                    currentWarehouse: true
+                }
+            });
+            res.status(201).json({
+                success: true,
+                item
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.createSerializedItem] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al registrar equipo seriado',
+                details: error.message
+            });
+        }
+    }
+    /**
+     * Obtiene bobinas y lotes de cable drop
+     * GET /api/inventory/batches
+     */
+    static async getBatchItems(req, res) {
+        try {
+            const warehouseId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+            const status = req.query.status ? String(req.query.status) : undefined;
+            const search = req.query.search ? String(req.query.search).trim() : undefined;
+            const where = {};
+            if (warehouseId && warehouseId !== 'all') {
+                where.currentWarehouseId = warehouseId;
+            }
+            if (status && status !== 'ALL') {
+                where.status = status;
+            }
+            if (search) {
+                where.OR = [
+                    { batchNumber: { contains: search, mode: 'insensitive' } },
+                    { product: { name: { contains: search, mode: 'insensitive' } } },
+                    { product: { sku: { contains: search, mode: 'insensitive' } } }
+                ];
+            }
+            const items = await db_1.prisma.batchItem.findMany({
+                where,
+                include: {
+                    product: true,
+                    currentWarehouse: true
+                },
+                orderBy: [
+                    { currentWarehouse: { name: 'asc' } },
+                    { batchNumber: 'asc' }
+                ]
+            });
+            res.status(200).json({
+                success: true,
+                count: items.length,
+                items
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.getBatchItems] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al consultar bobinas y lotes',
+                details: error.message
+            });
+        }
+    }
+    /**
+     * Obtiene el inventario de artículos a granel
+     * GET /api/inventory/bulk
+     */
+    static async getBulkInventory(req, res) {
+        try {
+            const warehouseId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+            const search = req.query.search ? String(req.query.search).trim() : undefined;
+            const where = {};
+            if (warehouseId && warehouseId !== 'all') {
+                where.warehouseId = warehouseId;
+            }
+            if (search) {
+                where.product = {
+                    OR: [
+                        { name: { contains: search, mode: 'insensitive' } },
+                        { sku: { contains: search, mode: 'insensitive' } }
+                    ]
+                };
+            }
+            const [bulkStocks, catalogBulkItems] = await Promise.all([
+                db_1.prisma.bulkStock.findMany({
+                    where,
+                    include: {
+                        product: true,
+                        warehouse: true
+                    },
+                    orderBy: [
+                        { warehouse: { name: 'asc' } },
+                        { product: { name: 'asc' } }
+                    ]
+                }),
+                db_1.prisma.productCatalog.findMany({
+                    where: { trackingType: client_1.TrackingType.BULK, isActive: true },
+                    orderBy: { name: 'asc' }
+                })
+            ]);
+            const formattedStocks = bulkStocks.map(stock => ({
+                id: stock.id,
+                bulkItemId: stock.productId,
+                bulkItemName: stock.product.name,
+                bulkItemCode: stock.product.sku,
+                unitOfMeasure: stock.product.unitOfMeasure,
+                warehouseId: stock.warehouseId,
+                warehouseName: stock.warehouse.name,
+                quantity: stock.quantity,
+                updatedAt: stock.updatedAt
+            }));
+            const formattedItems = catalogBulkItems.map(item => ({
+                id: item.id,
+                name: item.name,
+                code: item.sku,
+                category: item.category,
+                unitOfMeasure: item.unitOfMeasure,
+                minStockAlert: item.minStockAlert,
+                description: item.description,
+                createdAt: item.createdAt
+            }));
+            res.status(200).json({
+                success: true,
+                items: formattedItems,
+                stocks: formattedStocks
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.getBulkInventory] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al consultar inventario a granel',
+                details: error.message
+            });
+        }
+    }
+    /**
+     * Ajusta existencias a granel
+     * POST /api/inventory/bulk/adjust
+     */
+    static async adjustBulkStock(req, res) {
+        try {
+            const { warehouseId, bulkItemId, deltaQuantity, reason } = req.body;
+            if (!warehouseId || !bulkItemId) {
+                res.status(400).json({ success: false, error: 'warehouseId y bulkItemId son requeridos' });
+                return;
+            }
+            const delta = Number(deltaQuantity);
+            if (isNaN(delta)) {
+                res.status(400).json({ success: false, error: 'deltaQuantity debe ser numérico' });
+                return;
+            }
+            const existing = await db_1.prisma.bulkStock.findUnique({
+                where: {
+                    productId_warehouseId: {
+                        productId: bulkItemId,
+                        warehouseId
+                    }
+                }
+            });
+            const currentQty = existing ? existing.quantity : 0;
+            const newQty = Math.max(0, currentQty + delta);
+            const stock = await db_1.prisma.bulkStock.upsert({
+                where: {
+                    productId_warehouseId: {
+                        productId: bulkItemId,
+                        warehouseId
+                    }
+                },
+                create: {
+                    productId: bulkItemId,
+                    warehouseId,
+                    quantity: newQty
+                },
+                update: {
+                    quantity: newQty
+                },
+                include: {
+                    product: true,
+                    warehouse: true
+                }
+            });
+            res.status(200).json({
+                success: true,
+                stock: {
+                    id: stock.id,
+                    bulkItemId: stock.productId,
+                    bulkItemName: stock.product.name,
+                    bulkItemCode: stock.product.sku,
+                    unitOfMeasure: stock.product.unitOfMeasure,
+                    warehouseId: stock.warehouseId,
+                    warehouseName: stock.warehouse.name,
+                    quantity: stock.quantity,
+                    updatedAt: stock.updatedAt
+                }
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.adjustBulkStock] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al ajustar stock a granel',
+                details: error.message
+            });
+        }
+    }
+    /**
+     * Elimina un equipo serializado individual (Solo permitido para equipos de prueba)
+     * DELETE /api/inventory/serialized/:id
+     */
+    static async deleteSerializedItem(req, res) {
+        try {
+            const id = String(req.params.id);
+            const item = await db_1.prisma.serializedItem.findUnique({
+                where: { id },
+                include: {
+                    product: true,
+                    currentWarehouse: true
+                }
+            });
+            if (!item) {
+                res.status(404).json({
+                    success: false,
+                    error: 'Equipo serializado no encontrado'
+                });
+                return;
+            }
+            // Validar si el equipo corresponde a uno de prueba (por serial, mac, notas o datos del producto)
+            const combined = [
+                item.serialNumber || '',
+                item.macAddress || '',
+                item.notes || '',
+                item.product?.name || '',
+                item.product?.sku || '',
+                item.product?.description || '',
+                item.product?.model || '',
+                item.product?.brand || ''
+            ].join(' ').toLowerCase();
+            const isTest = /prueba|test|tester|testing|demo|dummy|mock|laboratorio|sandbox|beta|temporal|desarrollo/i.test(combined);
+            if (!isTest) {
+                res.status(403).json({
+                    success: false,
+                    error: `Acción protegida: Como administrador o desarrollador, únicamente puedes eliminar equipos de prueba (con número de serie, MAC o producto marcados como 'prueba', 'test' o 'demo'). El equipo "${item.serialNumber}" es de producción y no puede eliminarse.`
+                });
+                return;
+            }
+            // Eliminar el equipo serializado
+            await db_1.prisma.serializedItem.delete({
+                where: { id }
+            });
+            res.status(200).json({
+                success: true,
+                message: `Equipo de prueba con serial "${item.serialNumber}" eliminado exitosamente.`
+            });
+        }
+        catch (error) {
+            console.error('[InventoryController.deleteSerializedItem] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al eliminar el equipo de prueba',
+                details: error.message
+            });
+        }
+    }
 }
 exports.InventoryController = InventoryController;
 exports.inventoryController = new InventoryController();

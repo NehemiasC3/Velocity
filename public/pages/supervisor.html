@@ -410,6 +410,12 @@
                 <span class="font-bold tracking-wide nav-label">Técnicos</span>
             </button>
 
+            <!-- 3.1 Contratos y Conciliación Wispro -->
+            <button onclick="switchTab('contratos')" id="nav-contratos" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Contratos y Conciliación Wispro">
+                <span class="material-symbols-outlined text-[20px]">assignment</span>
+                <span class="font-bold tracking-wide nav-label">Contratos</span>
+            </button>
+
             <!-- 4. 📦 MÓDULO INVENTARIO CON SUBMENÚ ACORDEÓN (ESTILO WISPRO) -->
             <div class="accordion-item w-full flex flex-col" id="accordion-inventory">
                 <button 
@@ -727,6 +733,8 @@
                                 <option value="supervisor">👔 Supervisor de Campo / NOC</option>
                                 <option value="bodeguero">📦 Bodeguero / Almacén</option>
                                 <option value="admin">👑 Administrador / Gerente</option>
+                                <option value="superadmin">⚡ Super Administrador</option>
+                                <option value="developer">💻 Desarrollador / IT</option>
                             </select>
                             <span class="material-symbols-outlined absolute left-3 top-2.5 text-on-surface-variant text-base">shield_person</span>
                             <span class="material-symbols-outlined absolute right-3 top-2.5 text-on-surface-variant text-base pointer-events-none">expand_more</span>

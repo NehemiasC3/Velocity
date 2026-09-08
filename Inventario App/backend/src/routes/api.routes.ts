@@ -17,6 +17,7 @@ import rmaRoutes from './rma.routes';
 import wisproRoutes from './wispro.routes';
 import analyticsRoutes from './analytics.routes';
 import authRoutes from './auth.routes';
+import webhookRoutes from './webhook.routes';
 
 const router = Router();
 
@@ -267,7 +268,7 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
 // ==========================================
 router.use('/wispro', wisproRoutes);
 
-router.get('/wispro/clients', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
+router.get('/wispro/clients', async (req: AuthenticatedRequest, res: Response) => {
   const { status, search } = req.query;
   const clients = await wisproService.getClients({
     status: status as string,
@@ -276,10 +277,11 @@ router.get('/wispro/clients', authMiddleware, async (req: AuthenticatedRequest, 
   res.json({ clients });
 });
 
-router.post('/wispro/sync', authMiddleware, requireRole(['SUPERADMIN', 'ADMIN_BODEGA', 'ENCARGADO_PERSONAL']), async (req: AuthenticatedRequest, res: Response) => {
-  const result = await wisproService.syncWithWispro();
-  res.json(result);
-});
+
+// ==========================================
+// 12.1. WEBHOOKS AUTOMATIZACIÓN ZERO-TOUCH (WISPRO)
+// ==========================================
+router.use('/webhooks', webhookRoutes);
 
 // ==========================================
 // 12. MÉTRICAS DE PERSONAL Y MERMAS DE CABLE

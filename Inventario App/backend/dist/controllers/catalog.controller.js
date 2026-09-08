@@ -267,7 +267,24 @@ class CatalogController {
         }
     }
     /**
-     * Elimina un producto del catálogo de forma definitiva
+     * Valida si un producto corresponde a un equipo o ítem de prueba/testeo.
+     * Como medida de seguridad estricta para administradores y desarrolladores,
+     * únicamente estos productos tienen permitida la eliminación física del catálogo.
+     */
+    static isTestEquipment(product) {
+        const combined = [
+            product.name || '',
+            product.sku || '',
+            product.description || '',
+            product.brand || '',
+            product.model || ''
+        ].join(' ').toLowerCase();
+        // Palabras clave que identifican equipos y registros de prueba / testeo
+        const testPattern = /prueba|test|tester|testing|demo|dummy|mock|laboratorio|sandbox|beta|temporal|desarrollo/i;
+        return testPattern.test(combined);
+    }
+    /**
+     * Elimina un producto del catálogo de forma definitiva (Solo permitido para equipos/productos de prueba)
      * DELETE /api/catalog/:id
      */
     static async deleteCatalogProduct(req, res) {
@@ -285,6 +302,14 @@ class CatalogController {
                 res.status(404).json({
                     success: false,
                     error: 'Producto no encontrado en el catálogo'
+                });
+                return;
+            }
+            // Restricción de seguridad: Solo equipos y productos de prueba pueden ser eliminados
+            if (!CatalogController.isTestEquipment(product)) {
+                res.status(403).json({
+                    success: false,
+                    error: `Acción protegida: Como administrador o desarrollador, únicamente puedes eliminar equipos y productos de prueba (que contengan en su nombre, modelo, descripción o SKU términos como 'prueba', 'test', 'tester' o 'demo'). El producto "${product.name}" es de producción y está estrictamente protegido contra eliminación.`
                 });
                 return;
             }

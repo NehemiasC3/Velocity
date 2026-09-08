@@ -140,11 +140,11 @@ export const GlobalCommandPalette: React.FC<GlobalCommandPaletteProps> = ({
   return (
     <>
       <div 
-        className="fixed inset-0 z-50 flex items-start justify-center p-3 sm:p-6 md:p-10 bg-slate-900/40 backdrop-blur-xs animate-fadeIn overflow-y-auto"
+        className="fixed inset-0 z-50 flex items-start justify-center p-3 sm:p-6 md:p-10 bg-transparent animate-fadeIn overflow-y-auto"
         onClick={onClose}
       >
         <div 
-          className="relative w-full max-w-3xl bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[88vh]"
+          className="relative w-full max-w-3xl bg-white border border-slate-200 rounded-2xl shadow-2xl ring-1 ring-slate-900/10 overflow-hidden flex flex-col my-auto max-h-[88vh]"
           onClick={(e) => e.stopPropagation()}
         >
           

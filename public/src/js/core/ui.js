@@ -345,10 +345,18 @@ window.toggleNavAccordion = function(accordionId) {
 };
 
 window.isAdminRole = function() {
-    const rawRole = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
-    const activeUserId = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
-    const activeUserEmail = sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email');
+    const rawRole = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase().trim();
+    const activeUserId = String(sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User') || '').trim();
+    const activeUserEmail = String(sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email') || '').toLowerCase().trim();
     
+    // Cuentas raíz del sistema siempre tienen acceso de administración y desarrollo
+    if (activeUserId.startsWith('S-ROOT') || activeUserId === 'S-ROOT-1' || activeUserId === 'S-ROOT-2') {
+        return true;
+    }
+    if (activeUserEmail === 'nehemias@atg-rappido.com' || activeUserEmail === 'evasquez@atg-rappido.com') {
+        return true;
+    }
+
     let db = {};
     try {
         db = JSON.parse(localStorage.getItem('Velocity_Sync_State') || '{}');
@@ -356,12 +364,21 @@ window.isAdminRole = function() {
     
     const allUsers = [...(db.supervisors || []), ...(db.technicians || [])];
     const activeUser = allUsers.find(s => 
-        (activeUserId && String(s.id) === String(activeUserId)) || 
-        (activeUserEmail && s.email && String(s.email).toLowerCase() === String(activeUserEmail).toLowerCase())
+        (activeUserId && String(s.id) === activeUserId) || 
+        (activeUserEmail && s.email && String(s.email).toLowerCase() === activeUserEmail)
     );
     
-    const role = (activeUser?.role || rawRole || '').toLowerCase();
-    return role === 'admin' || role === 'superadmin';
+    const role = String(activeUser?.role || rawRole || '').toLowerCase().trim();
+    const allowedAdminDevRoles = [
+        'admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'soporte', 'admin_bodega'
+    ];
+
+    return allowedAdminDevRoles.includes(role) || 
+           role.includes('admin') || 
+           role.includes('dev') || 
+           activeUserEmail.includes('admin') || 
+           activeUserEmail.includes('dev') ||
+           activeUserEmail.includes('desarrollo');
 };
 
 window.applyRoleAccessControl = function() {
@@ -463,6 +480,8 @@ window.switchTab = function(tab, subTab = 'dashboard') {
     const titles = { 
         dashboard: 'Resumen', 
         technicians: 'Técnicos', 
+        contratos: 'Contratos',
+        contracts: 'Contratos',
         naps: 'NAPs', 
         users: 'Cuentas', 
         settings: 'Ajustes', 
@@ -581,7 +600,20 @@ function renderTab(tab, subTab) {
 
     // ── INTEGRACIÓN DINÁMICA DE REACT PARA INVENTARIO (HUB & SPOKE) ──
     if (tab === 'inventory') {
-        const sub = subTab || 'dashboard';
+        const sub = subTab || state.inventorySubTab || sessionStorage.getItem('V_SubTab') || 'dashboard';
+        state.inventorySubTab = sub;
+        sessionStorage.setItem('V_SubTab', sub);
+
+        // Actualizar visualmente la selección en el submenú del sidebar
+        document.querySelectorAll('.subnav-btn').forEach(subBtn => {
+            const isSubActive = subBtn.id === `nav-sub-inventory-${sub}`;
+            subBtn.classList.toggle('bg-secondary', isSubActive);
+            subBtn.classList.toggle('text-white', isSubActive);
+            subBtn.classList.toggle('font-semibold', isSubActive);
+            subBtn.classList.toggle('shadow-sm', isSubActive);
+            subBtn.classList.toggle('text-on-surface-variant', !isSubActive);
+        });
+
         const tabMap = {
             'dashboard': 'dashboard',
             'bodegas': 'warehouses',
@@ -602,7 +634,7 @@ function renderTab(tab, subTab) {
         // En producción y desarrollo la app de inventario está montada en /inventory/
         const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
         const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '/inventory';
-        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&_v=2.3.0`;
+        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&_v=2.3.6`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');
         if (!iframeContainer) {
@@ -614,6 +646,7 @@ function renderTab(tab, subTab) {
                         class="w-full h-full border-none m-0 p-0 bg-white" 
                         allow="clipboard-read; clipboard-write;"
                         title="Velocity ISP Inventory App"
+                        onload="try { this.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: '${canonicalTab}' }, '*'); } catch(e){}"
                     ></iframe>
                 </div>
             `;
@@ -665,6 +698,37 @@ function renderTab(tab, subTab) {
     if (tab === 'reports' && typeof window.loadRecentCommentsAudit === 'function') {
         setTimeout(window.loadRecentCommentsAudit, 150);
     }
+}
+
+// Sincronización bidireccional entre el Supervisor y el Iframe de Inventario
+if (typeof window !== 'undefined') {
+    window.addEventListener('message', (ev) => {
+        if (ev.data && ev.data.type === 'IFRAME_READY') {
+            const iframe = document.getElementById('inventory-react-iframe');
+            if (iframe && state.tab === 'inventory') {
+                const sub = state.inventorySubTab || sessionStorage.getItem('V_SubTab') || 'dashboard';
+                const tabMap = {
+                    'dashboard': 'dashboard',
+                    'bodegas': 'warehouses',
+                    'warehouses': 'warehouses',
+                    'catalog': 'catalog',
+                    'catalogo': 'catalog',
+                    'inbound': 'inbound',
+                    'ingreso': 'inbound',
+                    'traslados': 'transfers',
+                    'transfers': 'transfers',
+                    'rma': 'rma',
+                    'devoluciones': 'rma',
+                    'auditorias': 'audit',
+                    'audit': 'audit'
+                };
+                const canonicalTab = tabMap[sub] || 'dashboard';
+                try {
+                    iframe.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: canonicalTab }, '*');
+                } catch (e) {}
+            }
+        }
+    });
 }
 
 // ── PWA ACTUALIZACIÓN DETECTADA & HÁMSTER ANIMATION ─────────────────────────

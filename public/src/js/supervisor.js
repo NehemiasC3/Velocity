@@ -933,7 +933,7 @@ Views.orders = () => {
         };
 
         return `
-        <div class="bg-surface-container-lowest border border-outline-variant/15 rounded-3xl overflow-hidden ${extraClass}">
+        <div class="bg-surface-container-lowest border border-outline-variant/15 rounded-3xl overflow-hidden overflow-x-auto ${extraClass}">
             <table class="w-full border-collapse">
                 <thead>
                     <tr class="bg-surface-container-low/50 text-left border-b border-outline-variant/10">
@@ -1196,8 +1196,8 @@ Views.technicians = () => {
     }).join('');
 
     return `
-    <div>
-        <h2 class="text-2xl font-extrabold text-on-surface mb-6">Flota de Técnicos</h2>
+    <div class="max-w-5xl mx-auto space-y-6 pb-12 w-full">
+        <h2 class="text-xl sm:text-2xl font-extrabold text-on-surface mb-6">Flota de Técnicos</h2>
         
         <!-- Mapa de Técnicos -->
         <div id="techs-map" style="width: 100%; height: 400px; border-radius: 16px; margin-bottom: 24px; z-index: 1; border: 1px solid #e5e7eb; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);"></div>
@@ -4041,6 +4041,14 @@ window.openInventoryAudit = function(id) {
 
         <div class="bg-surface-container-low p-4 rounded-2xl border border-outline-variant/20 mb-4 grid grid-cols-2 gap-3 text-xs">
             <div>
+                <span class="text-on-surface-variant font-medium block">Serial (S/N):</span>
+                <span class="font-mono font-bold text-primary">${item.serial}</span>
+            </div>
+            <div>
+                <span class="text-on-surface-variant font-medium block">Dirección MAC:</span>
+                <span class="font-mono text-on-surface">${item.mac || 'N/A'}</span>
+            </div>
+            <div>
                 <span class="text-on-surface-variant font-medium block">Estado Actual:</span>
                 <span class="font-bold uppercase text-on-surface">${item.status}</span>
             </div>
@@ -4048,11 +4056,7 @@ window.openInventoryAudit = function(id) {
                 <span class="text-on-surface-variant font-medium block">Ubicación:</span>
                 <span class="font-bold text-on-surface">${item.location}</span>
             </div>
-            <div>
-                <span class="text-on-surface-variant font-medium block">Dirección MAC:</span>
-                <span class="font-mono text-on-surface">${item.mac || 'N/A'}</span>
-            </div>
-            <div>
+            <div class="col-span-2">
                 <span class="text-on-surface-variant font-medium block">Orden Wispro:</span>
                 <span class="font-bold text-primary">${item.wisproOrder ? `#${item.wisproOrder.id} - ${item.wisproOrder.clientName}` : 'Ninguna'}</span>
             </div>
@@ -5660,7 +5664,564 @@ window.viewNapClients = async function(localId, napName) {
     }
 };
 
+// ── CONTRATOS & CONCILIACIÓN WISPRO (REST API) ───────────────────────────
+window.loadContractsData = async function() {
+    try {
+        const res = await fetch('/api/wispro/contracts/active?loadAll=true');
+        if (res.ok) {
+            const data = await res.json();
+            window._cachedWisproContracts = data.contracts || [];
+        }
+    } catch (e) {
+        console.warn('[Wispro] Error cargando contratos activos:', e);
+    }
+};
 
+window.syncWisproContracts = async function() {
+    const btn = document.getElementById('btn-sync-wispro-contracts');
+    const originalHtml = btn ? btn.innerHTML : '🔄 Sincronizar con Wispro';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="material-symbols-outlined text-sm animate-spin">progress_activity</span><span>Sincronizando con Wispro...</span>';
+    }
+
+    try {
+        const res = await fetch('/api/wispro/sync', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+        });
+        const data = await res.json();
+
+        if (data && data.success) {
+            const msg = data.message || `Se conciliaron ${data.count || 0} equipos de la API de Wispro`;
+            showNotification('Sincronización Wispro', msg, 'success');
+            await window.loadContractsData();
+            if (state.tab === 'contratos' || state.tab === 'contracts') {
+                renderTab(state.tab);
+            }
+        } else {
+            throw new Error(data?.error || data?.message || 'Error en la sincronización');
+        }
+    } catch (err) {
+        console.error('[Wispro Sync Error]', err);
+        showNotification('Error de Sincronización', err.message || 'No se pudo sincronizar con Wispro.', 'issue');
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+};
+
+window.openContractDetail = async function(id) {
+    try {
+        const res = await fetch(`/api/wispro/contracts/${encodeURIComponent(id)}`);
+        const data = await res.json();
+        const c = data.contract || (window._cachedWisproContracts || []).find(x => x.id === id || x.contractId === id);
+        if (!c) {
+            alert('No se encontraron detalles del contrato.');
+            return;
+        }
+        const nap = c.raw?.nap_name || c.napName || (c.nodeName && c.nodeName !== 'OLT-Central' ? c.nodeName : 'Sin NAP');
+        alert(`📋 DETALLES DE CONTRATO WISPRO\n\nContrato: #${c.contractId}\nCliente: ${c.clientName}\nPlan: ${c.planName || 'Fibra Óptica'}\nNAP: ${nap}\nMAC ONU: ${c.macAddress || 'No registrada'}\nSerial: ${c.serialNumber || 'No disponible'}\nIP: ${c.ip || 'Dinámica'}\nEstado: ${c.status || 'Activo'}\nDirección: ${c.address || 'Panamá'}`);
+    } catch (e) {
+        alert('Error al consultar detalles: ' + e.message);
+    }
+};
+
+window.setContractsPage = function(page) {
+    state.contractsPage = page;
+    if (state.tab === 'contratos' || state.tab === 'contracts') {
+        renderTab(state.tab);
+    }
+};
+
+window.setContractsPerPage = function(size) {
+    state.contractsPerPage = size;
+    state.contractsPage = 1;
+    if (state.tab === 'contratos' || state.tab === 'contracts') {
+        renderTab(state.tab);
+    }
+};
+
+window.setContractsFilter = function(key, value) {
+    state[key] = value;
+    state.contractsPage = 1;
+    if (state.tab === 'contratos' || state.tab === 'contracts') {
+        renderTab(state.tab);
+    }
+};
+
+window.toggleContractsSortOrder = function() {
+    state.contractsSortOrder = state.contractsSortOrder === 'desc' ? 'asc' : 'desc';
+    state.contractsPage = 1;
+    if (state.tab === 'contratos' || state.tab === 'contracts') {
+        renderTab(state.tab);
+    }
+};
+
+Views.contratos = () => {
+    const contracts = window._cachedWisproContracts || [];
+    const searchQuery = (state.contractsSearch || '').toLowerCase().trim();
+    
+    // Inicializar estados de paginación, filtros y ordenamiento
+    if (state.contractsPage === undefined) state.contractsPage = 1;
+    if (state.contractsPerPage === undefined) state.contractsPerPage = 25;
+    if (state.contractsFilterState === undefined) state.contractsFilterState = 'ALL';
+    if (state.contractsFilterMac === undefined) state.contractsFilterMac = 'ALL';
+    if (state.contractsFilterNap === undefined) state.contractsFilterNap = 'ALL';
+    if (state.contractsSortOrder === undefined) state.contractsSortOrder = 'desc'; // Por defecto: Descendente (más recientes primero)
+
+    // Si aún no se han cargado los contratos de la API, disparar fetch asíncrono acumulativo
+    if (!window._cachedWisproContracts && !window._loadingWisproContracts) {
+        window._loadingWisproContracts = true;
+        window.loadContractsData().finally(() => {
+            window._loadingWisproContracts = false;
+            if (state.tab === 'contratos' || state.tab === 'contracts') {
+                renderTab(state.tab);
+            }
+        });
+    }
+
+    // Función auxiliar para extraer NAP de forma robusta
+    const getNap = (c) => {
+        const rawNap = c.raw?.nap_name || c.napName || c.nap;
+        if (rawNap && typeof rawNap === 'string' && rawNap.trim() !== '') return rawNap.trim();
+        const node = c.nodeName || '';
+        if (node && node !== 'OLT-Central' && node !== 'Sin NAP' && node.trim() !== '') return node.trim();
+        return null;
+    };
+
+    // ── Filtros Avanzados ──
+    const filtered = contracts.filter(c => {
+        // 1. Buscador global en tiempo real
+        if (searchQuery) {
+            const client = (c.clientName || '').toLowerCase();
+            const contract = (c.contractId || '').toLowerCase();
+            const addr = (c.address || '').toLowerCase();
+            const mac = (c.macAddress || '').toLowerCase();
+            const sn = (c.serialNumber || '').toLowerCase();
+            const plan = (c.planName || '').toLowerCase();
+            const nap = (getNap(c) || '').toLowerCase();
+
+            const match = client.includes(searchQuery) ||
+                contract.includes(searchQuery) ||
+                addr.includes(searchQuery) ||
+                mac.includes(searchQuery) ||
+                sn.includes(searchQuery) ||
+                plan.includes(searchQuery) ||
+                nap.includes(searchQuery);
+
+            if (!match) return false;
+        }
+
+        // 2. Filtro Estado Wispro: Todos / Habilitados (ENABLED) / Deshabilitados
+        if (state.contractsFilterState !== 'ALL') {
+            const st = (c.status || c.raw?.state || '').toLowerCase();
+            const isEnabled = st === 'enabled' || st === 'activo' || st === 'active';
+            if (state.contractsFilterState === 'ENABLED' && !isEnabled) return false;
+            if (state.contractsFilterState === 'DISABLED' && isEnabled) return false;
+        }
+
+        // 3. Filtro Conciliación (Serial prioritario): Todos / Con Serial / Sin Serial asignado
+        const filterSerial = state.contractsFilterSerial || state.contractsFilterMac;
+        if (filterSerial && filterSerial !== 'ALL') {
+            const hasSerial = Boolean((c.serialNumber && c.serialNumber.trim() !== '') || (c.macAddress && c.macAddress.trim() !== ''));
+            if ((filterSerial === 'WITH_SERIAL' || filterSerial === 'WITH_MAC') && !hasSerial) return false;
+            if ((filterSerial === 'WITHOUT_SERIAL' || filterSerial === 'WITHOUT_MAC') && hasSerial) return false;
+        }
+
+        // 4. Filtro Infraestructura: Todos / Con NAP / Sin NAP
+        if (state.contractsFilterNap !== 'ALL') {
+            const napVal = getNap(c);
+            const hasNap = Boolean(napVal);
+            if (state.contractsFilterNap === 'WITH_NAP' && !hasNap) return false;
+            if (state.contractsFilterNap === 'WITHOUT_NAP' && hasNap) return false;
+        }
+
+        return true;
+    });
+
+    // ── Ordenamiento: Por defecto Descendente (números más altos / recientes primero) ──
+    const sortOrder = state.contractsSortOrder || 'desc';
+    filtered.sort((a, b) => {
+        const numA = Number(a.raw?.public_id) || parseInt(String(a.contractId || a.id).replace(/\D/g, ''), 10) || 0;
+        const numB = Number(b.raw?.public_id) || parseInt(String(b.contractId || b.id).replace(/\D/g, ''), 10) || 0;
+        if (numA !== numB) {
+            return sortOrder === 'desc' ? numB - numA : numA - numB;
+        }
+        const dateA = a.raw?.created_at ? new Date(a.raw.created_at).getTime() : 0;
+        const dateB = b.raw?.created_at ? new Date(b.raw.created_at).getTime() : 0;
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+    });
+
+    // Totales y KPIs con prioridad de Serial
+    const totalActive = contracts.length;
+    const withSerial = contracts.filter(c => (c.serialNumber && c.serialNumber.trim() !== '') || (c.macAddress && c.macAddress.trim() !== '')).length;
+    const withNap = contracts.filter(c => getNap(c) !== null).length;
+    const totalEnabled = contracts.filter(c => {
+        const st = (c.status || c.raw?.state || '').toLowerCase();
+        return st === 'enabled' || st === 'activo' || st === 'active';
+    }).length;
+
+    // Cálculo de Paginación
+    const perPage = state.contractsPerPage;
+    const totalItems = filtered.length;
+    const totalPages = perPage === 'ALL' ? 1 : Math.ceil(totalItems / perPage) || 1;
+    if (state.contractsPage > totalPages) state.contractsPage = totalPages;
+    if (state.contractsPage < 1) state.contractsPage = 1;
+
+    const currentPage = state.contractsPage;
+    const startIndex = perPage === 'ALL' ? 0 : (currentPage - 1) * perPage;
+    const endIndex = perPage === 'ALL' ? totalItems : Math.min(startIndex + perPage, totalItems);
+    const paginated = perPage === 'ALL' ? filtered : filtered.slice(startIndex, endIndex);
+
+    return `
+    <div class="space-y-6 animate-fade-in">
+        <!-- 1. Barra de Estado y Sincronización Wispro (Sin título redundante) -->
+        <div class="flex items-center justify-between gap-4 bg-surface-container-lowest px-5 py-3.5 rounded-2xl border border-outline-variant/20 shadow-sm">
+            <div class="flex items-center gap-2">
+                <span class="text-[11px] font-bold text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full flex items-center gap-1.5 border border-emerald-500/20">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    Wispro Cloud Sincronizado
+                </span>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+                <button 
+                    id="btn-sync-wispro-contracts" 
+                    onclick="window.syncWisproContracts()" 
+                    class="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-md shadow-primary/20 hover:opacity-90 active:scale-95 transition flex items-center gap-2 cursor-pointer"
+                    title="Ejecutar conciliación REST con Wispro Cloud"
+                >
+                    <span class="material-symbols-outlined text-[18px]">sync</span>
+                    <span>Sincronizar Wispro</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 2. KPIs de Contratos y Conciliación -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-secondary/10 border border-secondary/20 text-secondary flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl">assignment</span>
+                </div>
+                <div>
+                    <p class="text-2xl font-black text-on-surface">${window._loadingWisproContracts ? '...' : totalActive.toLocaleString()}</p>
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Total Contratos</p>
+                </div>
+            </div>
+
+            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl">verified</span>
+                </div>
+                <div>
+                    <p class="text-2xl font-black text-emerald-600">${window._loadingWisproContracts ? '...' : withSerial.toLocaleString()}</p>
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Equipos con Serial (S/N)</p>
+                </div>
+            </div>
+
+            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-600 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl">lan</span>
+                </div>
+                <div>
+                    <p class="text-2xl font-black text-sky-600">${window._loadingWisproContracts ? '...' : withNap.toLocaleString()}</p>
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Con NAP</p>
+                </div>
+            </div>
+
+            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-600 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-2xl">verified_user</span>
+                </div>
+                <div>
+                    <p class="text-2xl font-black text-purple-600">${window._loadingWisproContracts ? '...' : totalEnabled.toLocaleString()}</p>
+                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Habilitados</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. Suite de Búsqueda y Filtros Avanzados -->
+        <div class="bg-surface-container-lowest p-4 rounded-2xl border border-outline-variant/20 shadow-sm space-y-3">
+            <!-- Fila superior: Buscador y Tamaño de Página -->
+            <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                <div class="relative w-full sm:w-96">
+                    <span class="material-symbols-outlined absolute left-3.5 top-3 text-on-surface-variant text-lg">search</span>
+                    <input 
+                        type="text" 
+                        id="contracts-search-input"
+                        value="${state.contractsSearch || ''}" 
+                        oninput="state.contractsSearch = this.value; state.contractsPage = 1; renderTab('contratos');"
+                        placeholder="Buscar por Serial (S/N), cliente, contrato, plan, MAC..."
+                        class="w-full bg-surface-container-low border border-outline-variant/30 rounded-xl pl-10 pr-4 py-2.5 text-xs text-on-surface font-medium focus:outline-none focus:border-secondary transition-colors"
+                    />
+                </div>
+
+                <!-- Selector de cantidad por página -->
+                <div class="flex items-center gap-2 self-end sm:self-auto">
+                    <span class="text-[11px] font-semibold text-on-surface-variant">Por página:</span>
+                    <div class="flex items-center bg-surface-container-low p-1 rounded-xl">
+                        ${[25, 50, 100, 'ALL'].map(sz => `
+                            <button 
+                                onclick="window.setContractsPerPage(${sz === 'ALL' ? "'ALL'" : sz})"
+                                class="px-2.5 py-1 rounded-lg text-xs font-bold transition ${perPage === sz ? 'bg-secondary text-white shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >
+                                ${sz === 'ALL' ? 'Todos' : sz}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fila inferior: Filtros Pills -->
+            <div class="pt-2 border-t border-outline-variant/10 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex flex-wrap items-center gap-3">
+                    <!-- Filtro Estado Wispro -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Estado:</span>
+                        <div class="flex items-center bg-surface-container-low p-0.5 rounded-lg text-[11px]">
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterState', 'ALL')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterState === 'ALL' ? 'bg-surface-container-highest text-on-surface font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >Todos</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterState', 'ENABLED')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterState === 'ENABLED' ? 'bg-emerald-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-emerald-600'}"
+                            >Habilitados</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterState', 'DISABLED')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterState === 'DISABLED' ? 'bg-slate-700 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >Deshabilitados</button>
+                        </div>
+                    </div>
+
+                    <!-- Filtro Conciliación Serial -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Conciliación:</span>
+                        <div class="flex items-center bg-surface-container-low p-0.5 rounded-lg text-[11px]">
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterSerial', 'ALL')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${(!state.contractsFilterSerial || state.contractsFilterSerial === 'ALL') ? 'bg-surface-container-highest text-on-surface font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >Todos</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterSerial', 'WITH_SERIAL')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterSerial === 'WITH_SERIAL' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-sky-600'}"
+                            >Con Serial</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterSerial', 'WITHOUT_SERIAL')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterSerial === 'WITHOUT_SERIAL' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-amber-600'}"
+                            >Sin Serial</button>
+                        </div>
+                    </div>
+
+                    <!-- Filtro Infraestructura NAP -->
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Infraestructura:</span>
+                        <div class="flex items-center bg-surface-container-low p-0.5 rounded-lg text-[11px]">
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterNap', 'ALL')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'ALL' ? 'bg-surface-container-highest text-on-surface font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >Todos</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterNap', 'WITH_NAP')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'WITH_NAP' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-indigo-600'}"
+                            >Con NAP</button>
+                            <button 
+                                onclick="window.setContractsFilter('contractsFilterNap', 'WITHOUT_NAP')"
+                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'WITHOUT_NAP' ? 'bg-slate-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
+                            >Sin NAP</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Etiqueta de conteo real -->
+                <span class="text-xs font-bold text-on-surface-variant">
+                    Mostrando <span class="text-on-surface font-mono">${totalItems === 0 ? 0 : startIndex + 1} - ${endIndex}</span> de <span class="text-on-surface font-mono">${totalActive.toLocaleString()}</span> contratos
+                    ${totalItems !== totalActive ? `<span class="text-[11px] text-secondary font-medium">(${totalItems.toLocaleString()} filtrados)</span>` : ''}
+                </span>
+            </div>
+        </div>
+
+        <!-- 4. Tabla de Contratos y Equipos -->
+        <div class="bg-surface-container-lowest rounded-2xl border border-outline-variant/20 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs table-fixed">
+                    <thead class="bg-surface-container-low/70 border-b border-outline-variant/15 text-on-surface-variant font-bold uppercase tracking-wider text-[10px]">
+                        <tr>
+                            <th 
+                                onclick="window.toggleContractsSortOrder()"
+                                class="py-3.5 px-4 w-32 cursor-pointer select-none hover:bg-surface-container-high transition-colors group"
+                                title="Clic para ordenar por Contrato (${sortOrder === 'desc' ? 'Descendente: más recientes primero' : 'Ascendente: más antiguos primero'})"
+                            >
+                                <div class="flex items-center gap-1 text-on-surface font-bold">
+                                    <span>Contrato</span>
+                                    <span class="material-symbols-outlined text-sm text-secondary transition-transform group-hover:scale-110">
+                                        ${sortOrder === 'desc' ? 'arrow_downward' : 'arrow_upward'}
+                                    </span>
+                                </div>
+                            </th>
+                            <th class="py-3.5 px-4 min-w-[200px]">Cliente & Dirección</th>
+                            <th class="py-3.5 px-4 w-[160px] max-w-[160px]">Plan / Servicio</th>
+                            <th class="py-3.5 px-4 w-36">NAP</th>
+                            <th class="py-3.5 px-4 w-44">Serial / S/N</th>
+                            <th class="py-3.5 px-4 w-36">MAC Address</th>
+                            <th class="py-3.5 px-4 w-28 text-center">Estado Wispro</th>
+                            <th class="py-3.5 px-4 w-20 text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-outline-variant/10 text-on-surface font-medium">
+                        ${window._loadingWisproContracts ? `
+                            <tr>
+                                <td colspan="8" class="text-center py-16 text-on-surface-variant">
+                                    <div class="flex flex-col items-center justify-center gap-3">
+                                        <span class="material-symbols-outlined text-4xl text-secondary animate-spin">progress_activity</span>
+                                        <p class="font-black text-sm text-on-surface">Consultando contratos activos desde Wispro Cloud API...</p>
+                                        <p class="text-xs text-on-surface-variant max-w-sm">Conectando con la API REST y resolviendo clientes, equipos, seriales y estados en tiempo real.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        ` : filtered.length === 0 ? `
+                            <tr>
+                                <td colspan="8" class="text-center py-12 text-on-surface-variant">
+                                    <div class="flex flex-col items-center justify-center gap-3">
+                                        <span class="material-symbols-outlined text-4xl text-outline-variant">inventory</span>
+                                        <p class="font-bold text-sm">No se encontraron contratos coincidentes</p>
+                                        <p class="text-xs text-outline-variant max-w-sm">Ajusta los filtros de búsqueda o haz clic en <strong>🔄 Sincronizar con Wispro</strong>.</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        ` : paginated.map(c => {
+                            const napVal = getNap(c);
+                            const isEnabled = (c.status || c.raw?.state || '').toLowerCase() === 'enabled' || (c.status || '').toLowerCase() === 'activo';
+
+                            return `
+                            <tr class="hover:bg-surface-container-low/40 transition-colors">
+                                <!-- Contrato -->
+                                <td class="py-3.5 px-4">
+                                    <span class="font-mono font-bold text-secondary bg-secondary/10 px-2 py-1 rounded-lg text-[11px] border border-secondary/20 block w-fit">
+                                        #${c.contractId}
+                                    </span>
+                                </td>
+
+                                <!-- Cliente & Dirección -->
+                                <td class="py-3.5 px-4">
+                                    <p class="font-black text-on-surface text-xs leading-tight truncate" title="${c.clientName || ''}">${c.clientName}</p>
+                                    <p class="text-[10px] text-on-surface-variant truncate mt-0.5" title="${c.address || ''}">${c.address || 'Panamá'}</p>
+                                </td>
+
+                                <!-- PLAN / SERVICIO: max-w-[160px], truncate con title HTML -->
+                                <td class="py-3.5 px-4 w-[160px] max-w-[160px]">
+                                    <span class="block truncate text-xs font-semibold text-on-surface cursor-help" title="${c.planName || 'Fibra Óptica'}">
+                                        ${c.planName || 'Fibra Óptica'}
+                                    </span>
+                                </td>
+
+                                <!-- NODO OLT / NAP: Badge neutral Sin NAP si es nulo -->
+                                <td class="py-3.5 px-4">
+                                    ${napVal ? `
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300 border border-sky-200 dark:border-sky-800 font-mono font-bold truncate max-w-[130px]" title="NAP: ${napVal}">
+                                            ${napVal}
+                                        </span>
+                                    ` : `
+                                        <span class="px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-400 dark:bg-slate-800 font-mono">Sin NAP</span>
+                                    `}
+                                </td>
+
+                                <!-- Serial / SN (Prioridad Alta) -->
+                                <td class="py-3.5 px-4">
+                                    ${c.serialNumber ? `
+                                        <span class="font-mono font-bold text-xs text-slate-800 dark:text-slate-100 bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded-md border border-slate-300 dark:border-slate-700 block w-fit truncate max-w-[150px]" title="${c.serialNumber}">
+                                            ${c.serialNumber}
+                                        </span>
+                                    ` : `
+                                        <span class="text-[11px] italic text-amber-500 font-medium">Sin Serial</span>
+                                    `}
+                                </td>
+
+                                <!-- MAC Address ONU (Secundario) -->
+                                <td class="py-3.5 px-4">
+                                    ${c.macAddress ? `
+                                        <span class="font-mono text-xs text-on-surface-variant block truncate" title="${c.macAddress}">
+                                            ${c.macAddress}
+                                        </span>
+                                    ` : `
+                                        <span class="text-[10px] text-on-surface-variant italic">—</span>
+                                    `}
+                                </td>
+
+                                <!-- Estado Wispro -->
+                                <td class="py-3.5 px-4 text-center">
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                        isEnabled 
+                                            ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' 
+                                            : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 border-slate-200'
+                                    }">
+                                        ${c.status || (isEnabled ? 'ENABLED' : 'DISABLED')}
+                                    </span>
+                                </td>
+
+                                <!-- Acciones -->
+                                <td class="py-3.5 px-4 text-right">
+                                    <button 
+                                        onclick="window.openContractDetail('${c.id || c.contractId}')"
+                                        class="p-1.5 rounded-lg text-on-surface-variant hover:text-secondary hover:bg-surface-container transition-colors"
+                                        title="Ver detalles del contrato"
+                                    >
+                                        <span class="material-symbols-outlined text-base">visibility</span>
+                                    </button>
+                                </td>
+                            </tr>
+                            `;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- 5. Controles de Paginación UI (Anterior / Siguiente) -->
+            <div class="p-4 border-t border-outline-variant/15 bg-surface-container-low/50 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="text-xs text-on-surface-variant font-medium">
+                    Mostrando <span class="font-bold text-on-surface">${totalItems === 0 ? 0 : startIndex + 1}</span> a <span class="font-bold text-on-surface">${endIndex}</span> de <span class="font-bold text-on-surface">${totalActive.toLocaleString()}</span> contratos
+                </div>
+
+                ${perPage !== 'ALL' && totalPages > 1 ? `
+                    <div class="flex items-center gap-2">
+                        <button 
+                            onclick="window.setContractsPage(${currentPage - 1})"
+                            ${currentPage <= 1 ? 'disabled' : ''}
+                            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-outline-variant/30 text-xs font-semibold text-on-surface hover:bg-surface-container transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <span class="material-symbols-outlined text-sm">chevron_left</span>
+                            <span>Anterior</span>
+                        </button>
+
+                        <div class="flex items-center gap-1 px-2 text-xs font-bold text-on-surface-variant">
+                            <span>Página</span>
+                            <span class="px-2 py-0.5 rounded bg-secondary/10 text-secondary font-mono">${currentPage}</span>
+                            <span>de ${totalPages}</span>
+                        </div>
+
+                        <button 
+                            onclick="window.setContractsPage(${currentPage + 1})"
+                            ${currentPage >= totalPages ? 'disabled' : ''}
+                            class="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-outline-variant/30 text-xs font-semibold text-on-surface hover:bg-surface-container transition disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <span>Siguiente</span>
+                            <span class="material-symbols-outlined text-sm">chevron_right</span>
+                        </button>
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    </div>
+    `;
+};
+
+Views.contracts = Views.contratos;
 
 // ── CUENTAS (RBAC, CUADRILLAS & VINCULACIÓN WISPRO) ─────────────────────────
 Views.users = () => {
@@ -5677,7 +6238,8 @@ Views.users = () => {
 
     // Métricas para los KPIs
     const totalUsers = allUsers.length;
-    const adminSupCount = allUsers.filter(u => u.role === 'admin' || u.role === 'supervisor').length;
+    const supAdminRoles = ['admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'supervisor'];
+    const adminSupCount = allUsers.filter(u => supAdminRoles.includes(u.role)).length;
     const techCount = allUsers.filter(u => u.role === 'technician').length;
     const bodegueroCount = allUsers.filter(u => u.role === 'bodeguero').length;
     const disabledCount = allUsers.filter(u => u.disabled).length;
@@ -5687,7 +6249,7 @@ Views.users = () => {
 
     // Filtrar por sub-pestaña
     let filtered = allUsers.filter(u => {
-        if (activeSubTab === 'admins_supervisors') return u.role === 'admin' || u.role === 'supervisor';
+        if (activeSubTab === 'admins_supervisors') return supAdminRoles.includes(u.role);
         if (activeSubTab === 'technicians') return u.role === 'technician';
         if (activeSubTab === 'bodegueros') return u.role === 'bodeguero';
         if (activeSubTab === 'inactive') return !!u.disabled;
@@ -5708,7 +6270,7 @@ Views.users = () => {
 
     // Generador de Tarjetas de Usuario
     const userCards = filtered.map(u => {
-        const isSupervisorOrAdmin = u.role === 'admin' || u.role === 'supervisor';
+        const isSupervisorOrAdmin = supAdminRoles.includes(u.role);
         const isBodeguero = u.role === 'bodeguero';
         const isTech = u.role === 'technician';
         
@@ -5725,6 +6287,14 @@ Views.users = () => {
             roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200/80 flex items-center gap-1">👑 Administrador</span>';
             roleIcon = 'admin_panel_settings';
             avatarBg = '#7c3aed';
+        } else if (u.role === 'superadmin') {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-violet-50 text-violet-700 border border-violet-200/80 flex items-center gap-1">⚡ Super Admin</span>';
+            roleIcon = 'admin_panel_settings';
+            avatarBg = '#6d28d9';
+        } else if (u.role === 'developer' || u.role === 'desarrollador' || u.role === 'dev') {
+            roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200/80 flex items-center gap-1">💻 Desarrollador</span>';
+            roleIcon = 'terminal';
+            avatarBg = '#4338ca';
         } else if (u.role === 'supervisor') {
             roleBadge = '<span class="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/80 flex items-center gap-1">👔 Supervisor</span>';
             roleIcon = 'shield_person';
@@ -5827,7 +6397,7 @@ Views.users = () => {
     }).join('');
 
     return `
-    <div class="space-y-6 max-w-6xl pb-12 animate-fade-in">
+    <div class="space-y-6 max-w-5xl mx-auto pb-12 animate-fade-in w-full">
         <!-- HEADER PRINCIPAL -->
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div>
@@ -5838,17 +6408,17 @@ Views.users = () => {
                 <p class="text-xs text-on-surface-variant mt-0.5">Control de accesos RBAC, cuadrillas operativas, bodegas vehiculares y sincronización con Wispro.</p>
             </div>
 
-            <!-- Botones de Acción Global -->
-            <div class="flex flex-wrap items-center gap-2.5">
-                <button onclick="window.deleteInactiveUsers()" class="px-3.5 py-2 rounded-xl border border-error/30 text-error hover:bg-error/5 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Eliminar cuentas inactivas o fuera de la flota">
+            <!-- Botones de Acción Global (Adaptable a Móvil) -->
+            <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                <button onclick="window.deleteInactiveUsers()" class="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl border border-error/30 text-error hover:bg-error/5 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Eliminar cuentas inactivas o fuera de la flota">
                     <span class="material-symbols-outlined text-sm">person_remove</span>
                     <span>Limpiar Inactivos</span>
                 </button>
-                <button onclick="window.openWisproSyncModal()" class="px-3.5 py-2 rounded-xl border border-secondary/30 bg-secondary/5 text-secondary hover:bg-secondary/10 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Sincronizar técnicos seleccionados desde Wispro">
+                <button onclick="window.openWisproSyncModal()" class="flex-1 sm:flex-none justify-center px-3.5 py-2 rounded-xl border border-secondary/30 bg-secondary/5 text-secondary hover:bg-secondary/10 font-bold text-xs flex items-center gap-1.5 active:scale-95 transition-all shadow-2xs" title="Sincronizar técnicos seleccionados desde Wispro">
                     <span class="material-symbols-outlined text-sm">cloud_sync</span>
                     <span>Sincronizar Wispro</span>
                 </button>
-                <button onclick="window.openNewUser()" class="bg-secondary text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                <button onclick="window.openNewUser()" class="flex-1 sm:flex-none justify-center bg-secondary text-white px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
                     <span class="material-symbols-outlined text-sm">person_add</span>
                     <span>Nueva Cuenta</span>
                 </button>
@@ -5903,8 +6473,8 @@ Views.users = () => {
 
         <!-- BARRA DE FILTROS & BÚSQUEDA -->
         <div class="bg-white p-4 rounded-2xl border border-outline-variant/20 shadow-2xs flex flex-col md:flex-row items-center justify-between gap-3">
-            <!-- Tabs por Rol -->
-            <div class="flex items-center gap-1 overflow-x-auto w-full md:w-auto pb-1 md:pb-0 scrollbar-none">
+            <!-- Tabs por Rol (Adaptable) -->
+            <div class="flex flex-wrap items-center gap-1.5 w-full md:w-auto pb-1 md:pb-0">
                 <button onclick="window.setUserTab('all')" class="px-3.5 py-1.5 rounded-xl font-bold text-xs whitespace-nowrap transition-all ${activeSubTab === 'all' ? 'bg-primary-container text-white shadow-2xs' : 'text-on-surface-variant hover:bg-surface-container-low'}">
                     Todos (${totalUsers})
                 </button>
@@ -5933,9 +6503,9 @@ Views.users = () => {
             </div>
         </div>
 
-        <!-- GRILLA DE USUARIOS -->
+        <!-- GRILLA DE USUARIOS (Adaptable Inteligente a Móvil y Escritorio) -->
         ${userCards ? `
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             ${userCards}
         </div>` : `
         <div class="bg-white p-12 rounded-2xl border border-outline-variant/20 text-center space-y-3">
@@ -5971,44 +6541,44 @@ Views.settings = () => {
     const activeSubTab = state.settingsSubTab || 'general';
 
     return `
-    <div class="space-y-6 max-w-5xl mx-auto pb-12">
-        <!-- Header Principal de Ajustes -->
+    <div class="space-y-6 max-w-5xl mx-auto pb-12 w-full">
+        <!-- Header Principal de Ajustes (Estilo Devoluciones RMA) -->
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-outline-variant/15 pb-4">
             <div>
                 <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-secondary/10 text-secondary text-[11px] font-bold mb-1.5">
                     <span class="material-symbols-outlined text-[14px]">tune</span>
                     <span>Centro de Configuración & Ajustes</span>
                 </div>
-                <h2 class="text-2xl font-black text-on-surface tracking-tight">Administración del Sistema</h2>
+                <h2 class="text-xl sm:text-2xl font-black text-on-surface tracking-tight">Administración del Sistema</h2>
                 <p class="text-xs text-on-surface-variant mt-0.5">Control de parámetros de la empresa, integración Wispro, respaldos y monitor de salud.</p>
             </div>
-            <div class="flex items-center gap-2">
-                <button onclick="window.clearAllCache()" class="px-3.5 py-2 rounded-xl border border-outline-variant/30 text-on-surface-variant hover:text-error hover:bg-error/5 text-xs font-bold transition-all flex items-center gap-1.5 active:scale-95" title="Purgar Caché Local">
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <button onclick="window.clearAllCache()" class="w-full sm:w-auto px-3.5 py-2 rounded-xl border border-outline-variant/30 text-on-surface-variant hover:text-error hover:bg-error/5 text-xs font-bold transition-all flex items-center justify-center gap-1.5 active:scale-95" title="Purgar Caché Local">
                     <span class="material-symbols-outlined text-sm">delete_sweep</span>
                     <span>Limpiar Caché</span>
                 </button>
             </div>
         </div>
 
-        <!-- Navegación de Sub-Pestañas de Ajustes (Estilo Wispro Blanco) -->
-        <div class="flex items-center gap-1 p-1 bg-surface-container-low rounded-2xl border border-outline-variant/20 overflow-x-auto">
-            <button onclick="window.switchSettingsSubTab('general')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'general' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+        <!-- Navegación de Sub-Pestañas de Ajustes (Adaptable Inteligente a Móviles) -->
+        <div class="flex flex-wrap items-center gap-1.5 p-1.5 bg-surface-container-low rounded-2xl border border-outline-variant/20 w-full">
+            <button onclick="window.switchSettingsSubTab('general')" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'general' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/60'}">
                 <span class="material-symbols-outlined text-base">business</span>
                 <span>General & SLA</span>
             </button>
-            <button onclick="window.switchSettingsSubTab('wispro')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'wispro' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+            <button onclick="window.switchSettingsSubTab('wispro')" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'wispro' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/60'}">
                 <span class="material-symbols-outlined text-base">cloud_sync</span>
                 <span>Wispro Cloud</span>
             </button>
-            <button onclick="window.switchSettingsSubTab('backups')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'backups' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+            <button onclick="window.switchSettingsSubTab('backups')" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'backups' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/60'}">
                 <span class="material-symbols-outlined text-base">backup</span>
                 <span>Respaldos & BD</span>
             </button>
-            <button onclick="window.switchSettingsSubTab('health')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'health' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+            <button onclick="window.switchSettingsSubTab('health')" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'health' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/60'}">
                 <span class="material-symbols-outlined text-base">monitor_heart</span>
                 <span>Estado del Servidor</span>
             </button>
-            <button onclick="window.switchSettingsSubTab('notifications')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'notifications' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface'}">
+            <button onclick="window.switchSettingsSubTab('notifications')" class="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs font-bold transition-all ${activeSubTab === 'notifications' ? 'bg-white text-secondary shadow-2xs' : 'text-on-surface-variant hover:text-on-surface hover:bg-white/60'}">
                 <span class="material-symbols-outlined text-base">notifications_active</span>
                 <span>Alertas</span>
             </button>
@@ -6055,7 +6625,7 @@ Views.settings = () => {
                     </div>
                 </div>
                 <div class="pt-2">
-                    <button onclick="window.saveGeneralSettings()" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                    <button onclick="window.saveGeneralSettings()" class="w-full sm:w-auto bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
                         <span class="material-symbols-outlined text-sm">save</span>
                         <span>Guardar Parámetros Generales</span>
                     </button>
@@ -6151,58 +6721,70 @@ Views.settings = () => {
                 </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 py-2">
-                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                    <div class="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Backend API</span>
-                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></span>
                             </div>
-                            <p class="text-sm font-black text-on-surface mt-1">Puerto 3000</p>
+                            <p class="text-base font-black text-on-surface mt-1.5">Puerto 3000</p>
                         </div>
-                        <span class="text-[10px] text-green-700 font-bold mt-2">HTTP 200 OK</span>
+                        <span class="text-[11px] text-green-700 font-extrabold mt-3 inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">check_circle</span>
+                            HTTP 200 OK
+                        </span>
                     </div>
 
-                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                    <div class="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Inventario Prisma</span>
-                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></span>
                             </div>
-                            <p class="text-sm font-black text-on-surface mt-1">Puerto 4000</p>
+                            <p class="text-base font-black text-on-surface mt-1.5">Puerto 4000</p>
                         </div>
-                        <span class="text-[10px] text-green-700 font-bold mt-2">PostgreSQL Link</span>
+                        <span class="text-[11px] text-green-700 font-extrabold mt-3 inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">check_circle</span>
+                            PostgreSQL Link
+                        </span>
                     </div>
 
-                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                    <div class="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Base PostgreSQL</span>
-                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></span>
                             </div>
-                            <p class="text-sm font-black text-on-surface mt-1">Puerto 5432</p>
+                            <p class="text-base font-black text-on-surface mt-1.5">Puerto 5432</p>
                         </div>
-                        <span class="text-[10px] text-green-700 font-bold mt-2">Conectada & Activa</span>
+                        <span class="text-[11px] text-green-700 font-extrabold mt-3 inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">check_circle</span>
+                            Conectada & Activa
+                        </span>
                     </div>
 
-                    <div class="p-4 rounded-xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between">
+                    <div class="p-5 rounded-2xl bg-surface-container-low border border-outline-variant/20 flex flex-col justify-between shadow-2xs hover:shadow-xs transition-all">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Frontend Nginx</span>
-                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                <span class="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_8px_#22c55e]"></span>
                             </div>
-                            <p class="text-sm font-black text-on-surface mt-1">Puerto 3080 / 443</p>
+                            <p class="text-base font-black text-on-surface mt-1.5">Puerto 3080 / 443</p>
                         </div>
-                        <span class="text-[10px] text-green-700 font-bold mt-2">SSL TLSv1.3</span>
+                        <span class="text-[11px] text-green-700 font-extrabold mt-3 inline-flex items-center gap-1">
+                            <span class="material-symbols-outlined text-[15px]">verified</span>
+                            SSL TLSv1.3
+                        </span>
                     </div>
                 </div>
 
-                <div id="system-stats-card" class="p-4 rounded-xl bg-surface-container-low/60 border border-outline-variant/20 text-xs space-y-2">
-                    <div class="flex justify-between items-center">
-                        <span class="font-bold text-on-surface-variant">Memoria RAM del Servidor (KVM1):</span>
-                        <span class="font-black text-secondary" id="stat-mem-usage">Calculando...</span>
+                <div id="system-stats-card" class="p-4 sm:p-5 rounded-2xl bg-surface-container-low/70 border border-outline-variant/20 text-xs space-y-2.5 shadow-2xs">
+                    <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1.5">
+                        <span class="font-extrabold text-on-surface-variant text-xs sm:text-sm">Memoria RAM del Servidor (KVM1):</span>
+                        <span class="font-black text-secondary text-xs sm:text-sm" id="stat-mem-usage">Calculando...</span>
                     </div>
-                    <div class="w-full h-2 rounded-full bg-surface-container overflow-hidden">
-                        <div id="stat-mem-bar" class="h-full bg-secondary transition-all" style="width: 30%;"></div>
+                    <div class="w-full h-3 rounded-full bg-surface-container overflow-hidden p-0.5 border border-outline-variant/10">
+                        <div id="stat-mem-bar" class="h-full bg-secondary rounded-full transition-all duration-500" style="width: 30%;"></div>
                     </div>
                 </div>
             </div>
@@ -6212,14 +6794,14 @@ Views.settings = () => {
         <!-- CONTENIDO: 5. ALERTAS & NOTIFICACIONES -->
         ${activeSubTab === 'notifications' ? `
         <div class="space-y-6">
-            <div class="bg-white p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-5">
+            <div class="bg-white p-4 sm:p-6 rounded-2xl border border-outline-variant/20 shadow-2xs space-y-5">
                 <div class="flex items-center gap-2 border-b border-outline-variant/10 pb-3">
                     <span class="material-symbols-outlined text-secondary">notifications</span>
                     <h3 class="font-bold text-on-surface text-sm">Disparadores de Alertas Operativas</h3>
                 </div>
 
                 <div class="space-y-4">
-                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                    <div class="flex items-center justify-between p-3.5 sm:p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
                         <div>
                             <p class="text-xs font-black text-on-surface">Alerta de Stock Crítico en Camionetas</p>
                             <p class="text-[11px] text-on-surface-variant">Notificar al supervisor cuando a un técnico le queden menos de 2 ONUs en vehículo.</p>
@@ -6230,7 +6812,7 @@ Views.settings = () => {
                         </label>
                     </div>
 
-                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                    <div class="flex items-center justify-between p-3.5 sm:p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
                         <div>
                             <p class="text-xs font-black text-on-surface">Alerta de SLA Excedido (Tickets/Órdenes)</p>
                             <p class="text-[11px] text-on-surface-variant">Resaltar órdenes en rojo cuando superen el tiempo límite de atención.</p>
@@ -6241,7 +6823,7 @@ Views.settings = () => {
                         </label>
                     </div>
 
-                    <div class="flex items-center justify-between p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
+                    <div class="flex items-center justify-between p-3.5 sm:p-4 rounded-xl bg-surface-container-low border border-outline-variant/20">
                         <div>
                             <p class="text-xs font-black text-on-surface">Alerta de Discrepancia en Liquidaciones</p>
                             <p class="text-[11px] text-on-surface-variant">Avisar si un técnico reporta materiales usados que no concuerdan con su carga.</p>
@@ -6254,7 +6836,7 @@ Views.settings = () => {
                 </div>
 
                 <div class="pt-2">
-                    <button onclick="window.saveNotificationSettings()" class="bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
+                    <button onclick="window.saveNotificationSettings()" class="w-full sm:w-auto bg-secondary text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-secondary/90 active:scale-95 transition-all shadow-2xs">
                         <span class="material-symbols-outlined text-sm">save</span>
                         <span>Guardar Preferencias de Alertas</span>
                     </button>
@@ -6264,12 +6846,12 @@ Views.settings = () => {
         ` : ''}
 
         <!-- Cerrar Sesión del Supervisor -->
-        <div class="bg-red-50/50 border border-error/20 p-5 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+        <div class="bg-red-50/50 border border-error/20 p-4 sm:p-5 rounded-2xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
             <div>
                 <p class="text-xs font-black text-error">Finalizar Sesión Operativa</p>
                 <p class="text-[11px] text-on-surface-variant">Cierra la sesión actual de forma segura en este navegador.</p>
             </div>
-            <button onclick="window.logout()" class="px-5 py-2.5 rounded-xl bg-error text-white font-bold text-xs flex items-center gap-1.5 hover:bg-error/90 active:scale-95 transition-all shadow-2xs">
+            <button onclick="window.logout()" class="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-error text-white font-bold text-xs flex items-center justify-center gap-1.5 hover:bg-error/90 active:scale-95 transition-all shadow-2xs">
                 <span class="material-symbols-outlined text-[16px]">logout</span>
                 <span>Cerrar Sesión</span>
             </button>
@@ -7110,8 +7692,9 @@ window.saveUser = function(event) {
     if (!db.supervisors) db.supervisors = [];
     if (!db.technicians) db.technicians = [];
 
-    const isNewRoleSup = role === 'admin' || role === 'supervisor';
-    const isOrigRoleSup = origRole === 'admin' || origRole === 'supervisor';
+    const supAdminRoles = ['admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'supervisor'];
+    const isNewRoleSup = supAdminRoles.includes(role);
+    const isOrigRoleSup = supAdminRoles.includes(origRole);
 
     if (id) {
         // Editar existente
@@ -7518,9 +8101,19 @@ window.deleteInactiveUsers = function() {
 // ── INIT ──────────────────────────────────────────────────────────────────
 async function initApp() {
     // Verificar auth
-    const role = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
-    const allowedRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
-    if (!allowedRoles.includes(role)) {
+    const role = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase().trim();
+    const activeUserId = String(sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User') || '').trim();
+    const activeEmail = String(sessionStorage.getItem('Velocity_Active_Email') || localStorage.getItem('Velocity_Active_Email') || '').toLowerCase().trim();
+    const allowedRoles = ['supervisor', 'admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'admin_bodega', 'supervisor_mesa'];
+    
+    const isAuthorized = allowedRoles.includes(role) || 
+                         role.includes('admin') || 
+                         role.includes('dev') || 
+                         activeUserId.startsWith('S-ROOT') || 
+                         activeEmail === 'nehemias@atg-rappido.com' ||
+                         activeEmail === 'evasquez@atg-rappido.com';
+
+    if (!isAuthorized) {
         console.warn('[Velocity Auth] Rol no autorizado para panel supervisor:', role);
         window.location.href = '/login';
         return;
@@ -7531,10 +8124,9 @@ async function initApp() {
     const theme = db.settings?.visualMode || 'kinetic';
     document.documentElement.className = theme;
 
-    const activeUserId = sessionStorage.getItem('Velocity_Active_User') || localStorage.getItem('Velocity_Active_User');
     const activeUserName = sessionStorage.getItem('Velocity_User_Name') || localStorage.getItem('Velocity_User_Name');
     const allUsers = [...(db.supervisors || []), ...(db.technicians || [])];
-    const activeUser = allUsers.find(s => String(s.id) === String(activeUserId) || String(s.email).toLowerCase() === String(sessionStorage.getItem('Velocity_Active_Email') || '').toLowerCase());
+    const activeUser = allUsers.find(s => String(s.id) === String(activeUserId) || String(s.email).toLowerCase() === activeEmail);
     const nameEl = document.getElementById('active-user-name');
     if (nameEl) nameEl.textContent = activeUser?.name || activeUserName || 'Supervisor';
 
@@ -7553,11 +8145,15 @@ async function initApp() {
     loadInventoryData();
     loadDynamicClients();
 
-    // Soporte para apertura directa de pestañas mediante query params o hash (ej: /supervisor?tab=inventory&subTab=catalog)
+    // Soporte para apertura directa de pestañas mediante query params, pathname o hash (ej: /supervisor/contratos)
     try {
         const urlParams = new URLSearchParams(window.location.search);
-        const qTab = urlParams.get('tab') || window.location.hash.replace('#', '');
+        let qTab = urlParams.get('tab') || window.location.hash.replace('#', '');
         const qSub = urlParams.get('subTab') || urlParams.get('sub') || '';
+        const path = window.location.pathname.toLowerCase();
+        if (path.includes('/contratos') || path.includes('/contracts')) {
+            qTab = 'contratos';
+        }
         if (qTab) {
             state.tab = qTab;
             if (qSub) state.subTab = qSub;
@@ -7837,7 +8433,7 @@ window.openFeedbackModal = async function(id) {
     }
 
     const html = `
-    <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[101] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-300">
+    <div id="${modalId}" onclick="if(event.target === this) { this.remove(); }" class="fixed inset-0 z-[101] bg-black/25 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-300">
         <div class="bg-surface-container-lowest w-full max-w-3xl max-h-[85vh] rounded-[2rem] shadow-2xl flex flex-col overflow-hidden border border-outline-variant/10">
             <!-- Header -->
             <div class="p-6 border-b border-outline-variant/5 flex items-center justify-between bg-surface-container-low/40">

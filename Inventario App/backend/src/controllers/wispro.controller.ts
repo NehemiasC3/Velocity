@@ -3,6 +3,85 @@ import { WisproService } from '../services/wispro.service';
 
 export class WisproController {
   /**
+   * Endpoint de Sincronización REST con Wispro
+   * POST /api/wispro/sync
+   */
+  public static async syncWispro(req: Request, res: Response): Promise<void> {
+    try {
+      console.log('[WisproController] Recibida solicitud POST /api/wispro/sync');
+      const result = await WisproService.syncActiveContracts();
+      res.status(200).json(result);
+    } catch (error: any) {
+      console.error('Error en sincronización con Wispro:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Error al sincronizar con Wispro',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * Obtiene la lista de contratos activos desde Wispro REST API
+   * GET /api/wispro/contracts/active
+   */
+  public static async getActiveContracts(req: Request, res: Response): Promise<void> {
+    try {
+      const page = req.query.page ? Number(req.query.page) : undefined;
+      const perPage = req.query.per_page || req.query.limit ? Number(req.query.per_page || req.query.limit) : undefined;
+      const loadAll = req.query.all === 'true' || req.query.loadAll === 'true' || (!req.query.page && !req.query.per_page);
+      const forceRefresh = req.query.forceRefresh === 'true' || req.query.refresh === 'true';
+
+      const result = await WisproService.fetchActiveContracts({ page, perPage, loadAll, forceRefresh });
+      res.status(200).json({
+        success: true,
+        count: result.contracts ? result.contracts.length : (Array.isArray(result) ? result.length : 0),
+        total: result.total || (result.contracts ? result.contracts.length : (Array.isArray(result) ? result.length : 0)),
+        page: result.page || 1,
+        perPage: result.perPage || 100,
+        totalPages: result.totalPages || 1,
+        contracts: result.contracts || result
+      });
+    } catch (error: any) {
+      console.error('Error obteniendo contratos de Wispro:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Error al consultar contratos',
+        details: error.message
+      });
+    }
+  }
+
+  /**
+   * Obtiene el detalle de un contrato específico
+   * GET /api/wispro/contracts/:id
+   */
+  public static async getContractDetails(req: Request, res: Response): Promise<void> {
+    try {
+      const id = String(req.params.id);
+      const contract = await WisproService.fetchContractDetails(id);
+      if (!contract) {
+        res.status(404).json({
+          success: false,
+          error: `Contrato ${id} no encontrado`
+        });
+        return;
+      }
+      res.status(200).json({
+        success: true,
+        contract
+      });
+    } catch (error: any) {
+      console.error('Error obteniendo detalle de contrato:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Error al consultar contrato',
+        details: error.message
+      });
+    }
+  }
+
+  /**
    * Obtiene los tickets abiertos enriquecidos con técnicos y vehículos de Prisma
    * GET /api/wispro/tickets/open
    */

@@ -1,4 +1,5 @@
 import express, { Application, Request, Response, NextFunction } from 'express';
+import axios from 'axios';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -65,6 +66,26 @@ export function createApp(): Application {
   // Master API Router
   app.use('/api', apiRouter);
 
+  // Proxy local para Inventory API
+  app.use('/inventory-api', async (req: Request, res: Response) => {
+    const targetUrl = `http://127.0.0.1:4000/api${req.url}`;
+    try {
+      const response = await axios({
+        method: req.method as any,
+        url: targetUrl,
+        headers: {
+          ...req.headers,
+          host: '127.0.0.1:4000'
+        },
+        data: req.body,
+        validateStatus: () => true
+      });
+      res.status(response.status).set(response.headers).send(response.data);
+    } catch (err: any) {
+      res.status(502).json({ error: 'Error conectando con el servicio de inventario en el puerto 4000', details: err.message });
+    }
+  });
+
   // Servir archivos estáticos del Core y Módulo de Inventario
   const possiblePublicDirs = [
     process.env.PUBLIC_DIR,
@@ -91,7 +112,7 @@ export function createApp(): Application {
     app.use(express.static(publicDir, { extensions: ['html', 'htm'] }));
 
     // Accesos directos raíz limpios (Pretty URLs)
-    app.get('/supervisor', (_req: Request, res: Response) => {
+    app.get(['/supervisor', '/supervisor/*', '/supervisor/contratos'], (_req: Request, res: Response) => {
       res.sendFile(path.join(publicDir, 'pages/supervisor.html'));
     });
     app.get('/login', (_req: Request, res: Response) => {

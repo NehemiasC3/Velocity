@@ -8,4 +8,7 @@ router.get('/', transfer_controller_1.TransferController.getTransfers);
 router.get('/warehouse-stock/:warehouseId', transfer_controller_1.TransferController.getWarehouseStock);
 // Crear Orden de Traslado Transaccional
 router.post('/', transfer_controller_1.TransferController.createTransfer);
+// Confirmar Recepción de Orden de Traslado
+router.post('/:orderId/receive', transfer_controller_1.TransferController.receiveTransfer);
+router.post('/:id/receive', transfer_controller_1.TransferController.receiveTransfer);
 exports.default = router;

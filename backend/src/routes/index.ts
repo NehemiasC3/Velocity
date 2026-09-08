@@ -6,12 +6,14 @@ import inventoryRoutes from './inventoryRoutes';
 import reportRoutes from './reportRoutes';
 import notificationRoutes from './notificationRoutes';
 import systemRoutes from './systemRoutes';
+import webhookRoutes from './webhookRoutes';
 
 const apiRouter = Router();
 
 apiRouter.use(authRoutes);
 apiRouter.use(syncRoutes);
 apiRouter.use(wisproRoutes);
+apiRouter.use(webhookRoutes);
 apiRouter.use(reportRoutes);
 apiRouter.use(systemRoutes);
 apiRouter.use('/v1', inventoryRoutes);

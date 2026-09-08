@@ -4,11 +4,40 @@ import {
   Cpu, Disc, Boxes, AlertTriangle, Check,
   Sparkles, SlidersHorizontal, Eye, Edit2, Trash2,
   Building2, Truck, UserCheck, Wrench, Calendar,
-  Key, Radio, FileText, ArrowUpDown
+  Key, Radio, FileText, ArrowUpDown, ShieldAlert
 } from 'lucide-react';
 import { api } from '../services/api';
 import { ProductCatalog, ItemCategory, TrackingType, UnitOfMeasure, SerializedItem, BatchItem, BulkStock, SerializedStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
+
+/**
+ * Determina si un producto o equipo es de prueba / testing / demo.
+ * Por seguridad del administrador o desarrollador, solo estos ítems tienen permitida la eliminación.
+ */
+export const isTestEquipment = (item?: {
+  name?: string | null;
+  sku?: string | null;
+  description?: string | null;
+  brand?: string | null;
+  model?: string | null;
+  serialNumber?: string | null;
+  macAddress?: string | null;
+  notes?: string | null;
+} | null): boolean => {
+  if (!item) return false;
+  const combined = [
+    item.name || '',
+    item.sku || '',
+    item.description || '',
+    item.brand || '',
+    item.model || '',
+    item.serialNumber || '',
+    item.macAddress || '',
+    item.notes || ''
+  ].join(' ').toLowerCase();
+
+  return /prueba|test|tester|testing|demo|dummy|mock|laboratorio|sandbox|beta|temporal|desarrollo/i.test(combined);
+};
 
 export const CatalogModule: React.FC = () => {
   const { currentUser } = useAuth();
@@ -223,21 +252,56 @@ export const CatalogModule: React.FC = () => {
     }
   };
 
-  // Eliminar Producto
+  // Eliminar Producto (Solo permitido para equipos y productos de prueba)
   const handleDeleteProduct = async (product: ProductCatalog, e: React.MouseEvent) => {
     e.stopPropagation();
-    const confirmed = window.confirm(`¿Estás seguro de eliminar el producto "${product.name}" (${product.sku}) del catálogo?`);
+
+    // Verificación de seguridad en el cliente
+    if (!isTestEquipment(product)) {
+      setErrorToast(`🛡️ Acción Protegida: Como administrador o desarrollador, únicamente puedes eliminar equipos y productos de prueba (con "prueba", "test", "tester" o "demo"). Los productos de producción están estrictamente protegidos.`);
+      setTimeout(() => setErrorToast(null), 6000);
+      return;
+    }
+
+    const confirmed = window.confirm(`¿Estás seguro de eliminar el equipo de prueba "${product.name}" (${product.sku}) del catálogo?\n\nEsta acción eliminará definitivamente el ítem y sus registros asociados.`);
     if (!confirmed) return;
 
     try {
       setErrorToast(null);
       const res = await api.deleteCatalogProduct(product.id);
       setProducts(prev => prev.filter(p => p.id !== product.id));
-      setSuccessToast(res.message || 'Producto eliminado del catálogo.');
+      setSuccessToast(res.message || 'Equipo de prueba eliminado del catálogo.');
       setTimeout(() => setSuccessToast(null), 4000);
       await loadCatalog();
     } catch (err: any) {
-      setErrorToast(err.message || 'Error al eliminar el producto');
+      setErrorToast(err.message || 'Error al eliminar el equipo de prueba');
+    }
+  };
+
+  // Eliminar Equipo Seriado individual de prueba
+  const handleDeleteSerializedItem = async (item: SerializedItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+
+    const isTest = isTestEquipment(item) || isTestEquipment(selectedProductDetail);
+    if (!isTest) {
+      setErrorToast(`🛡️ Acción Protegida: El equipo S/N ${item.serialNumber} es de producción y no puede eliminarse. Como desarrollador/administrador solo puedes borrar equipos de prueba.`);
+      setTimeout(() => setErrorToast(null), 6000);
+      return;
+    }
+
+    const confirmed = window.confirm(`¿Estás seguro de eliminar el equipo de prueba con serial "${item.serialNumber}"?`);
+    if (!confirmed) return;
+
+    try {
+      setErrorToast(null);
+      const res = await api.deleteSerializedItem(item.id);
+      setSuccessToast(res.message || 'Equipo de prueba eliminado con éxito.');
+      setTimeout(() => setSuccessToast(null), 4000);
+      if (selectedProductDetail) {
+        await handleOpenDetail(selectedProductDetail);
+      }
+    } catch (err: any) {
+      setErrorToast(err.message || 'Error al eliminar el equipo de prueba');
     }
   };
 
@@ -600,9 +664,16 @@ export const CatalogModule: React.FC = () => {
 
                       {/* Nombre */}
                       <td className="py-3.5 px-4">
-                        <span className="font-bold text-slate-900 dark:text-white text-sm group-hover:text-sky-600 dark:group-hover:text-sky-400 transition">
-                          {product.name}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-slate-900 dark:text-white text-sm group-hover:text-sky-600 dark:group-hover:text-sky-400 transition">
+                            {product.name}
+                          </span>
+                          {isTestEquipment(product) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60 shadow-xs">
+                              🧪 Equipo de Prueba
+                            </span>
+                          )}
+                        </div>
                         {product.description && (
                           <p className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
                             {product.description}
@@ -668,13 +739,27 @@ export const CatalogModule: React.FC = () => {
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={(e) => handleDeleteProduct(product, e)}
-                            title="Eliminar del Catálogo"
-                            className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {isTestEquipment(product) ? (
+                            <button
+                              onClick={(e) => handleDeleteProduct(product, e)}
+                              title="Eliminar Equipo de Prueba (Permitido)"
+                              className="p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setErrorToast(`🛡️ Producto de Producción Protegido: "${product.name}" no puede eliminarse. Como administrador o desarrollador solo tienes permitido borrar equipos de prueba.`);
+                                setTimeout(() => setErrorToast(null), 6000);
+                              }}
+                              title="Protegido: Solo se permite eliminar equipos de prueba"
+                              className="p-1.5 rounded-lg text-slate-300 dark:text-slate-600 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                            >
+                              <ShieldAlert className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
 
@@ -689,8 +774,8 @@ export const CatalogModule: React.FC = () => {
 
       {/* ── MODAL: FICHA DE TRAZABILIDAD & STOCK DEL PRODUCTO ── */}
       {showDetailModal && selectedProductDetail && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-5xl w-full p-6 shadow-2xl space-y-6 my-6 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowDetailModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-5xl w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-6 my-auto max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             
             {/* Header Ficha */}
             <div className="flex items-start justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
@@ -852,12 +937,13 @@ export const CatalogModule: React.FC = () => {
                               <th className="py-2.5 px-3">Estado</th>
                               <th className="py-2.5 px-3">Cliente Asignado (Wispro)</th>
                               <th className="py-2.5 px-3 text-right">Fecha Registro</th>
+                              <th className="py-2.5 px-3 text-center">Acción</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-slate-700 dark:text-slate-300">
                             {filteredDetailSerialized.length === 0 ? (
                               <tr>
-                                <td colSpan={6} className="text-center py-8 text-slate-400">
+                                <td colSpan={7} className="text-center py-8 text-slate-400">
                                   No hay equipos que coincidan con los filtros seleccionados
                                 </td>
                               </tr>
@@ -867,7 +953,14 @@ export const CatalogModule: React.FC = () => {
                                   
                                   {/* Serial */}
                                   <td className="py-2.5 px-3 font-mono font-bold text-sky-600 dark:text-sky-400">
-                                    {item.serialNumber}
+                                    <div className="flex items-center gap-1.5">
+                                      <span>{item.serialNumber}</span>
+                                      {(isTestEquipment(item) || isTestEquipment(selectedProductDetail)) && (
+                                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-300 border border-amber-300 dark:border-amber-700/60">
+                                          Prueba
+                                        </span>
+                                      )}
+                                    </div>
                                   </td>
 
                                   {/* MAC & Código de Verificación Ezviz */}
@@ -929,6 +1022,31 @@ export const CatalogModule: React.FC = () => {
                                   {/* Fecha */}
                                   <td className="py-2.5 px-3 text-right font-mono text-[10px] text-slate-400">
                                     {item.createdAt ? new Date(item.createdAt).toLocaleDateString() : '—'}
+                                  </td>
+
+                                  {/* Acción (Solo equipos de prueba pueden borrarse) */}
+                                  <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                    {(isTestEquipment(item) || isTestEquipment(selectedProductDetail)) ? (
+                                      <button
+                                        onClick={(e) => handleDeleteSerializedItem(item, e)}
+                                        title="Eliminar Equipo Seriado de Prueba"
+                                        className="p-1 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    ) : (
+                                      <button
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setErrorToast(`🛡️ Equipo Protegido: El serial "${item.serialNumber}" es de producción. Únicamente puedes eliminar equipos de prueba.`);
+                                          setTimeout(() => setErrorToast(null), 5000);
+                                        }}
+                                        title="Protegido: Solo se permite eliminar equipos de prueba"
+                                        className="p-1 rounded-lg text-slate-300 dark:text-slate-600 hover:text-amber-600 dark:hover:text-amber-400 transition"
+                                      >
+                                        <ShieldAlert className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
                                   </td>
 
                                 </tr>
@@ -1040,8 +1158,8 @@ export const CatalogModule: React.FC = () => {
 
       {/* ── MODAL: EDITAR PRODUCTO EN CATÁLOGO ── */}
       {showEditModal && editingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowEditModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-4 my-auto max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
@@ -1205,8 +1323,8 @@ export const CatalogModule: React.FC = () => {
 
       {/* ── MODAL: NUEVO PRODUCTO ── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 my-8">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-4 overflow-y-auto" onClick={() => setShowModal(false)}>
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-xl w-full p-6 shadow-2xl ring-1 ring-slate-900/10 space-y-4 my-auto max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             
             {/* Modal Header */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">

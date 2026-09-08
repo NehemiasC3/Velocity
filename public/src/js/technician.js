@@ -55,6 +55,14 @@ async function tFetch(path, opts = {}, silent = false) {
             body: opts.body || (['POST', 'PUT', 'PATCH'].includes(opts.method) ? JSON.stringify(opts.data) : undefined)
         });
 
+        if ((res.status === 401 || res.status === 403) && !path.includes('login')) {
+            console.warn(`[Velocity Tech Auth Interceptor] HTTP ${res.status} recibido desde ${path}. Purgando sesión y redirigiendo a /login...`);
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.href = '/login';
+            throw new Error('Sesión expirada.');
+        }
+
         if (res.ok) return await res.json();
         if (silent && res.status === 404) return null;
         

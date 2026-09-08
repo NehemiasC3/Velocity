@@ -1,6 +1,32 @@
 import { prisma } from '../db';
-import { SerializedStatus, BatchStatus, AuditEventType, WarehouseType, TransferStatus } from '@prisma/client';
+import { SerializedStatus, BatchStatus, AuditEventType, WarehouseType, TransferStatus, Role } from '@prisma/client';
 import { wisproService } from './wispro.service';
+
+async function getOrCreateSystemUser(preferredId?: string): Promise<string> {
+  if (preferredId) {
+    const existing = await prisma.user.findUnique({ where: { id: preferredId } });
+    if (existing) return existing.id;
+  }
+  const admin = await prisma.user.findFirst({
+    where: { role: Role.SUPERADMIN }
+  }) || await prisma.user.findFirst();
+  if (admin) return admin.id;
+
+  try {
+    const created = await prisma.user.create({
+      data: {
+        name: 'Administrador del Sistema',
+        email: 'admin@velocity.com',
+        role: Role.SUPERADMIN
+      }
+    });
+    return created.id;
+  } catch (err) {
+    const fallback = await prisma.user.findFirst();
+    if (fallback) return fallback.id;
+    throw err;
+  }
+}
 
 export interface CreateTransferDTO {
   sourceWarehouseId: string;
@@ -185,16 +211,23 @@ export class InventoryService {
       throw new Error('Bodega de destino no encontrada');
     }
 
-    let defaultUserId = createdById;
-    if (!defaultUserId) {
-      const u = await prisma.user.findFirst();
-      defaultUserId = u?.id || 'usr-system';
-    }
+    const defaultUserId = await getOrCreateSystemUser(createdById);
+    const destinationCustodianId = destinationWarehouse.managerId || defaultUserId;
 
     // ─────────────────────────────────────────────────────────────
     // EJECUCIÓN 100% TRANSACCIONAL CON BARRERA DE PROTECCIÓN (ZERO CORRUPCIÓN)
     // ─────────────────────────────────────────────────────────────
     return await prisma.$transaction(async (tx) => {
+      // En nodos de prueba sin custodio, persistir el responsable temporal
+      if (!destinationWarehouse.managerId) {
+        try {
+          await tx.warehouse.update({
+            where: { id: destinationWarehouseId },
+            data: { managerId: destinationCustodianId }
+          });
+        } catch (e) {}
+      }
+
       const sanitizedBulk: { productId: string; quantity: number; unitOfMeasure: any }[] = [];
 
       // 1. Validar y descontar material a granel
@@ -318,7 +351,7 @@ export class InventoryService {
           createdByUserId: defaultUserId,
           dispatchedByUserId: defaultUserId,
           dispatchedAt: new Date(),
-          receivedByUserId: directReceive ? defaultUserId : null,
+          receivedByUserId: directReceive ? destinationCustodianId : null,
           receivedAt: directReceive ? new Date() : null,
           notes: notes?.trim() || null,
           items: {

@@ -115,6 +115,11 @@ const AppContent: React.FC = () => {
         if (event.data.param) {
           setAuditInitialQuery(event.data.param);
         }
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.set('tab', mapped);
+          window.history.replaceState({}, '', url.toString());
+        } catch (e) {}
       }
     };
 
@@ -130,6 +135,10 @@ const AppContent: React.FC = () => {
     window.addEventListener('message', handleMessage);
     window.addEventListener('toggle-command-palette', handleTogglePalette);
     window.addEventListener('open-command-palette', handleOpenPalette);
+
+    try {
+      window.parent?.postMessage({ type: 'IFRAME_READY' }, '*');
+    } catch (e) {}
 
     return () => {
       window.removeEventListener('popstate', handleUrlChange);
@@ -185,6 +194,18 @@ const AppContent: React.FC = () => {
   }
 
   if (error && !currentUser && !isEmbedded) {
+    const isAuthError = error.message?.toLowerCase().includes('token') || 
+                        error.message?.toLowerCase().includes('sesión') || 
+                        error.message?.toLowerCase().includes('autorizado') ||
+                        error.message?.toLowerCase().includes('expirado') ||
+                        error.message?.toLowerCase().includes('401') ||
+                        error.message?.toLowerCase().includes('403');
+    if (isAuthError) {
+      localStorage.clear();
+      sessionStorage.clear();
+      return <Login onLoginSuccess={() => refreshUsers()} />;
+    }
+
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center text-slate-800 p-4">
         <div className="flex flex-col items-center gap-4 text-center max-w-md">
@@ -196,12 +217,24 @@ const AppContent: React.FC = () => {
           <p className="text-xs text-slate-700 bg-slate-200 rounded px-2 py-1 font-mono">
             {error.message}
           </p>
-          <button
-            onClick={refreshUsers}
-            className="mt-4 px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl transition-colors cursor-pointer"
-          >
-            Reintentar
-          </button>
+          <div className="flex items-center gap-3 mt-4">
+            <button
+              onClick={refreshUsers}
+              className="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-xl transition-colors cursor-pointer"
+            >
+              Reintentar
+            </button>
+            <button
+              onClick={() => {
+                localStorage.clear();
+                sessionStorage.clear();
+                window.location.href = '/login';
+              }}
+              className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-semibold rounded-xl transition-colors cursor-pointer"
+            >
+              Ir al Login
+            </button>
+          </div>
         </div>
       </div>
     );

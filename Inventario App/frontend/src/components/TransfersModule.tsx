@@ -3,7 +3,7 @@ import {
   Truck, Plus, ArrowRight, CheckCircle2, Clock, 
   AlertCircle, Package, Layers, CheckSquare, Search,
   QrCode, RefreshCw, X, Disc, Cpu, Boxes, FileText,
-  Building2, Store, Sparkles, Check
+  Building2, Store, Sparkles, Check, ChevronDown
 } from 'lucide-react';
 import { api } from '../services/api';
 import { TransferOrder, Warehouse, SerializedItem, BulkStock, BatchItem } from '../types';
@@ -103,6 +103,17 @@ export const TransfersModule: React.FC = () => {
 
     fetchOriginStock();
   }, [sourceWarehouseId]);
+
+  // Habilitar cierre con tecla Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showCreateModal) {
+        setShowCreateModal(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showCreateModal]);
 
   // Escanear MAC rápido para marcar checkbox automáticamente
   const handleFastScanMac = (e: React.FormEvent) => {
@@ -453,342 +464,461 @@ export const TransfersModule: React.FC = () => {
 
       {/* ── MODAL: NUEVO TRASLADO TRANSACCIONAL ── */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-3xl w-full p-6 shadow-2xl space-y-5 my-8">
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-2 sm:p-4 overflow-hidden"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowCreateModal(false);
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl max-w-4xl w-full shadow-2xl ring-1 ring-slate-900/10 flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
             
-            {/* Header del Modal */}
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-900/50 dark:text-sky-300">
+            {/* Header del Modal (Fijo arriba) */}
+            <div className="flex items-center justify-between px-6 py-3.5 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 border border-sky-200/50 dark:border-sky-800/50">
                   <Truck className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="font-heading font-bold text-lg text-slate-900 dark:text-white">
+                  <h3 className="font-heading font-bold text-base sm:text-lg text-slate-900 dark:text-white leading-tight">
                     Crear Orden de Despacho & Traslado
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    Transfiere existencias físicas entre nodos logísticos de Rappido Panamá
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Transfiere existencias físicas entre bodegas y cuadrillas de técnicos
                   </p>
                 </div>
               </div>
 
               <button
+                type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition cursor-pointer"
+                title="Cerrar modal (Esc)"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleCreateTransfer} className="space-y-4 text-xs">
+            <form onSubmit={handleCreateTransfer} className="flex-1 flex flex-col overflow-hidden min-h-0">
               
-              {/* ── PASO 1: SELECCIÓN DE RUTA (ORIGEN Y DESTINO) ── */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-2xl">
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                    1. Bodega Origen (Desde donde sale) *
-                  </label>
-                  <select
-                    value={sourceWarehouseId}
-                    onChange={(e) => setSourceWarehouseId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    {warehouses.map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
-                      </option>
-                    ))}
-                  </select>
+              {/* Cuerpo del Formulario (Scrolleable en caso de pantallas pequeñas) */}
+              <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs">
+
+                {/* ── PASO 1: SELECCIÓN DE RUTA (ORIGEN Y DESTINO) ── */}
+                <div className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
+                    <div>
+                      <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        1. Bodega Origen (Salida de Material) *
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={sourceWarehouseId}
+                          onChange={(e) => setSourceWarehouseId(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-sky-500 shadow-xs appearance-none pr-8 cursor-pointer truncate"
+                        >
+                          {warehouses.map(w => (
+                            <option key={w.id} value={w.id}>
+                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <ChevronDown className="w-4 h-4" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-300 mb-1.5">
+                        <span className="w-2 h-2 rounded-full bg-sky-500"></span>
+                        2. Bodega Destino (Recepción) *
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={destinationWarehouseId}
+                          onChange={(e) => setDestinationWarehouseId(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-sky-500 shadow-xs appearance-none pr-8 cursor-pointer truncate"
+                        >
+                          {warehouses.filter(w => w.id !== sourceWarehouseId).map(w => (
+                            <option key={w.id} value={w.id}>
+                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                          <ChevronDown className="w-4 h-4" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                    2. Bodega Destino (Hacia dónde va) *
-                  </label>
-                  <select
-                    value={destinationWarehouseId}
-                    onChange={(e) => setDestinationWarehouseId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-slate-900 dark:text-white font-bold outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    {warehouses.filter(w => w.id !== sourceWarehouseId).map(w => (
-                      <option key={w.id} value={w.id}>
-                        {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                {/* ── PASO 2: SELECCIÓN DE MATERIAL DEL ORIGEN ── */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                        Materiales Disponibles en Origen
+                      </span>
+                      {loadingOriginStock && <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-500" />}
+                    </div>
 
-              {/* ── PASO 2: SELECCIÓN DE MATERIAL DEL ORIGEN (EL CARRITO) ── */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-800 dark:text-slate-200">
-                      Materiales Disponibles en Origen
+                    <span className="font-mono text-xs font-bold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950 px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800">
+                      {totalCartCount} ítem(s) en orden
                     </span>
-                    {loadingOriginStock && <RefreshCw className="w-3.5 h-3.5 animate-spin text-sky-500" />}
                   </div>
 
-                  <span className="font-mono text-xs font-bold text-sky-600 dark:text-sky-400 bg-sky-50 dark:bg-sky-950 px-2.5 py-1 rounded-lg border border-sky-200 dark:border-sky-800">
-                    {totalCartCount} ítem(s) en orden
+                  {/* Subpestañas por naturaleza */}
+                  <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/70 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTabMaterial('serialized')}
+                      className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        activeTabMaterial === 'serialized'
+                          ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      <Cpu className="w-3.5 h-3.5" />
+                      <span>Equipos Seriados ({originStock.serializedItems.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTabMaterial('batched')}
+                      className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        activeTabMaterial === 'batched'
+                          ? 'bg-white dark:bg-slate-900 text-amber-600 dark:text-amber-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      <Disc className="w-3.5 h-3.5" />
+                      <span>Bobinas / Cable ({originStock.batchItems.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveTabMaterial('bulk')}
+                      className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        activeTabMaterial === 'bulk'
+                          ? 'bg-white dark:bg-slate-900 text-sky-600 dark:text-sky-400 shadow-xs'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                      }`}
+                    >
+                      <Boxes className="w-3.5 h-3.5" />
+                      <span>Granel ({originStock.bulkStocks.length})</span>
+                    </button>
+                  </div>
+
+                  {/* TAB 1: EQUIPOS SERIADOS */}
+                  {activeTabMaterial === 'serialized' && (
+                    <div className="space-y-2.5">
+                      {/* Escaneo Rápido con Pistola */}
+                      <div className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <QrCode className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                          <input
+                            type="text"
+                            placeholder="Escanear MAC o Serial para auto-seleccionar..."
+                            value={scanMacInput}
+                            onChange={(e) => setScanMacInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleFastScanMac(e);
+                              }
+                            }}
+                            className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-slate-900 dark:text-white font-mono uppercase outline-none focus:ring-2 focus:ring-sky-500"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleFastScanMac}
+                          className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white font-bold text-xs transition cursor-pointer shadow-xs"
+                        >
+                          Marcar
+                        </button>
+                      </div>
+
+                      {originStock.serializedItems.length === 0 ? (
+                        <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400">
+                          <Package className="w-8 h-8 mx-auto mb-1.5 opacity-40" />
+                          <p className="font-semibold">No hay equipos seriados disponibles en la bodega de origen.</p>
+                        </div>
+                      ) : (
+                        <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-900 shadow-xs">
+                          {/* Encabezado de Columnas */}
+                          <div className="grid grid-cols-12 gap-2 px-3.5 py-2 bg-slate-100/90 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider items-center">
+                            <div className="col-span-1 flex items-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedSerializedIds.length === originStock.serializedItems.length && originStock.serializedItems.length > 0}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSerializedIds(originStock.serializedItems.map(i => i.id));
+                                  } else {
+                                    setSelectedSerializedIds([]);
+                                  }
+                                }}
+                                className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                                title="Seleccionar todos"
+                              />
+                            </div>
+                            <div className="col-span-4">Equipo / Modelo</div>
+                            <div className="col-span-3">Dirección MAC</div>
+                            <div className="col-span-3">Número de Serie (S/N)</div>
+                            <div className="col-span-1 text-right">Estado</div>
+                          </div>
+
+                          {/* Lista scrolleable con altura máxima controlada */}
+                          <div className="max-h-52 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/80">
+                            {originStock.serializedItems.map(item => {
+                              const isChecked = selectedSerializedIds.includes(item.id);
+                              const hasValidMac = item.macAddress && item.macAddress.trim().length > 3;
+                              const productName = item.product?.name || item.model || 'Equipo ISP';
+                              const brand = item.brand || item.product?.brand || '';
+
+                              return (
+                                <label
+                                  key={item.id}
+                                  className={`grid grid-cols-12 gap-2 items-center px-3.5 py-2.5 cursor-pointer transition text-xs select-none ${
+                                    isChecked
+                                      ? 'bg-sky-50/90 dark:bg-sky-950/60 text-sky-950 dark:text-sky-100'
+                                      : 'hover:bg-slate-50/80 dark:hover:bg-slate-800/50 text-slate-800 dark:text-slate-300'
+                                  }`}
+                                >
+                                  <div className="col-span-1 flex items-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setSelectedSerializedIds(prev => [...prev, item.id]);
+                                        } else {
+                                          setSelectedSerializedIds(prev => prev.filter(id => id !== item.id));
+                                        }
+                                      }}
+                                      className="w-3.5 h-3.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                                    />
+                                  </div>
+
+                                  <div className="col-span-4 flex items-center gap-2 min-w-0">
+                                    <div className={`p-1.5 rounded-lg shrink-0 ${isChecked ? 'bg-sky-200/70 text-sky-800 dark:bg-sky-900 dark:text-sky-300' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'}`}>
+                                      <Cpu className="w-3.5 h-3.5" />
+                                    </div>
+                                    <div className="min-w-0">
+                                      <p className="font-bold truncate text-slate-900 dark:text-white leading-tight">
+                                        {productName}
+                                      </p>
+                                      {brand && (
+                                        <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">
+                                          {brand}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  <div className="col-span-3 min-w-0">
+                                    {hasValidMac ? (
+                                      <span className="font-mono font-bold text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 inline-block truncate max-w-full">
+                                        {item.macAddress}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-slate-400 italic">
+                                        Sin MAC
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="col-span-3 min-w-0">
+                                    <span className="font-mono font-bold text-[11px] text-sky-700 dark:text-sky-400 truncate block">
+                                      {item.serialNumber || 'S/N N/A'}
+                                    </span>
+                                  </div>
+
+                                  <div className="col-span-1 text-right">
+                                    <span className="inline-block text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-200/60 dark:border-emerald-800/60">
+                                      Stock
+                                    </span>
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 2: BOBINAS / CABLE */}
+                  {activeTabMaterial === 'batched' && (
+                    <div>
+                      {originStock.batchItems.length === 0 ? (
+                        <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400">
+                          <Disc className="w-8 h-8 mx-auto mb-1.5 opacity-40" />
+                          <p className="font-semibold">No hay bobinas de cable drop disponibles en la bodega de origen.</p>
+                        </div>
+                      ) : (
+                        <div className="max-h-52 overflow-y-auto space-y-1.5 p-1 bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-slate-700 rounded-xl">
+                          {originStock.batchItems.map(batch => {
+                            const isChecked = selectedBatchIds.includes(batch.id);
+                            return (
+                              <label
+                                key={batch.id}
+                                className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition text-xs select-none ${
+                                  isChecked
+                                    ? 'bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-950 dark:text-amber-100 font-medium'
+                                    : 'hover:bg-white dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300 border border-transparent'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setSelectedBatchIds(prev => [...prev, batch.id]);
+                                      } else {
+                                        setSelectedBatchIds(prev => prev.filter(id => id !== batch.id));
+                                      }
+                                    }}
+                                    className="w-3.5 h-3.5 rounded text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                  />
+                                  <div className="p-1.5 rounded-md bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+                                    <Disc className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div>
+                                    <span className="font-mono font-bold">{batch.batchNumber}</span>
+                                    <span className="text-slate-500 dark:text-slate-400 ml-1.5">({batch.product?.name || 'Cable Drop'})</span>
+                                  </div>
+                                </div>
+                                <span className="font-mono font-bold text-amber-700 dark:text-amber-300 bg-amber-100/70 dark:bg-amber-950 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-800">
+                                  {batch.currentQuantity} {batch.unitOfMeasure}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* TAB 3: MATERIAL A GRANEL */}
+                  {activeTabMaterial === 'bulk' && (
+                    <div>
+                      {originStock.bulkStocks.length === 0 ? (
+                        <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400">
+                          <Boxes className="w-8 h-8 mx-auto mb-1.5 opacity-40" />
+                          <p className="font-semibold">No hay materiales a granel disponibles en esta bodega.</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-1">
+                          {originStock.bulkStocks.map(stock => {
+                            const maxQty = stock.quantity;
+                            const currentVal = selectedBulkQuantities[stock.productId] || '';
+
+                            return (
+                              <div
+                                key={stock.id}
+                                className="p-3 bg-white dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-2 text-xs shadow-xs"
+                              >
+                                <div className="truncate flex items-center gap-2">
+                                  <div className="p-1.5 rounded-lg bg-sky-100 text-sky-700 dark:bg-sky-950 dark:text-sky-300 shrink-0">
+                                    <Boxes className="w-3.5 h-3.5" />
+                                  </div>
+                                  <div className="truncate">
+                                    <p className="font-bold text-slate-900 dark:text-white truncate">{stock.product?.name}</p>
+                                    <p className="text-[11px] text-slate-400">
+                                      Disp: <strong className="text-slate-700 dark:text-slate-300">{maxQty} {stock.product?.unitOfMeasure}</strong>
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={maxQty}
+                                  placeholder="0"
+                                  value={currentVal}
+                                  onChange={(e) => {
+                                    const val = Math.min(maxQty, Math.max(0, Number(e.target.value)));
+                                    setSelectedBulkQuantities(prev => ({
+                                      ...prev,
+                                      [stock.productId]: val
+                                    }));
+                                  }}
+                                  className="w-20 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-right font-mono font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500"
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                </div>
+
+                {/* Observaciones y Entrega Inmediata */}
+                <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
+                      Observaciones / No. de Guía
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ej. Carga de reposición para cuadrilla #2 de David"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500"
+                    />
+                  </div>
+
+                  <label className="flex items-center gap-2 cursor-pointer pt-1 text-slate-700 dark:text-slate-300 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={directReceive}
+                      onChange={(e) => setDirectReceive(e.target.checked)}
+                      className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                    />
+                    <span>Recepción Inmediata (Marcar como RECIBIDO automáticamente en el destino)</span>
+                  </label>
+                </div>
+
+              </div>
+
+              {/* Footer Fijo con Acciones */}
+              <div className="flex items-center justify-between px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
+                    Total a trasladar:
+                  </span>
+                  <span className="font-mono text-xs font-black px-2.5 py-1 rounded-lg bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300 border border-sky-200 dark:border-sky-800">
+                    {totalCartCount} ítem(s)
                   </span>
                 </div>
 
-                {/* Subpestañas por naturaleza */}
-                <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <div className="flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={() => setActiveTabMaterial('serialized')}
-                    className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition ${
-                      activeTabMaterial === 'serialized'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 font-semibold text-xs transition cursor-pointer"
                   >
-                    <Cpu className="w-3.5 h-3.5" />
-                    <span>Equipos Seriados ({originStock.serializedItems.length})</span>
+                    Cancelar
                   </button>
-
                   <button
-                    type="button"
-                    onClick={() => setActiveTabMaterial('batched')}
-                    className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition ${
-                      activeTabMaterial === 'batched'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
+                    type="submit"
+                    disabled={isSubmitting || totalCartCount === 0}
+                    className="px-5 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold text-xs shadow-md active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
                   >
-                    <Disc className="w-3.5 h-3.5" />
-                    <span>Bobinas / Cable ({originStock.batchItems.length})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setActiveTabMaterial('bulk')}
-                    className={`flex-1 py-1.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 transition ${
-                      activeTabMaterial === 'bulk'
-                        ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  >
-                    <Boxes className="w-3.5 h-3.5" />
-                    <span>Granel ({originStock.bulkStocks.length})</span>
+                    {isSubmitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Procesar Traslado ({totalCartCount} ítems)</span>
                   </button>
                 </div>
-
-                {/* TAB 1: EQUIPOS SERIADOS */}
-                {activeTabMaterial === 'serialized' && (
-                  <div className="space-y-3">
-                    {/* Escaneo Rápido con Pistola */}
-                    <div className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <QrCode className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                        <input
-                          type="text"
-                          placeholder="Escanear MAC o Serial para auto-seleccionar..."
-                          value={scanMacInput}
-                          onChange={(e) => setScanMacInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              handleFastScanMac(e);
-                            }
-                          }}
-                          className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-900 dark:text-white font-mono uppercase outline-none focus:ring-2 focus:ring-sky-500"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleFastScanMac}
-                        className="px-3 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white font-bold text-xs transition"
-                      >
-                        Marcar
-                      </button>
-                    </div>
-
-                    {/* Lista con Checkboxes */}
-                    {originStock.serializedItems.length === 0 ? (
-                      <p className="p-4 text-center text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                        No hay equipos seriados disponibles en la bodega de origen.
-                      </p>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto space-y-1 p-2 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl">
-                        {originStock.serializedItems.map(item => {
-                          const isChecked = selectedSerializedIds.includes(item.id);
-                          return (
-                            <label
-                              key={item.id}
-                              className={`flex items-center gap-2.5 p-2 rounded-lg cursor-pointer transition text-xs ${
-                                isChecked
-                                  ? 'bg-sky-100/70 dark:bg-sky-950/70 border border-sky-300 dark:border-sky-800 text-sky-900 dark:text-sky-200'
-                                  : 'hover:bg-white dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300'
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedSerializedIds(prev => [...prev, item.id]);
-                                  } else {
-                                    setSelectedSerializedIds(prev => prev.filter(id => id !== item.id));
-                                  }
-                                }}
-                                className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
-                              />
-                              <span className="font-mono font-bold">{item.macAddress}</span>
-                              <span className="text-slate-500">({item.product?.name || item.brand || 'ONU'})</span>
-                              <span className="font-mono text-slate-400 ml-auto">{item.serialNumber}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* TAB 2: BOBINAS / CABLE */}
-                {activeTabMaterial === 'batched' && (
-                  <div>
-                    {originStock.batchItems.length === 0 ? (
-                      <p className="p-4 text-center text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                        No hay bobinas de cable drop disponibles en la bodega de origen.
-                      </p>
-                    ) : (
-                      <div className="max-h-48 overflow-y-auto space-y-1.5 p-2 bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 rounded-xl">
-                        {originStock.batchItems.map(batch => {
-                          const isChecked = selectedBatchIds.includes(batch.id);
-                          return (
-                            <label
-                              key={batch.id}
-                              className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition text-xs ${
-                                isChecked
-                                  ? 'bg-amber-100/70 dark:bg-amber-950/70 border border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200'
-                                  : 'hover:bg-white dark:hover:bg-slate-800 text-slate-800 dark:text-slate-300'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <input
-                                  type="checkbox"
-                                  checked={isChecked}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedBatchIds(prev => [...prev, batch.id]);
-                                    } else {
-                                      setSelectedBatchIds(prev => prev.filter(id => id !== batch.id));
-                                    }
-                                  }}
-                                  className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
-                                />
-                                <div>
-                                  <span className="font-mono font-bold">{batch.batchNumber}</span>
-                                  <span className="text-slate-500 ml-1.5">({batch.product?.name || 'Cable Drop'})</span>
-                                </div>
-                              </div>
-                              <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
-                                {batch.currentQuantity} {batch.unitOfMeasure}
-                              </span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* TAB 3: MATERIAL A GRANEL */}
-                {activeTabMaterial === 'bulk' && (
-                  <div>
-                    {originStock.bulkStocks.length === 0 ? (
-                      <p className="p-4 text-center text-slate-400 italic bg-slate-50 dark:bg-slate-800/40 rounded-xl">
-                        No hay materiales a granel con stock disponible en esta bodega.
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1">
-                        {originStock.bulkStocks.map(stock => {
-                          const maxQty = stock.quantity;
-                          const currentVal = selectedBulkQuantities[stock.productId] || '';
-
-                          return (
-                            <div
-                              key={stock.id}
-                              className="p-2.5 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-xl flex items-center justify-between gap-2 text-xs"
-                            >
-                              <div className="truncate">
-                                <p className="font-bold text-slate-900 dark:text-white truncate">{stock.product?.name}</p>
-                                <p className="text-[11px] text-slate-400">
-                                  Disp: <strong className="text-slate-700 dark:text-slate-300">{maxQty} {stock.product?.unitOfMeasure}</strong>
-                                </p>
-                              </div>
-
-                              <input
-                                type="number"
-                                min="0"
-                                max={maxQty}
-                                placeholder="0"
-                                value={currentVal}
-                                onChange={(e) => {
-                                  const val = Math.min(maxQty, Math.max(0, Number(e.target.value)));
-                                  setSelectedBulkQuantities(prev => ({
-                                    ...prev,
-                                    [stock.productId]: val
-                                  }));
-                                }}
-                                className="w-20 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1 text-right font-mono font-bold text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500"
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-              </div>
-
-              {/* Observaciones y Entrega Inmediata */}
-              <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <div>
-                  <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">
-                    Observaciones / No. de Guía
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Ej. Carga de reposición para cuadrilla #2 de David"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-
-                <label className="flex items-center gap-2 cursor-pointer pt-1 text-slate-700 dark:text-slate-300 font-medium">
-                  <input
-                    type="checkbox"
-                    checked={directReceive}
-                    onChange={(e) => setDirectReceive(e.target.checked)}
-                    className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500"
-                  />
-                  <span>Recepción Inmediata (Marcar como RECIBIDO automáticamente en el destino)</span>
-                </label>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2.5 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting || totalCartCount === 0}
-                  className="px-5 py-2.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white font-bold shadow-md active:scale-95 transition-all flex items-center gap-2"
-                >
-                  {isSubmitting && <RefreshCw className="w-4 h-4 animate-spin" />}
-                  <span>Procesar Traslado ({totalCartCount} ítems)</span>
-                </button>
               </div>
 
             </form>

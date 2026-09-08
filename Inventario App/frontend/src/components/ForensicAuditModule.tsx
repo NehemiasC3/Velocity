@@ -24,8 +24,8 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
-  // Estado para la Trazabilidad Forense (MAC Timeline)
-  const [query, setQuery] = useState(initialSearch || 'F4:8E:38:00:AA:11');
+  // Estado para la Trazabilidad Forense (Serial / MAC Timeline)
+  const [query, setQuery] = useState(initialSearch || 'VSOL00F24A12');
   const [timelineLoading, setTimelineLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [result, setResult] = useState<{
@@ -36,10 +36,10 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
   } | null>(null);
 
   const demoSuggestions = [
-    { label: 'ONU Instalada en Cliente (Wispro OK)', mac: 'F4:8E:38:00:AA:11' },
-    { label: 'ONU en Camioneta 01 (Carlos)', mac: 'F4:8E:38:1A:4C:90' },
-    { label: 'ONU en Bodega Central', mac: 'F4:8E:38:3C:99:01' },
-    { label: 'ONU en Garantía RMA', mac: '78:D6:F0:11:22:33' }
+    { label: 'ONU Instalada (Serial)', val: 'VSOL00F24A12' },
+    { label: 'ONU en Camioneta (Serial)', val: 'ZTE45465648' },
+    { label: 'ONU por MAC', val: 'F4:8E:38:00:AA:11' },
+    { label: 'ONU en Bodega', val: 'F4:8E:38:3C:99:01' }
   ];
 
   // Cargar logs de auditoría para la Data Table
@@ -66,7 +66,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
     fetchAuditLogs();
   }, [eventTypeFilter, dateFrom, dateTo]);
 
-  // Búsqueda de MAC individual para la línea de tiempo
+  // Búsqueda de Serial o MAC individual para la línea de tiempo
   const handleTimelineSearch = async (targetQuery?: string) => {
     const q = (targetQuery || query).trim();
     if (!q) return;
@@ -78,7 +78,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
       setResult(res);
       setActiveView('timeline');
     } catch (err) {
-      console.error('Error buscando MAC:', err);
+      console.error('Error buscando serial/MAC:', err);
     } finally {
       setTimelineLoading(false);
     }
@@ -118,6 +118,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
         return <Package className="w-4 h-4 text-purple-500" />;
       case 'DESPACHO_TRASLADO':
       case 'RECEPCION_TRASLADO':
+      case 'CARGA_VEHICULO':
         return <Truck className="w-4 h-4 text-sky-500" />;
       case 'INSTALACION_CLIENTE':
         return <Wifi className="w-4 h-4 text-emerald-500" />;
@@ -140,7 +141,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
             <span>Módulo de Auditoría Forense & Trazabilidad</span>
           </h2>
           <p className="text-xs sm:text-sm text-slate-500">
-            Registro inmutable de movimientos, despachos, liquidaciones y custodia de materiales de Rappido Panamá.
+            Registro inmutable de movimientos, seriales, despachos, liquidaciones y custodia de materiales de Rappido Panamá.
           </p>
         </div>
 
@@ -167,7 +168,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
             }`}
           >
             <Clock className="w-3.5 h-3.5" />
-            <span>Línea de Tiempo MAC</span>
+            <span>Línea de Tiempo Serial</span>
           </button>
         </div>
       </div>
@@ -185,7 +186,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                 <input
                   type="text"
-                  placeholder="Buscar MAC, Serial, Detalle..."
+                  placeholder="Buscar Serial (S/N), MAC, Detalle..."
                   value={freeTextSearch}
                   onChange={(e) => setFreeTextSearch(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && fetchAuditLogs()}
@@ -257,7 +258,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                   <tr>
                     <th className="py-3 px-4">Fecha & Hora</th>
                     <th className="py-3 px-4">Evento</th>
-                    <th className="py-3 px-4">MAC / Serial / Bobina</th>
+                    <th className="py-3 px-4">Serial (S/N) / MAC</th>
                     <th className="py-3 px-4">Usuario Responsable</th>
                     <th className="py-3 px-4">Origen &rarr; Destino</th>
                     <th className="py-3 px-4">Detalles Técnicos</th>
@@ -279,70 +280,88 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                       </td>
                     </tr>
                   ) : (
-                    logs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
-                        
-                        {/* Fecha */}
-                        <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
-                          {new Date(log.timestamp).toLocaleString([], {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </td>
+                    logs.map((log) => {
+                      const primaryIdentifier = log.serialNumber || log.macAddress || log.batchNumber;
+                      return (
+                        <tr key={log.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition">
+                          
+                          {/* Fecha */}
+                          <td className="py-3 px-4 font-mono text-[11px] text-slate-500 whitespace-nowrap">
+                            {new Date(log.timestamp).toLocaleString([], {
+                              year: 'numeric',
+                              month: '2-digit',
+                              day: '2-digit',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </td>
 
-                        {/* Evento */}
-                        <td className="py-3 px-4">
-                          <span className={`inline-flex items-center gap-1 font-mono font-bold text-[10px] px-2 py-0.5 rounded-md border ${getEventBadge(log.eventType)}`}>
-                            {log.eventType}
-                          </span>
-                        </td>
+                          {/* Evento */}
+                          <td className="py-3 px-4">
+                            <span className={`inline-flex items-center gap-1 font-mono font-bold text-[10px] px-2 py-0.5 rounded-md border ${getEventBadge(log.eventType)}`}>
+                              {log.eventType}
+                            </span>
+                          </td>
 
-                        {/* Hardware Target */}
-                        <td className="py-3 px-4 font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {log.macAddress || log.serialNumber || log.batchNumber || '—'}
-                        </td>
+                          {/* Hardware Target con Prioridad a Serial */}
+                          <td className="py-3 px-4 font-mono">
+                            {log.serialNumber ? (
+                              <div>
+                                <span className="font-bold text-slate-800 dark:text-slate-200 block text-xs">
+                                  {log.serialNumber}
+                                </span>
+                                {log.macAddress && (
+                                  <span className="text-[10px] text-slate-400 block">
+                                    MAC: {log.macAddress}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="font-bold text-slate-700 dark:text-slate-300">
+                                {log.macAddress || log.batchNumber || '—'}
+                              </span>
+                            )}
+                          </td>
 
-                        {/* Usuario */}
-                        <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
-                          {log.user?.name || log.userName || 'Sistema'}
-                        </td>
+                          {/* Usuario */}
+                          <td className="py-3 px-4 font-medium text-slate-700 dark:text-slate-300">
+                            {log.user?.name || log.userName || 'Sistema'}
+                          </td>
 
-                        {/* Bodegas */}
-                        <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
-                          {log.fromWarehouse?.name || log.fromWarehouseName ? (
-                            <span>{log.fromWarehouse?.name || log.fromWarehouseName} &rarr; </span>
-                          ) : null}
-                          <strong>{log.toWarehouse?.name || log.toWarehouseName || '—'}</strong>
-                        </td>
+                          {/* Bodegas */}
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-400">
+                            {log.fromWarehouse?.name || log.fromWarehouseName ? (
+                              <span>{log.fromWarehouse?.name || log.fromWarehouseName} &rarr; </span>
+                            ) : null}
+                            <strong>{log.toWarehouse?.name || log.toWarehouseName || '—'}</strong>
+                          </td>
 
-                        {/* Detalles */}
-                        <td className="py-3 px-4 text-slate-600 dark:text-slate-300 max-w-xs truncate" title={log.details}>
-                          {log.details}
-                        </td>
+                          {/* Detalles */}
+                          <td className="py-3 px-4 text-slate-600 dark:text-slate-300 max-w-xs truncate" title={log.details}>
+                            {log.details}
+                          </td>
 
-                        {/* Botón Ver Forense */}
-                        <td className="py-3 px-4 text-center">
-                          {log.macAddress ? (
-                            <button
-                              onClick={() => {
-                                setQuery(log.macAddress);
-                                handleTimelineSearch(log.macAddress);
-                              }}
-                              className="inline-flex items-center gap-1 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-sky-600 dark:text-sky-400 font-bold px-2 py-1 rounded-md text-[11px] transition"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>Timeline</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-300 dark:text-slate-600">—</span>
-                          )}
-                        </td>
+                          {/* Botón Ver Forense */}
+                          <td className="py-3 px-4 text-center">
+                            {primaryIdentifier ? (
+                              <button
+                                onClick={() => {
+                                  setQuery(primaryIdentifier);
+                                  handleTimelineSearch(primaryIdentifier);
+                                }}
+                                className="inline-flex items-center gap-1 bg-sky-50 hover:bg-sky-100 dark:bg-sky-950/40 dark:hover:bg-sky-900/60 text-sky-600 dark:text-sky-400 font-bold px-2 py-1 rounded-md text-[11px] transition"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Timeline</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 dark:text-slate-600">—</span>
+                            )}
+                          </td>
 
-                      </tr>
-                    ))
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -352,7 +371,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
         </div>
       )}
 
-      {/* VISTA 2: TRAZABILIDAD FORENSE POR MAC (TIMELINE) */}
+      {/* VISTA 2: TRAZABILIDAD FORENSE POR SERIAL / MAC (TIMELINE) */}
       {activeView === 'timeline' && (
         <div className="space-y-6">
           
@@ -363,7 +382,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                 <Search className="w-5 h-5 text-sky-500 absolute left-3.5 top-3.5" />
                 <input
                   type="text"
-                  placeholder="Ingresa la MAC Address (ej. F4:8E:38:00:AA:11) o Número de Serie..."
+                  placeholder="Ingresa el Número de Serie (ej. VSOL00F24A12) o MAC Address..."
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-slate-900 dark:text-white font-mono focus:ring-2 focus:ring-sky-500 focus:outline-none"
@@ -375,7 +394,7 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                 className="bg-sky-600 hover:bg-sky-700 text-white font-bold text-xs sm:text-sm px-6 py-3 rounded-xl transition shadow-md shadow-sky-900/20 flex items-center justify-center gap-2"
               >
                 <Search className="w-4 h-4" />
-                <span>{timelineLoading ? 'Consultando...' : 'Auditar MAC'}</span>
+                <span>{timelineLoading ? 'Consultando...' : 'Auditar Serial / Equipo'}</span>
               </button>
             </form>
 
@@ -387,12 +406,12 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
                   key={idx}
                   type="button"
                   onClick={() => {
-                    setQuery(s.mac);
-                    handleTimelineSearch(s.mac);
+                    setQuery(s.val);
+                    handleTimelineSearch(s.val);
                   }}
                   className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-sky-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-mono border border-slate-200 dark:border-slate-700 transition"
                 >
-                  <strong>{s.label}:</strong> {s.mac}
+                  <strong>{s.label}:</strong> {s.val}
                 </button>
               ))}
             </div>
@@ -433,12 +452,12 @@ export const ForensicAuditModule: React.FC<ForensicAuditModuleProps> = ({ initia
 
                       <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800 text-xs">
                         <div className="flex justify-between">
-                          <span className="text-slate-400">MAC Address:</span>
-                          <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{result.item?.macAddress}</span>
+                          <span className="text-slate-400">Número de Serie:</span>
+                          <span className="font-mono font-bold text-sky-600 dark:text-sky-400">{result.item?.serialNumber}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400">Número de Serie:</span>
-                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">{result.item?.serialNumber}</span>
+                          <span className="text-slate-400">MAC Address:</span>
+                          <span className="font-mono text-slate-700 dark:text-slate-300">{result.item?.macAddress || '—'}</span>
                         </div>
                         <div className="flex justify-between">
                           <span className="text-slate-400">Tipo de Hardware:</span>

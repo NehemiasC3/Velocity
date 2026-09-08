@@ -76,8 +76,8 @@ export const ForensicSearch: React.FC = () => {
               {result.item && (
                 <div className="bg-slate-900/70 p-4 rounded-xl border border-slate-700 grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">
                   <div><strong className="block text-slate-400">Equipo</strong>{result.item.brand} {result.item.model}</div>
-                  <div><strong className="block text-slate-400">MAC</strong><span className="font-mono">{result.item.macAddress}</span></div>
-                  <div><strong className="block text-slate-400">Serial</strong><span className="font-mono">{result.item.serialNumber}</span></div>
+                  <div><strong className="block text-slate-400">Serial (S/N)</strong><span className="font-mono font-bold text-sky-400">{result.item.serialNumber}</span></div>
+                  <div><strong className="block text-slate-400">MAC</strong><span className="font-mono text-slate-300">{result.item.macAddress}</span></div>
                   <div><strong className="block text-slate-400">Estado Actual</strong><span className={`font-bold ${result.item.status === 'INSTALADO_CLIENTE' ? 'text-green-400' : 'text-yellow-400'}`}>{result.item.status.replace(/_/g, ' ')}</span></div>
                   {result.item.installedClientName && (
                      <div className="col-span-full"><strong className="block text-slate-400">Ubicación Actual</strong>{result.item.currentWarehouseName}</div>

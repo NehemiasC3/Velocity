@@ -150,9 +150,9 @@
             // Si ya existe sesión activa válida, redirigir automáticamente
             const token = sessionStorage.getItem('Velocity_Token') || localStorage.getItem('Velocity_Token');
             const role = String(sessionStorage.getItem('Velocity_Role') || localStorage.getItem('Velocity_Role') || '').toLowerCase();
-            const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
+            const adminRoles = ['supervisor', 'admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'admin_bodega', 'supervisor_mesa'];
             if (token && role && !window.location.search.includes('logout')) {
-                const destination = adminRoles.includes(role) ? '/supervisor' : '/technician';
+                const destination = (adminRoles.includes(role) || role.includes('admin') || role.includes('dev')) ? '/supervisor' : '/technician';
                 console.log('[Velocity Auth] Sesión existente detectada, redirigiendo a:', destination);
                 window.location.replace(destination);
             }
@@ -222,8 +222,9 @@
                     localStorage.setItem('Velocity_User_Name', data.name);
                     
                     // Redirigir según el rol devuelto por el servidor con rutas limpias
-                    const adminRoles = ['supervisor', 'admin', 'superadmin', 'admin_bodega', 'supervisor_mesa'];
-                    const destination = adminRoles.includes(String(data.role).toLowerCase()) ? '/supervisor' : '/technician';
+                    const adminRoles = ['supervisor', 'admin', 'superadmin', 'developer', 'desarrollador', 'dev', 'admin_bodega', 'supervisor_mesa'];
+                    const userRole = String(data.role || '').toLowerCase();
+                    const destination = (adminRoles.includes(userRole) || userRole.includes('admin') || userRole.includes('dev')) ? '/supervisor' : '/technician';
                     console.log('[Velocity Auth] Login exitoso para rol:', data.role, '-> Redirigiendo a:', destination);
                     
                     if (btn) {

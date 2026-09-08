@@ -59,4 +59,12 @@ export interface DatabaseState {
   napOverrides: Record<string, NapOverride>;
   trackedNaps: TrackedNap[];
   settings: SystemSettings;
+  alerts?: Array<{
+    id: string;
+    message: string;
+    type: string;
+    details?: any;
+    timestamp: string;
+    read: boolean;
+  }>;
 }

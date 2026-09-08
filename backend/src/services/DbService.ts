@@ -129,7 +129,23 @@ export class DbService {
     if (newData.napOverrides) db.napOverrides = newData.napOverrides;
     if (newData.trackedNaps) db.trackedNaps = newData.trackedNaps;
     if (newData.settings) db.settings = { ...db.settings, ...newData.settings };
+    if (newData.alerts) db.alerts = newData.alerts;
 
+    this.persistDB();
+  }
+
+  public addAlert(alert: { message: string; type?: string; details?: any }): void {
+    const db = this.getDB();
+    if (!db.alerts) db.alerts = [];
+    db.alerts.unshift({
+      id: `alt-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      message: alert.message,
+      type: alert.type || 'warning',
+      details: alert.details,
+      timestamp: new Date().toISOString(),
+      read: false
+    });
+    if (db.alerts.length > 100) db.alerts = db.alerts.slice(0, 100);
     this.persistDB();
   }
 

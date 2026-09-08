@@ -3,6 +3,34 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.inventoryService = exports.InventoryService = void 0;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
+async function getOrCreateSystemUser(preferredId) {
+    if (preferredId) {
+        const existing = await db_1.prisma.user.findUnique({ where: { id: preferredId } });
+        if (existing)
+            return existing.id;
+    }
+    const admin = await db_1.prisma.user.findFirst({
+        where: { role: client_1.Role.SUPERADMIN }
+    }) || await db_1.prisma.user.findFirst();
+    if (admin)
+        return admin.id;
+    try {
+        const created = await db_1.prisma.user.create({
+            data: {
+                name: 'Administrador del Sistema',
+                email: 'admin@velocity.com',
+                role: client_1.Role.SUPERADMIN
+            }
+        });
+        return created.id;
+    }
+    catch (err) {
+        const fallback = await db_1.prisma.user.findFirst();
+        if (fallback)
+            return fallback.id;
+        throw err;
+    }
+}
 class InventoryService {
     /**
      * Obtiene resumen global para el Dashboard Admin usando Prisma
@@ -134,15 +162,22 @@ class InventoryService {
         if (!destinationWarehouse) {
             throw new Error('Bodega de destino no encontrada');
         }
-        let defaultUserId = createdById;
-        if (!defaultUserId) {
-            const u = await db_1.prisma.user.findFirst();
-            defaultUserId = u?.id || 'usr-system';
-        }
+        const defaultUserId = await getOrCreateSystemUser(createdById);
+        const destinationCustodianId = destinationWarehouse.managerId || defaultUserId;
         // ─────────────────────────────────────────────────────────────
         // EJECUCIÓN 100% TRANSACCIONAL CON BARRERA DE PROTECCIÓN (ZERO CORRUPCIÓN)
         // ─────────────────────────────────────────────────────────────
         return await db_1.prisma.$transaction(async (tx) => {
+            // En nodos de prueba sin custodio, persistir el responsable temporal
+            if (!destinationWarehouse.managerId) {
+                try {
+                    await tx.warehouse.update({
+                        where: { id: destinationWarehouseId },
+                        data: { managerId: destinationCustodianId }
+                    });
+                }
+                catch (e) { }
+            }
             const sanitizedBulk = [];
             // 1. Validar y descontar material a granel
             for (const item of bulkItems) {
@@ -252,7 +287,7 @@ class InventoryService {
                     createdByUserId: defaultUserId,
                     dispatchedByUserId: defaultUserId,
                     dispatchedAt: new Date(),
-                    receivedByUserId: directReceive ? defaultUserId : null,
+                    receivedByUserId: directReceive ? destinationCustodianId : null,
                     receivedAt: directReceive ? new Date() : null,
                     notes: notes?.trim() || null,
                     items: {

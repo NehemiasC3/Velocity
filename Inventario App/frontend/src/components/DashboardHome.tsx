@@ -6,8 +6,9 @@ import {
   Flame, BarChart3, Clock, User, ShieldCheck, Camera
 } from 'lucide-react';
 import { api } from '../services/api';
-import { DashboardKPIs, AuditLog, AnalyticsKPIs } from '../types';
+import { DashboardKPIs, AuditLog, AnalyticsKPIs, CriticalStockAlert } from '../types';
 import { LiquidationModal } from './LiquidationModal';
+import { CriticalStockAlertsWidget } from './CriticalStockAlertsWidget';
 
 interface DashboardHomeProps {
   onNavigateTab: (tab: string, param?: string) => void;
@@ -43,6 +44,19 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
   useEffect(() => {
     loadData();
   }, []);
+
+  const handleDispatchAlert = (alert: CriticalStockAlert) => {
+    const transferIntent = {
+      sourceWarehouseId: alert.hubWarehouseId || undefined,
+      destinationWarehouseId: alert.warehouseId,
+      productId: alert.productId,
+      productName: alert.productName,
+      trackingType: alert.trackingType,
+      suggestedQuantity: Math.max(1, alert.deficit || alert.minStockAlert),
+      notes: `Reabastecimiento urgente: ${alert.productName} para ${alert.warehouseName} (Stock: ${alert.currentQuantity}, Mín: ${alert.minStockAlert})`
+    };
+    onNavigateTab('transfers', JSON.stringify(transferIntent));
+  };
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,6 +100,12 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
           <p className="mt-0.5 text-xs sm:text-sm text-slate-500 leading-relaxed">
             Control de hardware en bodegas, cuadrillas móviles y consumo de materiales de fibra óptica en tiempo real.
           </p>
+          {kpis?.scopedNodeName && (
+            <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs font-bold shadow-2xs">
+              <Building2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>Filtrado Activo por Nodo Regional: {kpis.scopedNodeName}</span>
+            </div>
+          )}
         </div>
 
         {/* Quick Actions & Search Box */}
@@ -139,6 +159,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
           </form>
         </div>
       </div>
+
+      {/* ── PANEL SUPERIOR DESTACADO: VEHÍCULOS / SUCURSALES CON STOCK CRÍTICO (PUNTO DE REORDEN) ── */}
+      <CriticalStockAlertsWidget
+        alerts={kpis?.criticalStockAlerts || []}
+        isLoading={loading}
+        onDispatch={handleDispatchAlert}
+        onRefresh={loadData}
+      />
 
       {/* 4 Tarjetas de Resumen Gerencial (KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -322,44 +350,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
         </div>
       )}
 
-      {/* Critical Stock Alert Banner if any */}
-      {kpis?.criticalStockAlerts && kpis.criticalStockAlerts.length > 0 && (
-        <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80 rounded-2xl p-4 shadow-xs">
-          <div className="flex items-start justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <div className="p-2 bg-amber-500 text-white rounded-xl shadow-md shrink-0">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
-                  ¡Atención! {kpis.criticalStockAlerts.length} alertas de Stock Crítico en Sucursales
-                </h4>
-                <p className="text-xs text-amber-800 dark:text-amber-300/90 mt-0.5">
-                  El inventario está por debajo del umbral mínimo de seguridad en las siguientes bodegas:
-                </p>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {kpis.criticalStockAlerts.map((alert, idx) => (
-                    <span 
-                      key={idx}
-                      className="inline-flex items-center gap-1.5 text-xs bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 text-slate-800 dark:text-slate-200 px-2.5 py-1 rounded-lg font-medium shadow-2xs"
-                    >
-                      <strong className="text-amber-700 dark:text-amber-400">{alert.warehouseName}:</strong> {alert.bulkItemName} ({alert.currentQuantity} {alert.unitOfMeasure} disponibles &lt; mín {alert.minStockAlert})
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
 
-            <button
-              onClick={() => onNavigateTab('transfers')}
-              className="shrink-0 inline-flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition shadow-xs"
-            >
-              <span>Despachar Stock</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Grid: Estado de Equipos & Actividad Reciente de Auditoría */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

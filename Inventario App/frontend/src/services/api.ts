@@ -2,8 +2,11 @@ import {
   User, Warehouse, SerializedItem, BulkItem, BulkStock, BatchItem,
   TransferOrder, InstallationTicket, AuditLog, WisproClient, 
   DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
-  UniversalSearchResults, ClientEquipmentResponse
+  UniversalSearchResults, ClientEquipmentResponse,
+  ClientAssignment, CreateAssignmentPayload,
+  WorkOrderListResponse, WorkOrderDetail, WorkOrderCompletePayload
 } from '../types';
+
 
 const API_BASE_URL = 
   import.meta.env.VITE_API_URL || 
@@ -358,7 +361,13 @@ class ApiService {
   }
 
   // Transfers (Órdenes de Traslado Hub & Spoke con Prisma)
-  public async getTransfers(params?: { warehouseId?: string; status?: string; search?: string }): Promise<{
+  public async getTransfers(params?: { 
+    warehouseId?: string; 
+    destinationWarehouseId?: string; 
+    sourceWarehouseId?: string; 
+    status?: string; 
+    search?: string 
+  }): Promise<{
     success: boolean;
     count: number;
     transfers: TransferOrder[];
@@ -407,7 +416,7 @@ class ApiService {
     });
   }
 
-  public async receiveTransfer(orderId: string): Promise<{ transfer: TransferOrder }> {
+  public async receiveTransfer(orderId: string): Promise<{ success: boolean; message?: string; transfer: TransferOrder }> {
     return this.request(`/transfers/${orderId}/receive`, {
       method: 'POST'
     });
@@ -494,13 +503,48 @@ class ApiService {
     return this.request(`/wispro/clients${query ? `?${query}` : ''}`);
   }
 
-  public async getWisproContracts(params?: { page?: number; perPage?: number | string; loadAll?: boolean }): Promise<{ success: boolean; count: number; total?: number; totalPages?: number; page?: number; perPage?: number; contracts: any[] }> {
-    const query = params ? new URLSearchParams(params as any).toString() : '';
-    return this.request(`/wispro/contracts/active${query ? `?${query}` : ''}`);
+  public async getWisproContracts(params?: { 
+    page?: number; 
+    perPage?: number | string; 
+    loadAll?: boolean;
+    search?: string;
+    filterState?: string;
+    filterSerial?: string;
+    filterNap?: string;
+    sortOrder?: string;
+    forceRefresh?: boolean;
+  }): Promise<{ 
+    success: boolean; 
+    count: number; 
+    total?: number; 
+    totalPages?: number; 
+    page?: number; 
+    perPage?: number; 
+    contracts: any[];
+    lastSyncedAt?: string | null;
+  }> {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    return this.request(`/wispro/contracts${query ? `?${query}` : ''}`);
   }
 
-  public async syncWispro(): Promise<{ success: boolean; message: string; clientsSynced: number; timestamp: string }> {
-    return this.request('/wispro/sync', {
+  public async syncWispro(options?: { force?: boolean }): Promise<{ 
+    success: boolean; 
+    message: string; 
+    count: number;
+    totalContracts?: number;
+    isIncremental?: boolean;
+    lastSyncedAt?: string;
+    reconciledItems?: any[];
+  }> {
+    return this.request(`/wispro/sync${options?.force ? '?force=true' : ''}`, {
       method: 'POST'
     });
   }
@@ -545,6 +589,43 @@ class ApiService {
     });
   }
 
+  // Client Assignments (Asignación Multi-Equipo a Contrato Wispro)
+  public async getContractAssignment(contractId: string): Promise<{ success: boolean; contractId: string; assignments: ClientAssignment[]; items: SerializedItem[] }> {
+    return this.request(`/assignments/contract/${contractId}`);
+  }
+
+  public async getAssignments(params?: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    nodeId?: string;
+    contractId?: string;
+    technicianId?: string;
+    status?: string;
+  }): Promise<{ success: boolean; data: ClientAssignment[]; pagination: { total: number; page: number; limit: number; totalPages: number } }> {
+    const query = params ? new URLSearchParams(params as any).toString() : '';
+    return this.request(`/assignments${query ? `?${query}` : ''}`);
+  }
+
+  public async createAssignment(payload: CreateAssignmentPayload): Promise<{ success: boolean; message: string; assignment: ClientAssignment }> {
+    return this.request('/assignments', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  public async unassignItem(itemId: string, data?: { returnWarehouseId?: string; returnStatus?: string; notes?: string }): Promise<{ success: boolean; message: string }> {
+    return this.request('/assignments/unassign', {
+      method: 'POST',
+      body: JSON.stringify({ itemId, ...(data || {}) })
+    });
+  }
+
+  public async searchAvailableItemsForAssignment(params?: { search?: string; warehouseId?: string; category?: string; limit?: number }): Promise<{ success: boolean; items: SerializedItem[] }> {
+    const query = params ? new URLSearchParams(params as any).toString() : '';
+    return this.request(`/assignments/available-items${query ? `?${query}` : ''}`);
+  }
+
   // Universal Search
   public async universalSearch(query: string, category: string = 'ALL'): Promise<UniversalSearchResults> {
     const params = new URLSearchParams({
@@ -564,7 +645,37 @@ class ApiService {
     }
     return response.json();
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Mesa de Órdenes (Work Orders)
+  // ──────────────────────────────────────────────────────────────────────────
+
+  public async getWorkOrders(params: Record<string, string> = {}): Promise<WorkOrderListResponse> {
+    const qs = new URLSearchParams(params).toString();
+    return this.request<WorkOrderListResponse>(`/work-orders${qs ? '?' + qs : ''}`);
+  }
+
+  public async getWorkOrderDetail(id: string): Promise<WorkOrderDetail> {
+    return this.request<WorkOrderDetail>(`/work-orders/${id}`);
+  }
+
+  public async completeWorkOrder(id: string, payload: WorkOrderCompletePayload = {}): Promise<any> {
+    return this.request<any>(`/work-orders/${id}/complete`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  public async createWorkOrder(payload: Record<string, any>): Promise<any> {
+    return this.request<any>('/work-orders', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
+  public async getRetrievalChecklist(contractId: string): Promise<any> {
+    return this.request<any>(`/work-orders/contract/${contractId}/checklist`);
+  }
 }
 
 export const api = new ApiService();
-

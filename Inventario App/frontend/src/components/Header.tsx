@@ -3,8 +3,9 @@ import { useAuth } from '../context/AuthContext';
 import { 
   Boxes, UserCheck, ShieldAlert, ShieldCheck, RefreshCw, Smartphone, 
   Layers, Search, Users, Wifi, AlertTriangle, Truck, Server,
-  PackagePlus, ArrowDownToLine, RotateCcw, LogOut
+  PackagePlus, ArrowDownToLine, RotateCcw, LogOut, Building2, ClipboardList
 } from 'lucide-react';
+
 import { api } from '../services/api';
 
 interface HeaderProps {
@@ -18,6 +19,14 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
   const { currentUser, allUsers, switchUser, logout } = useAuth();
   const [syncing, setSyncing] = useState(false);
   const [syncToast, setSyncToast] = useState<string | null>(null);
+
+  // Determinar nombre de la Bodega Activa para el indicador visual destacado
+  const activeWarehouseName = 
+    currentUser?.assignedNodeName ||
+    currentUser?.assignedNode?.name ||
+    (currentUser?.assignedNodeId === '24e48893-0a46-47f5-8a37-5de2a3d47645' ? 'Metetí' :
+     currentUser?.assignedNodeId === '52d04851-10a5-4f57-b443-c3c979d4018f' ? 'Tortí' :
+     currentUser?.assignedNodeId ? 'Sucursal Asignada' : 'Hub Central (Tocumen)');
 
   const handleWisproSync = async () => {
     try {
@@ -108,7 +117,15 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
       icon: Users,
       roleLimit: ['SUPERADMIN', 'ADMIN_BODEGA', 'SUPERVISOR_MESA', 'AUDITOR_INTERNO'] 
     },
+    { 
+      id: 'work-orders', 
+      label: 'Mesa de Órdenes', 
+      icon: ClipboardList,
+      highlight: true,
+      roleLimit: ['SUPERADMIN', 'ADMIN_BODEGA', 'SUPERVISOR_MESA', 'TECNICO'] 
+    },
   ];
+
 
   return (
     <header className="sticky top-0 z-40 bg-white text-slate-900 border-b border-slate-200 shadow-xs">
@@ -167,6 +184,27 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-blue-600' : ''}`} />
               <span>Sync Wispro</span>
             </button>
+
+            {/* Indicador Visual Destacado de Bodega Activa (Warehouse Scoping) */}
+            <div 
+              id="active-warehouse-indicator"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold shadow-xs transition-all ${
+                currentUser?.assignedNodeId
+                  ? 'bg-amber-50 border-amber-300 text-amber-900 ring-1 ring-amber-400/30'
+                  : 'bg-slate-50 border-slate-200 text-slate-700'
+              }`}
+              title={currentUser?.assignedNodeId ? `Nodo asignado activo: ${activeWarehouseName}` : 'Gestión global central'}
+            >
+              <Building2 className={`w-4 h-4 shrink-0 ${currentUser?.assignedNodeId ? 'text-amber-600' : 'text-blue-600'}`} />
+              <div className="flex flex-col text-left leading-tight">
+                <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-400">
+                  {currentUser?.assignedNodeId ? 'Nodo Regional' : 'Alcance Global'}
+                </span>
+                <span className="font-extrabold truncate max-w-[130px] sm:max-w-[170px] text-slate-900">
+                  Bodega Activa: <span className={currentUser?.assignedNodeId ? 'text-amber-700 font-black' : 'text-blue-700'}>{activeWarehouseName}</span>
+                </span>
+              </div>
+            </div>
 
             {/* Persona Switcher dropdown */}
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5">

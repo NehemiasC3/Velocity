@@ -6,10 +6,15 @@ import {
   Edit2, Trash2, Disc
 } from 'lucide-react';
 import { api } from '../services/api';
-import { Warehouse, SerializedItem, BulkItem, BulkStock, BatchItem, WarehouseType } from '../types';
+import { Warehouse, SerializedItem, BulkItem, BulkStock, BatchItem, WarehouseType, CriticalStockAlert } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { CriticalStockAlertsWidget } from './CriticalStockAlertsWidget';
 
-export const WarehousesModule: React.FC = () => {
+interface WarehousesModuleProps {
+  onNavigateTab?: (tab: string, param?: string) => void;
+}
+
+export const WarehousesModule: React.FC<WarehousesModuleProps> = ({ onNavigateTab }) => {
   const { currentUser } = useAuth();
   
   // Verificación de Rol Administrador / Supervisor
@@ -25,6 +30,7 @@ export const WarehousesModule: React.FC = () => {
   const [batchItems, setBatchItems] = useState<BatchItem[]>([]);
   const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
   const [bulkStocks, setBulkStocks] = useState<BulkStock[]>([]);
+  const [criticalAlerts, setCriticalAlerts] = useState<CriticalStockAlert[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSubmittingWh, setIsSubmittingWh] = useState(false);
@@ -79,11 +85,12 @@ export const WarehousesModule: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      const [whRes, serRes, batchRes, bulkRes] = await Promise.all([
+      const [whRes, serRes, batchRes, bulkRes, kpiRes] = await Promise.all([
         api.getWarehouses(),
         api.getSerializedItems().catch(() => ({ items: [] })),
         api.getBatchItems().catch(() => ({ items: [] })),
-        api.getBulkInventory().catch(() => ({ items: [], stocks: [] }))
+        api.getBulkInventory().catch(() => ({ items: [], stocks: [] })),
+        api.getDashboardKPIs().catch(() => null)
       ]);
 
       const loadedWarehouses = whRes.warehouses || [];
@@ -92,8 +99,20 @@ export const WarehousesModule: React.FC = () => {
       setBatchItems(batchRes.items || []);
       setBulkItems(bulkRes.items || []);
       setBulkStocks(bulkRes.stocks || []);
+      if (kpiRes?.criticalStockAlerts) {
+        setCriticalAlerts(kpiRes.criticalStockAlerts);
+      }
       
-      if (!newOnu.currentWarehouseId && loadedWarehouses.length > 0) {
+      // Auto-preselección de Bodega Asignada (Warehouse Scoping)
+      if (currentUser?.assignedNodeId && userRole !== 'SUPERADMIN') {
+        setSelectedWarehouseId(currentUser.assignedNodeId);
+        setNewOnu(prev => ({ ...prev, currentWarehouseId: currentUser.assignedNodeId! }));
+        setBulkAdjust(prev => ({ 
+          ...prev, 
+          warehouseId: currentUser.assignedNodeId!,
+          bulkItemId: bulkRes.items?.[0]?.id || ''
+        }));
+      } else if (!newOnu.currentWarehouseId && loadedWarehouses.length > 0) {
         setNewOnu(prev => ({ ...prev, currentWarehouseId: loadedWarehouses[0].id }));
         setBulkAdjust(prev => ({ 
           ...prev, 
@@ -108,9 +127,33 @@ export const WarehousesModule: React.FC = () => {
     }
   };
 
+  const handleDispatchAlert = (alert: CriticalStockAlert) => {
+    if (onNavigateTab) {
+      const transferIntent = {
+        sourceWarehouseId: alert.hubWarehouseId || undefined,
+        destinationWarehouseId: alert.warehouseId,
+        productId: alert.productId,
+        productName: alert.productName,
+        trackingType: alert.trackingType,
+        suggestedQuantity: Math.max(1, alert.deficit || alert.minStockAlert),
+        notes: `Reabastecimiento urgente: ${alert.productName} para ${alert.warehouseName} (Stock: ${alert.currentQuantity}, Mín: ${alert.minStockAlert})`
+      };
+      onNavigateTab('transfers', JSON.stringify(transferIntent));
+    }
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  // Pre-seleccionar automáticamente la bodega asignada al cambiar de usuario
+  useEffect(() => {
+    if (currentUser?.assignedNodeId && userRole !== 'SUPERADMIN') {
+      setSelectedWarehouseId(currentUser.assignedNodeId);
+      setNewOnu(prev => ({ ...prev, currentWarehouseId: currentUser.assignedNodeId! }));
+      setBulkAdjust(prev => ({ ...prev, warehouseId: currentUser.assignedNodeId! }));
+    }
+  }, [currentUser?.assignedNodeId, userRole]);
 
   // Crear nueva Bodega
   const handleCreateWarehouse = async (e: React.FormEvent) => {
@@ -394,6 +437,14 @@ export const WarehousesModule: React.FC = () => {
         </div>
       </div>
 
+      {/* ── PANEL SUPERIOR DESTACADO: VEHÍCULOS / SUCURSALES CON STOCK CRÍTICO (PUNTO DE REORDEN) ── */}
+      <CriticalStockAlertsWidget
+        alerts={criticalAlerts}
+        isLoading={loading}
+        onDispatch={handleDispatchAlert}
+        onRefresh={loadData}
+      />
+
       {/* ── Grid de Tarjetas de Bodegas (Jerarquía Visual Hub & Spoke) ── */}
       <div>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3 px-1">
@@ -542,6 +593,11 @@ export const WarehousesModule: React.FC = () => {
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${badge.color}`}>
                           {badge.label}
                         </span>
+                        {wh.id === currentUser?.assignedNodeId && (
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-300 border border-amber-300 dark:border-amber-700 shadow-2xs">
+                            ⭐ Asignada
+                          </span>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-1.5">

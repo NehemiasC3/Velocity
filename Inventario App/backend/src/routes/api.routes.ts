@@ -1,8 +1,8 @@
-import { Router, Response } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '../db';
 import { inventoryService } from '../services/inventory.service';
 import { wisproService } from '../services/wispro.service';
-import { authMiddleware, requireRole, AuthenticatedRequest } from '../middlewares/auth.middleware';
+import { authMiddleware, optionalAuth, requireRole, AuthenticatedRequest } from '../middlewares/auth.middleware';
 import inventoryApiRoutes from './inventory.routes';
 import { WarehouseController } from '../controllers/warehouse.controller';
 import { InventoryController } from '../controllers/inventory.controller';
@@ -18,6 +18,9 @@ import wisproRoutes from './wispro.routes';
 import analyticsRoutes from './analytics.routes';
 import authRoutes from './auth.routes';
 import webhookRoutes from './webhook.routes';
+import assignmentRoutes from './assignment.routes';
+import workOrdersRoutes from './workOrders.routes';
+
 
 const router = Router();
 
@@ -34,9 +37,40 @@ router.use('/auth', authRoutes);
 // ==========================================
 // 2. DASHBOARD GENERAL (KPIS Y ALERTAS)
 // ==========================================
-router.get('/dashboard/kpis', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
-  const kpis = await inventoryService.getDashboardKPIs();
-  res.json(kpis);
+router.get('/dashboard/kpis', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const queryNodeId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+    const scopedNodeId = (user && user.role !== 'SUPERADMIN' && user.assignedNodeId)
+      ? user.assignedNodeId
+      : (queryNodeId && queryNodeId !== 'all' ? queryNodeId : undefined);
+
+    const kpis = await inventoryService.getDashboardKPIs(scopedNodeId);
+    res.json(kpis);
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/inventory/critical-alerts', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const queryNodeId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+    const scopedNodeId = (user && user.role !== 'SUPERADMIN' && user.assignedNodeId)
+      ? user.assignedNodeId
+      : (queryNodeId && queryNodeId !== 'all' ? queryNodeId : undefined);
+
+    const kpis = await inventoryService.getDashboardKPIs(scopedNodeId);
+    res.json({
+      success: true,
+      count: kpis.criticalStockAlerts.length,
+      alerts: kpis.criticalStockAlerts,
+      scopedNodeId: kpis.scopedNodeId,
+      scopedNodeName: kpis.scopedNodeName
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 // ==========================================
@@ -71,6 +105,17 @@ router.post('/technician/tickets/close', authMiddleware, LiquidationController.c
 // 8. LOGÍSTICA INVERSA & RMA
 // ==========================================
 router.use('/rma', rmaRoutes);
+
+// ==========================================
+// 8.1. ASIGNACIÓN MULTI-EQUIPO A CLIENTES (WISPRO)
+// ==========================================
+router.use('/assignments', assignmentRoutes);
+
+// ==========================================
+// 8.2. MESA DE ÓRDENES DE TRABAJO
+// ==========================================
+router.use('/work-orders', workOrdersRoutes);
+
 
 // ==========================================
 // 9. AUDITORÍA FORENSE & ANALÍTICA

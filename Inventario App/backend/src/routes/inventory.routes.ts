@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { InventoryController } from '../controllers/inventory.controller';
+import { optionalAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
+
+router.use(optionalAuth);
 
 // Inbound Inventory (Alta de Stock Físico Transaccional)
 router.post('/inventory/inbound', InventoryController.inboundInventory);

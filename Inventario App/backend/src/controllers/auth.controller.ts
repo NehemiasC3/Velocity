@@ -38,6 +38,34 @@ const TECNICO_USER = {
   managedWarehouses: [{ id: 'wh-veh-01', name: 'Cuadrilla #1 (Luis David)', type: 'VEHICULO' }]
 };
 
+const REGIONAL_METETI_USER = {
+  id: 'usr-reg-meteti-01',
+  name: 'Elena Rostrán (Admin Metetí)',
+  email: 'meteti.admin@rappido.pa',
+  role: Role.BODEGUERO_SUCURSAL,
+  phone: '+507 6004-0004',
+  assignedNodeId: '24e48893-0a46-47f5-8a37-5de2a3d47645',
+  assignedNodeName: 'Meteti',
+  baseWarehouseId: '24e48893-0a46-47f5-8a37-5de2a3d47645',
+  baseWarehouse: { id: '24e48893-0a46-47f5-8a37-5de2a3d47645', name: 'Meteti', type: 'SUCURSAL' },
+  assignedNode: { id: '24e48893-0a46-47f5-8a37-5de2a3d47645', name: 'Meteti', type: 'SUCURSAL' },
+  managedWarehouses: [{ id: '24e48893-0a46-47f5-8a37-5de2a3d47645', name: 'Meteti', type: 'SUCURSAL' }]
+};
+
+const REGIONAL_TORTI_USER = {
+  id: 'usr-reg-torti-01',
+  name: 'Roberto Gómez (Admin Tortí)',
+  email: 'torti.admin@rappido.pa',
+  role: Role.BODEGUERO_SUCURSAL,
+  phone: '+507 6005-0005',
+  assignedNodeId: '52d04851-10a5-4f57-b443-c3c979d4018f',
+  assignedNodeName: 'Tortí',
+  baseWarehouseId: '52d04851-10a5-4f57-b443-c3c979d4018f',
+  baseWarehouse: { id: '52d04851-10a5-4f57-b443-c3c979d4018f', name: 'Tortí', type: 'SUCURSAL' },
+  assignedNode: { id: '52d04851-10a5-4f57-b443-c3c979d4018f', name: 'Tortí', type: 'SUCURSAL' },
+  managedWarehouses: [{ id: '52d04851-10a5-4f57-b443-c3c979d4018f', name: 'Tortí', type: 'SUCURSAL' }]
+};
+
 const DEMO_USERS_MAP: Record<string, any> = {
   'admin@rappidopanama.com': SUPERADMIN_USER,
   'admin@rappido.pa': SUPERADMIN_USER,
@@ -47,6 +75,11 @@ const DEMO_USERS_MAP: Record<string, any> = {
   'bodega.tocumen@rappido.pa': BODEGUERO_USER,
   'mario': BODEGUERO_USER,
   'bodega': BODEGUERO_USER,
+  'meteti.admin@rappido.pa': REGIONAL_METETI_USER,
+  'meteti': REGIONAL_METETI_USER,
+  'elena': REGIONAL_METETI_USER,
+  'torti.admin@rappido.pa': REGIONAL_TORTI_USER,
+  'torti': REGIONAL_TORTI_USER,
   'ldavid@atg-rappido.com': TECNICO_USER,
   'luis.david@rappido.pa': TECNICO_USER,
   'luis': TECNICO_USER,
@@ -201,6 +234,7 @@ export class AuthController {
           where: { id: req.user.id },
           include: {
             baseWarehouse: true,
+            assignedNode: true,
             managedWarehouses: true
           }
         });
@@ -212,7 +246,9 @@ export class AuthController {
           email: req.user.email,
           role: req.user.role,
           baseWarehouseId: req.user.baseWarehouseId,
+          assignedNodeId: req.user.assignedNodeId,
           baseWarehouse: { name: 'Bodega Principal' },
+          assignedNode: { name: 'Bodega Principal' },
           managedWarehouses: []
         };
       }
@@ -224,10 +260,15 @@ export class AuthController {
           email: req.user.email,
           role: req.user.role,
           baseWarehouseId: req.user.baseWarehouseId,
+          assignedNodeId: req.user.assignedNodeId,
           baseWarehouse: { name: 'Bodega Principal' },
+          assignedNode: { name: 'Bodega Principal' },
           managedWarehouses: []
         };
       }
+
+      const assignedNodeId = user.assignedNodeId || user.baseWarehouseId || req.user.assignedNodeId || null;
+      const assignedNodeName = user.assignedNode?.name || user.baseWarehouse?.name || user.assignedNodeName || (assignedNodeId ? 'Sucursal Asignada' : null);
 
       res.status(200).json({
         success: true,
@@ -239,6 +280,9 @@ export class AuthController {
           phone: user.phone || '+507 6000-0000',
           baseWarehouseId: user.baseWarehouseId,
           baseWarehouseName: user.baseWarehouse?.name || 'Bodega Principal',
+          assignedNodeId,
+          assignedNodeName,
+          assignedNode: user.assignedNode || user.baseWarehouse || null,
           managedWarehouses: (user.managedWarehouses || []).map((w: any) => ({ id: w.id, name: w.name, type: w.type }))
         }
       });
@@ -263,6 +307,7 @@ export class AuthController {
         users = await prisma.user.findMany({
           include: {
             baseWarehouse: true,
+            assignedNode: true,
             managedWarehouses: true
           },
           orderBy: { name: 'asc' }
@@ -286,6 +331,9 @@ export class AuthController {
           phone: u.phone,
           baseWarehouseId: u.baseWarehouseId,
           baseWarehouseName: u.baseWarehouse?.name,
+          assignedNodeId: u.assignedNodeId || u.baseWarehouseId || null,
+          assignedNodeName: u.assignedNode?.name || u.baseWarehouse?.name || u.assignedNodeName || null,
+          assignedNode: u.assignedNode || u.baseWarehouse || null,
           managedWarehouses: (u.managedWarehouses || []).map((w: any) => ({ id: w.id, name: w.name, type: w.type }))
         }))
       });

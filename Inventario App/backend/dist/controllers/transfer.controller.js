@@ -67,25 +67,39 @@ class TransferController {
      */
     static async getTransfers(req, res) {
         try {
-            const { warehouseId, status, search } = req.query;
+            const { warehouseId, destinationWarehouseId, sourceWarehouseId, status, search } = req.query;
             const where = {};
             if (status && typeof status === 'string') {
                 where.status = status;
             }
-            if (warehouseId && typeof warehouseId === 'string') {
-                where.OR = [
-                    { sourceWarehouseId: warehouseId },
-                    { destinationWarehouseId: warehouseId }
-                ];
+            if (destinationWarehouseId && typeof destinationWarehouseId === 'string') {
+                where.destinationWarehouseId = destinationWarehouseId;
+            }
+            if (sourceWarehouseId && typeof sourceWarehouseId === 'string') {
+                where.sourceWarehouseId = sourceWarehouseId;
+            }
+            const andConditions = [];
+            if (warehouseId && typeof warehouseId === 'string' && !destinationWarehouseId && !sourceWarehouseId) {
+                andConditions.push({
+                    OR: [
+                        { sourceWarehouseId: warehouseId },
+                        { destinationWarehouseId: warehouseId }
+                    ]
+                });
             }
             if (search && typeof search === 'string') {
                 const q = search.trim();
-                where.OR = [
-                    { orderNumber: { contains: q, mode: 'insensitive' } },
-                    { notes: { contains: q, mode: 'insensitive' } },
-                    { sourceWarehouse: { name: { contains: q, mode: 'insensitive' } } },
-                    { destinationWarehouse: { name: { contains: q, mode: 'insensitive' } } }
-                ];
+                andConditions.push({
+                    OR: [
+                        { orderNumber: { contains: q, mode: 'insensitive' } },
+                        { notes: { contains: q, mode: 'insensitive' } },
+                        { sourceWarehouse: { name: { contains: q, mode: 'insensitive' } } },
+                        { destinationWarehouse: { name: { contains: q, mode: 'insensitive' } } }
+                    ]
+                });
+            }
+            if (andConditions.length > 0) {
+                where.AND = andConditions;
             }
             const transfers = await db_1.prisma.transferOrder.findMany({
                 where,
@@ -414,23 +428,25 @@ class TransferController {
                             quantity: { decrement: b.quantity }
                         }
                     });
-                    // Suma/Upsert en destino
-                    await tx.bulkStock.upsert({
-                        where: {
-                            productId_warehouseId: {
+                    // Suma/Upsert en destino solo si es recepción directa/inmediata
+                    if (directReceive) {
+                        await tx.bulkStock.upsert({
+                            where: {
+                                productId_warehouseId: {
+                                    productId: b.productId,
+                                    warehouseId: destinationWarehouseId
+                                }
+                            },
+                            create: {
                                 productId: b.productId,
-                                warehouseId: destinationWarehouseId
+                                warehouseId: destinationWarehouseId,
+                                quantity: b.quantity
+                            },
+                            update: {
+                                quantity: { increment: b.quantity }
                             }
-                        },
-                        create: {
-                            productId: b.productId,
-                            warehouseId: destinationWarehouseId,
-                            quantity: b.quantity
-                        },
-                        update: {
-                            quantity: { increment: b.quantity }
-                        }
-                    });
+                        });
+                    }
                 }
                 // C. Trasladar Bobinas (Actualizar currentWarehouseId)
                 if (hasBatches) {
@@ -579,7 +595,28 @@ class TransferController {
                         }
                     });
                 }
-                // 3. Actualizar orden
+                // 3. Granel a bodega destino
+                if (transfer.items && transfer.items.length > 0) {
+                    for (const item of transfer.items) {
+                        await tx.bulkStock.upsert({
+                            where: {
+                                productId_warehouseId: {
+                                    productId: item.productId,
+                                    warehouseId: transfer.destinationWarehouseId
+                                }
+                            },
+                            create: {
+                                productId: item.productId,
+                                warehouseId: transfer.destinationWarehouseId,
+                                quantity: item.quantity
+                            },
+                            update: {
+                                quantity: { increment: item.quantity }
+                            }
+                        });
+                    }
+                }
+                // 4. Actualizar orden
                 const updated = await tx.transferOrder.update({
                     where: { id: orderId },
                     data: {

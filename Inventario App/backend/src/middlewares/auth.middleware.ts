@@ -19,6 +19,7 @@ export interface UserPayload {
   role: Role | string;
   baseWarehouseId?: string | null;
   assignedWarehouseId?: string | null;
+  assignedNodeId?: string | null;
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -54,11 +55,44 @@ export const verifyToken = async (
       // Si se envía cabecera x-user-id en desarrollo local, permitir fallback
       const fallbackUserId = req.headers['x-user-id'] as string;
       if (fallbackUserId) {
+        let dbRole: Role = Role.SUPERADMIN;
+        let dbName = 'Usuario Velocity Local';
+        let dbEmail = 'admin@velocity.com';
+        let dbAssignedNodeId: string | null = null;
+
+        if (fallbackUserId === 'usr-meteti-admin') {
+          dbRole = Role.BODEGUERO_SUCURSAL;
+          dbName = 'Elena Rostrán (Admin Metetí)';
+          dbEmail = 'elena.meteti@velocity.com';
+          dbAssignedNodeId = '24e48893-0a46-47f5-8a37-5de2a3d47645';
+        } else if (fallbackUserId === 'usr-torti-admin') {
+          dbRole = Role.BODEGUERO_SUCURSAL;
+          dbName = 'Carlos Vega (Admin Tortí)';
+          dbEmail = 'carlos.torti@velocity.com';
+          dbAssignedNodeId = '52d04851-10a5-4f57-b443-c3c979d4018f';
+        } else {
+          try {
+            const dbUser = await prisma.user.findUnique({
+              where: { id: fallbackUserId },
+              select: { role: true, name: true, email: true, assignedNodeId: true, baseWarehouseId: true }
+            });
+            if (dbUser) {
+              dbRole = dbUser.role;
+              dbName = dbUser.name;
+              dbEmail = dbUser.email;
+              dbAssignedNodeId = dbUser.assignedNodeId || dbUser.baseWarehouseId;
+            }
+          } catch (err) {}
+        }
+
         req.user = {
           id: fallbackUserId,
-          name: 'Usuario Velocity Local',
-          email: 'admin@velocity.com',
-          role: 'SUPERADMIN' as Role
+          name: dbName,
+          email: dbEmail,
+          role: dbRole,
+          assignedNodeId: dbAssignedNodeId,
+          baseWarehouseId: dbAssignedNodeId,
+          assignedWarehouseId: dbAssignedNodeId
         };
         return next();
       }
@@ -111,15 +145,31 @@ export const verifyToken = async (
       role = 'SUPERADMIN';
     } else if (rawRole === 'TECHNICIAN' || rawRole === 'TECNICO') {
       role = 'TECNICO';
+    } else if (rawRole === 'BODEGUERO_SUCURSAL') {
+      role = 'BODEGUERO_SUCURSAL';
     }
+
+    let dbAssignedNodeId: string | null = null;
+    try {
+      const dbUser = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { assignedNodeId: true, baseWarehouseId: true }
+      });
+      if (dbUser) {
+        dbAssignedNodeId = dbUser.assignedNodeId || dbUser.baseWarehouseId;
+      }
+    } catch (e) {}
+
+    const assignedNodeId = decoded.assignedNodeId || decoded.assignedWarehouseId || dbAssignedNodeId || decoded.baseWarehouseId || null;
 
     req.user = {
       id: userId,
       name: decoded.name || 'Usuario Velocity',
       email: decoded.email || 'supervisor@velocity.com',
       role: role as Role,
-      baseWarehouseId: decoded.baseWarehouseId || null,
-      assignedWarehouseId: decoded.assignedWarehouseId || null,
+      baseWarehouseId: decoded.baseWarehouseId || assignedNodeId,
+      assignedWarehouseId: decoded.assignedWarehouseId || assignedNodeId,
+      assignedNodeId,
       ...decoded
     };
 
@@ -168,3 +218,42 @@ export const requireRole = (allowedRoles: (Role | string)[]) => {
 };
 
 export const authMiddleware = verifyToken;
+
+/**
+ * Middleware que procesa token o credenciales si existen, pero no bloquea si no están presentes
+ */
+export const optionalAuth = async (
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> => {
+  try {
+    const authHeader = req.headers['authorization'];
+    let token: string | undefined;
+
+    if (authHeader) {
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.slice(7).trim();
+      } else {
+        token = authHeader.trim();
+      }
+    }
+
+    if (!token && req.query.token) {
+      token = String(req.query.token).trim();
+    }
+
+    const fallbackUserId = req.headers['x-user-id'] as string;
+
+    if (!token && !fallbackUserId) {
+      return next();
+    }
+
+    // Si hay token o fallbackUserId, intentar poblar req.user mediante verifyToken
+    return verifyToken(req, res, () => {
+      next();
+    });
+  } catch (err) {
+    next();
+  }
+};

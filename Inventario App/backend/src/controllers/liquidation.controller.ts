@@ -8,6 +8,7 @@ import {
   RetiredDeviceStatus,
   WarehouseType
 } from '@prisma/client';
+import { inventoryService } from '../services/inventory.service';
 
 export class LiquidationController {
   /**
@@ -325,6 +326,7 @@ export class LiquidationController {
         return ticket;
       });
 
+      inventoryService.invalidateDashboardCache();
       res.status(201).json({
         success: true,
         message: `Liquidación del ticket ${result.ticketNumber} registrada exitosamente. Materiales descontados del vehículo ${vehicleWarehouse.name}.`,

@@ -1,27 +1,58 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { 
   Truck, Plus, ArrowRight, CheckCircle2, Clock, 
   AlertCircle, Package, Layers, CheckSquare, Search,
   QrCode, RefreshCw, X, Disc, Cpu, Boxes, FileText,
-  Building2, Store, Sparkles, Check, ChevronDown
+  Building2, Store, Sparkles, Check, ChevronDown,
+  Inbox, ShieldCheck, Eye, ClipboardCheck
 } from 'lucide-react';
 import { api } from '../services/api';
-import { TransferOrder, Warehouse, SerializedItem, BulkStock, BatchItem } from '../types';
+import { TransferOrder, Warehouse, SerializedItem, BulkStock, BatchItem, TrackingType } from '../types';
 import { useAuth } from '../context/AuthContext';
 
-export const TransfersModule: React.FC = () => {
+export interface InitialTransferData {
+  sourceWarehouseId?: string;
+  destinationWarehouseId?: string;
+  productId?: string;
+  productName?: string;
+  trackingType?: TrackingType;
+  suggestedQuantity?: number;
+  notes?: string;
+}
+
+export interface TransfersModuleProps {
+  initialTransferData?: InitialTransferData | null;
+  onClearInitialTransferData?: () => void;
+}
+
+export const TransfersModule: React.FC<TransfersModuleProps> = ({
+  initialTransferData,
+  onClearInitialTransferData
+}) => {
   const { currentUser } = useAuth();
   const [transfers, setTransfers] = useState<TransferOrder[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Pestañas principales de vista: 'outbox' (Mis Envíos) vs 'inbox' (Recepciones Pendientes)
+  const [viewTab, setViewTab] = useState<'outbox' | 'inbox'>('outbox');
+  const [inboxWarehouseFilter, setInboxWarehouseFilter] = useState<string>('all');
+
   // Modal Create Transfer State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [sourceWarehouseId, setSourceWarehouseId] = useState('');
   const [destinationWarehouseId, setDestinationWarehouseId] = useState('');
-  const [directReceive, setDirectReceive] = useState(true);
+  const [directReceive, setDirectReceive] = useState(false); // Por defecto en tránsito (Handshake logístico)
   const [notes, setNotes] = useState('');
+
+  // Modal Auditar y Recibir Mercancía en Destino
+  const [auditingOrder, setAuditingOrder] = useState<TransferOrder | null>(null);
+  const [auditCheckedSerials, setAuditCheckedSerials] = useState<Set<string>>(new Set());
+  const [auditCheckedBatches, setAuditCheckedBatches] = useState<Set<string>>(new Set());
+  const [auditCheckedBulks, setAuditCheckedBulks] = useState<Set<string>>(new Set());
+  const [auditNotes, setAuditNotes] = useState('');
+  const [isReceivingOrder, setIsReceivingOrder] = useState(false);
 
   // Stock available in selected origin warehouse
   const [loadingOriginStock, setLoadingOriginStock] = useState(false);
@@ -48,6 +79,35 @@ export const TransfersModule: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  const isRegionalScoped = Boolean(currentUser?.assignedNodeId && currentUser?.role !== 'SUPERADMIN');
+  const assignedNodeId = currentUser?.assignedNodeId;
+
+  // Bodegas de Origen Permitidas (Warehouse Scoping)
+  // Si es administradora regional: Solo puede despachar desde su nodo asignado O solicitar desde el Hub Central
+  const allowedSourceWarehouses = useMemo(() => {
+    if (!isRegionalScoped || !assignedNodeId) return warehouses;
+    return warehouses.filter(w => 
+      w.id === assignedNodeId || w.type === 'PRINCIPAL' || w.type === 'HUB'
+    );
+  }, [warehouses, isRegionalScoped, assignedNodeId]);
+
+  // Bodegas de Destino Permitidas según el Origen seleccionado
+  // Si Origen = Nodo Asignado -> Destinos permitidos son ÚNICAMENTE vehículos/técnicos asignados a su nodo
+  // Si Origen = Hub Central -> Destino permitido es ÚNICAMENTE su nodo asignado (reabastecimiento)
+  const allowedDestinationWarehouses = useMemo(() => {
+    if (!isRegionalScoped || !assignedNodeId) {
+      return warehouses.filter(w => w.id !== sourceWarehouseId);
+    }
+    if (sourceWarehouseId === assignedNodeId) {
+      return warehouses.filter(w => 
+        w.parentId === assignedNodeId || 
+        (w.type === 'VEHICULO' && w.parentId === assignedNodeId)
+      );
+    }
+    // Reabastecimiento desde Hub Central -> Destino es el nodo regional
+    return warehouses.filter(w => w.id === assignedNodeId);
+  }, [warehouses, isRegionalScoped, assignedNodeId, sourceWarehouseId]);
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -60,7 +120,15 @@ export const TransfersModule: React.FC = () => {
       const whList = whRes.warehouses || [];
       setWarehouses(whList);
 
-      if (whList.length >= 2 && !sourceWarehouseId) {
+      if (isRegionalScoped && assignedNodeId) {
+        setSourceWarehouseId(assignedNodeId);
+        const childVehicles = whList.filter(w => w.parentId === assignedNodeId);
+        if (childVehicles.length > 0) {
+          setDestinationWarehouseId(childVehicles[0].id);
+        } else {
+          setDestinationWarehouseId(assignedNodeId);
+        }
+      } else if (whList.length >= 2 && !sourceWarehouseId) {
         setSourceWarehouseId(whList[0].id);
         setDestinationWarehouseId(whList[1].id);
       }
@@ -74,6 +142,25 @@ export const TransfersModule: React.FC = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Mantener sincronizados origen y destino según las restricciones de la administradora regional
+  useEffect(() => {
+    if (isRegionalScoped && assignedNodeId) {
+      if (!sourceWarehouseId || !allowedSourceWarehouses.some(w => w.id === sourceWarehouseId)) {
+        setSourceWarehouseId(assignedNodeId);
+      }
+    }
+  }, [isRegionalScoped, assignedNodeId, allowedSourceWarehouses]);
+
+  useEffect(() => {
+    if (isRegionalScoped && assignedNodeId) {
+      if (!destinationWarehouseId || !allowedDestinationWarehouses.some(w => w.id === destinationWarehouseId)) {
+        if (allowedDestinationWarehouses.length > 0) {
+          setDestinationWarehouseId(allowedDestinationWarehouses[0].id);
+        }
+      }
+    }
+  }, [isRegionalScoped, assignedNodeId, allowedDestinationWarehouses, sourceWarehouseId]);
 
   // Cargar inventario físico del origen cuando cambia la bodega origen
   useEffect(() => {
@@ -104,16 +191,82 @@ export const TransfersModule: React.FC = () => {
     fetchOriginStock();
   }, [sourceWarehouseId]);
 
+  // Pre-rellenado de traslado desde Alerta de Abastecimiento / Punto de Reorden
+  useEffect(() => {
+    if (!initialTransferData) return;
+
+    if (initialTransferData.sourceWarehouseId) {
+      setSourceWarehouseId(initialTransferData.sourceWarehouseId);
+    } else {
+      const hub = warehouses.find(w => w.type === 'PRINCIPAL' || w.type === 'HUB');
+      if (hub) setSourceWarehouseId(hub.id);
+    }
+
+    if (initialTransferData.destinationWarehouseId) {
+      setDestinationWarehouseId(initialTransferData.destinationWarehouseId);
+    }
+
+    if (initialTransferData.trackingType === 'SERIALIZED') {
+      setActiveTabMaterial('serialized');
+    } else if (initialTransferData.trackingType === 'BATCHED') {
+      setActiveTabMaterial('batched');
+    } else if (initialTransferData.trackingType === 'BULK') {
+      setActiveTabMaterial('bulk');
+    }
+
+    if (initialTransferData.notes) {
+      setNotes(initialTransferData.notes);
+    } else if (initialTransferData.productName) {
+      setNotes(`Reabastecimiento urgente por punto de reorden: ${initialTransferData.productName}`);
+    }
+
+    setShowCreateModal(true);
+  }, [initialTransferData, warehouses]);
+
+  // Selección automática de items de origen según el producto de la alerta
+  useEffect(() => {
+    if (!initialTransferData || !initialTransferData.productId || !showCreateModal) return;
+
+    if (initialTransferData.trackingType === 'BULK') {
+      const qty = initialTransferData.suggestedQuantity || 5;
+      setSelectedBulkQuantities(prev => ({
+        ...prev,
+        [initialTransferData.productId!]: qty
+      }));
+    } else if (initialTransferData.trackingType === 'SERIALIZED') {
+      const matchingItems = originStock.serializedItems.filter(
+        i => i.productId === initialTransferData.productId || (i.product && i.product.id === initialTransferData.productId)
+      );
+      const limit = Math.max(1, initialTransferData.suggestedQuantity || 2);
+      const idsToSelect = matchingItems.slice(0, limit).map(i => i.id);
+      if (idsToSelect.length > 0) {
+        setSelectedSerializedIds(idsToSelect);
+      }
+    } else if (initialTransferData.trackingType === 'BATCHED') {
+      const matchingBatches = originStock.batchItems.filter(
+        b => b.productId === initialTransferData.productId || (b.product && b.product.id === initialTransferData.productId)
+      );
+      if (matchingBatches.length > 0) {
+        setSelectedBatchIds([matchingBatches[0].id]);
+      }
+    }
+  }, [originStock, initialTransferData, showCreateModal]);
+
+  const handleCloseCreateModal = () => {
+    setShowCreateModal(false);
+    onClearInitialTransferData?.();
+  };
+
   // Habilitar cierre con tecla Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && showCreateModal) {
-        setShowCreateModal(false);
+        handleCloseCreateModal();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showCreateModal]);
+  }, [showCreateModal, onClearInitialTransferData]);
 
   // Escanear MAC rápido para marcar checkbox automáticamente
   const handleFastScanMac = (e: React.FormEvent) => {
@@ -177,7 +330,7 @@ export const TransfersModule: React.FC = () => {
       });
 
       setToastMessage({ type: 'success', text: res.message });
-      setShowCreateModal(false);
+      handleCloseCreateModal();
       setSelectedSerializedIds([]);
       setSelectedBatchIds([]);
       setSelectedBulkQuantities({});
@@ -191,16 +344,86 @@ export const TransfersModule: React.FC = () => {
     }
   };
 
-  const handleReceiveTransfer = async (orderId: string) => {
+  const userWarehouseIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (currentUser?.baseWarehouseId) ids.add(currentUser.baseWarehouseId);
+    if (currentUser?.assignedWarehouseId) ids.add(currentUser.assignedWarehouseId);
+    if (currentUser?.managedWarehouses && Array.isArray(currentUser.managedWarehouses)) {
+      currentUser.managedWarehouses.forEach(w => ids.add(w.id));
+    }
+    warehouses.filter(w => w.managerId === currentUser?.id).forEach(w => ids.add(w.id));
+    return ids;
+  }, [currentUser, warehouses]);
+
+  const isUserAdminOf = (destWarehouseId?: string) => {
+    if (!destWarehouseId) return false;
+    if (!currentUser || currentUser.role === 'SUPERADMIN' || currentUser.role === 'ADMIN_BODEGA') {
+      return true;
+    }
+    if (userWarehouseIds.size === 0) return true;
+    return userWarehouseIds.has(destWarehouseId);
+  };
+
+  // Recepciones pendientes (Inbox): órdenes en tránsito destinadas a bodegas del usuario
+  const pendingInboxTransfers = useMemo(() => {
+    return transfers.filter(t => 
+      (t.status === 'EN_TRANSITO' || (t.status as string) === 'PENDING_RECEIPT') &&
+      isUserAdminOf(t.destinationWarehouseId)
+    );
+  }, [transfers, currentUser, userWarehouseIds]);
+
+  const pendingInboxCount = pendingInboxTransfers.length;
+
+  // Sincronizar badge de pendientes con la barra lateral de supervisor
+  useEffect(() => {
     try {
-      await api.receiveTransfer(orderId);
+      window.parent?.postMessage({
+        type: 'UPDATE_PENDING_TRANSFERS_COUNT',
+        count: pendingInboxCount
+      }, '*');
+    } catch (e) {}
+  }, [pendingInboxCount]);
+
+  const handleOpenAuditModal = (order: TransferOrder) => {
+    setAuditingOrder(order);
+    const sIds = new Set((order.serializedItems || []).map(s => s.id));
+    const bIds = new Set((order.batchItems || []).map(b => b.id));
+    const iIds = new Set((order.items || []).map(i => i.id));
+    setAuditCheckedSerials(sIds);
+    setAuditCheckedBatches(bIds);
+    setAuditCheckedBulks(iIds);
+    setAuditNotes('');
+  };
+
+  const handleConfirmTotalReception = async () => {
+    if (!auditingOrder) return;
+    try {
+      setIsReceivingOrder(true);
+      const res = await api.receiveTransfer(auditingOrder.id);
+      setToastMessage({
+        type: 'success',
+        text: res.message || `Recepción confirmada. Orden ${auditingOrder.orderNumber} recibida exitosamente en ${auditingOrder.destinationWarehouse?.name || 'bodega destino'}.`
+      });
+      setAuditingOrder(null);
       await loadData();
+      setTimeout(() => setToastMessage(null), 5000);
     } catch (err: any) {
-      alert(`Error recibiendo orden: ${err.message}`);
+      alert(`Error confirmando recepción: ${err.message}`);
+    } finally {
+      setIsReceivingOrder(false);
     }
   };
 
-  const filteredTransfers = transfers.filter(t => {
+  // Mis Envíos (Despachos)
+  const outboxTransfers = useMemo(() => {
+    return transfers;
+  }, [transfers]);
+
+  const currentTabTransfers = viewTab === 'inbox'
+    ? pendingInboxTransfers.filter(t => inboxWarehouseFilter === 'all' || t.destinationWarehouseId === inboxWarehouseFilter)
+    : outboxTransfers;
+
+  const filteredTransfers = currentTabTransfers.filter(t => {
     const q = searchQuery.toLowerCase();
     return !q || 
       t.orderNumber.toLowerCase().includes(q) ||
@@ -241,7 +464,7 @@ export const TransfersModule: React.FC = () => {
         <div className="flex items-center gap-2.5">
           <button
             onClick={() => setShowCreateModal(true)}
-            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95"
+            className="inline-flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
             <span>+ Nuevo Traslado</span>
@@ -250,7 +473,7 @@ export const TransfersModule: React.FC = () => {
           <button
             onClick={loadData}
             title="Refrescar lista"
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -272,6 +495,78 @@ export const TransfersModule: React.FC = () => {
           <span>{toastMessage.text}</span>
         </div>
       )}
+
+      {/* ── Selector de Vistas: Mis Envíos vs Recepciones Pendientes (Inbox) ── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setViewTab('outbox')}
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              viewTab === 'outbox'
+                ? 'bg-sky-600 text-white shadow-md shadow-sky-600/25'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Mis Envíos (Despachos)</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+              viewTab === 'outbox'
+                ? 'bg-sky-700/70 text-white'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400'
+            }`}>
+              {outboxTransfers.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewTab('inbox')}
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer relative ${
+              viewTab === 'inbox'
+                ? 'bg-amber-600 text-white shadow-md shadow-amber-600/25'
+                : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800'
+            }`}
+          >
+            <Inbox className="w-4 h-4" />
+            <span>Recepciones Pendientes (Inbox)</span>
+            {pendingInboxCount > 0 ? (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold animate-pulse ${
+                viewTab === 'inbox'
+                  ? 'bg-amber-800 text-amber-100'
+                  : 'bg-rose-500 text-white shadow-sm'
+              }`}>
+                {pendingInboxCount}
+              </span>
+            ) : (
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                viewTab === 'inbox' ? 'bg-amber-700/70 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'
+              }`}>
+                0
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Filtro de bodega destino para el Inbox */}
+        {viewTab === 'inbox' && warehouses.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-semibold">Bodega Destino:</span>
+            <select
+              value={inboxWarehouseFilter}
+              onChange={(e) => setInboxWarehouseFilter(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-slate-200 outline-none focus:ring-2 focus:ring-amber-500 font-semibold cursor-pointer"
+            >
+              <option value="all">Todas mis bodegas de destino</option>
+              {warehouses
+                .filter(w => isUserAdminOf(w.id))
+                .map(w => (
+                  <option key={w.id} value={w.id}>{w.name} ({w.type})</option>
+                ))}
+            </select>
+          </div>
+        )}
+      </div>
 
       {/* ── Buscador de Órdenes ── */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between gap-4">
@@ -349,12 +644,20 @@ export const TransfersModule: React.FC = () => {
 
                   {isEnTransito && (
                     <button
-                      onClick={() => handleReceiveTransfer(order.id)}
-                      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-md active:scale-95"
+                      type="button"
+                      onClick={() => handleOpenAuditModal(order)}
+                      className="inline-flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl transition shadow-md active:scale-95 group cursor-pointer"
                     >
-                      <CheckCircle2 className="w-4 h-4" />
-                      <span>Confirmar Recepción</span>
+                      <ClipboardCheck className="w-4 h-4 group-hover:scale-110 transition-transform" />
+                      <span>Auditar y Recibir</span>
                     </button>
+                  )}
+
+                  {isRecibido && (
+                    <div className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 rounded-xl border border-emerald-200 dark:border-emerald-800">
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>Recibido por {order.receivedByUser?.name || 'Custodio'}</span>
+                    </div>
                   )}
                 </div>
 
@@ -467,7 +770,7 @@ export const TransfersModule: React.FC = () => {
         <div 
           className="fixed inset-0 z-50 flex items-center justify-center bg-transparent p-2 sm:p-4 overflow-hidden"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setShowCreateModal(false);
+            if (e.target === e.currentTarget) handleCloseCreateModal();
           }}
         >
           <div 
@@ -493,7 +796,7 @@ export const TransfersModule: React.FC = () => {
 
               <button
                 type="button"
-                onClick={() => setShowCreateModal(false)}
+                onClick={handleCloseCreateModal}
                 className="w-8 h-8 rounded-xl flex items-center justify-center text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-800 transition cursor-pointer"
                 title="Cerrar modal (Esc)"
               >
@@ -507,6 +810,15 @@ export const TransfersModule: React.FC = () => {
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4 text-xs">
 
                 {/* ── PASO 1: SELECCIÓN DE RUTA (ORIGEN Y DESTINO) ── */}
+                {isRegionalScoped && (
+                  <div className="flex items-center gap-2.5 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 rounded-xl text-amber-900 dark:text-amber-200">
+                    <Building2 className="w-4 h-4 text-amber-600 shrink-0" />
+                    <div className="text-[11px] leading-relaxed">
+                      <span className="font-bold">Restricción de Nodo Regional (RBAC):</span> Únicamente puedes transferir materiales desde tu sucursal hacia tus cuadrillas/móviles vinculadas, o solicitar reabastecimiento desde el Hub Central (Tocumen).
+                    </div>
+                  </div>
+                )}
+
                 <div className="p-4 bg-slate-50/80 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl space-y-3">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
                     <div>
@@ -520,9 +832,9 @@ export const TransfersModule: React.FC = () => {
                           onChange={(e) => setSourceWarehouseId(e.target.value)}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-sky-500 shadow-xs appearance-none pr-8 cursor-pointer truncate"
                         >
-                          {warehouses.map(w => (
+                          {allowedSourceWarehouses.map(w => (
                             <option key={w.id} value={w.id}>
-                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
+                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code}) {w.id === assignedNodeId ? '⭐ Mi Bodega' : ''}
                             </option>
                           ))}
                         </select>
@@ -543,9 +855,9 @@ export const TransfersModule: React.FC = () => {
                           onChange={(e) => setDestinationWarehouseId(e.target.value)}
                           className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white font-semibold outline-none focus:ring-2 focus:ring-sky-500 shadow-xs appearance-none pr-8 cursor-pointer truncate"
                         >
-                          {warehouses.filter(w => w.id !== sourceWarehouseId).map(w => (
+                          {allowedDestinationWarehouses.map(w => (
                             <option key={w.id} value={w.id}>
-                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code})
+                              {w.type === 'PRINCIPAL' || w.type === 'HUB' ? '🏢' : w.type === 'SUCURSAL' ? '🏪' : '🚚'} {w.name} ({w.code}) {w.id === assignedNodeId ? '⭐ Mi Bodega' : ''}
                             </option>
                           ))}
                         </select>
@@ -878,14 +1190,19 @@ export const TransfersModule: React.FC = () => {
                     />
                   </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer pt-1 text-slate-700 dark:text-slate-300 font-medium">
+                  <label className="flex items-start gap-2.5 cursor-pointer pt-1 text-slate-700 dark:text-slate-300 font-medium">
                     <input
                       type="checkbox"
                       checked={directReceive}
                       onChange={(e) => setDirectReceive(e.target.checked)}
-                      className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
+                      className="w-4 h-4 mt-0.5 rounded text-sky-600 focus:ring-sky-500 cursor-pointer"
                     />
-                    <span>Recepción Inmediata (Marcar como RECIBIDO automáticamente en el destino)</span>
+                    <div className="text-xs">
+                      <span className="font-bold">Recepción directa inmediata (Omitir tránsito logístico)</span>
+                      <p className="text-[11px] text-slate-400 font-normal">
+                        Por defecto desmarcado: La mercancía viajará en <strong>Tránsito</strong> y la sucursal destino deberá auditarla y confirmarla para incorporarla a su inventario.
+                      </p>
+                    </div>
                   </label>
                 </div>
 
@@ -905,7 +1222,7 @@ export const TransfersModule: React.FC = () => {
                 <div className="flex items-center gap-2.5">
                   <button
                     type="button"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={handleCloseCreateModal}
                     className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 font-semibold text-xs transition cursor-pointer"
                   >
                     Cancelar
@@ -922,6 +1239,370 @@ export const TransfersModule: React.FC = () => {
               </div>
 
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: AUDITAR Y CONFIRMAR RECEPCIÓN DE MERCANCÍA EN DESTINO ── */}
+      {auditingOrder && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4 overflow-hidden"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isReceivingOrder) setAuditingOrder(null);
+          }}
+        >
+          <div 
+            className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl sm:rounded-3xl max-w-3xl w-full shadow-2xl ring-1 ring-slate-900/10 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header del Modal */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/70 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300">
+                  <ShieldCheck className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-heading font-black text-slate-900 dark:text-white text-base sm:text-lg flex items-center gap-2">
+                    Auditoría y Recepción de Mercancía
+                    <span className="font-mono text-xs px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-bold">
+                      {auditingOrder.orderNumber}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Valida físicamente los equipos, bobinas y materiales recibidos antes de ingresar al stock disponible.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isReceivingOrder}
+                onClick={() => setAuditingOrder(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-slate-800 transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido Desplazable de Auditoría */}
+            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+              {/* Tarjeta de Ruta de Traslado */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bodega de Origen (Despachador)</p>
+                  <p className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-1.5">
+                    <Store className="w-4 h-4 text-sky-500" />
+                    {auditingOrder.sourceWarehouse?.name || 'Origen'}
+                  </p>
+                  <p className="text-slate-500 text-[11px]">
+                    Despachado por: <span className="font-medium text-slate-700 dark:text-slate-300">{auditingOrder.dispatchedByUser?.name || auditingOrder.createdByUser?.name || 'Central'}</span>
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Bodega Destino (Custodio Receptor)</p>
+                  <p className="font-bold text-emerald-600 dark:text-emerald-400 text-sm flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4" />
+                    {auditingOrder.destinationWarehouse?.name || 'Destino'}
+                  </p>
+                  <p className="text-slate-500 text-[11px]">
+                    Fecha de despacho: <span className="font-medium text-slate-700 dark:text-slate-300">{new Date(auditingOrder.createdAt).toLocaleString()}</span>
+                  </p>
+                </div>
+
+                {auditingOrder.notes && (
+                  <div className="sm:col-span-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 text-[11px] text-slate-600 dark:text-slate-300 italic">
+                    <span className="font-bold not-italic text-slate-400">Nota de despacho: </span>
+                    "{auditingOrder.notes}"
+                  </div>
+                )}
+              </div>
+
+              {/* 1. Equipos Seriados */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-600 dark:text-blue-400">
+                      <Cpu className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider">
+                      Equipos Seriados ({auditingOrder.serializedItems?.length || 0})
+                    </h4>
+                  </div>
+                  {(auditingOrder.serializedItems?.length || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allIds = (auditingOrder.serializedItems || []).map(s => s.id);
+                        if (auditCheckedSerials.size === allIds.length) {
+                          setAuditCheckedSerials(new Set());
+                        } else {
+                          setAuditCheckedSerials(new Set(allIds));
+                        }
+                      }}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-700 dark:text-blue-400 cursor-pointer"
+                    >
+                      {auditCheckedSerials.size === (auditingOrder.serializedItems?.length || 0)
+                        ? 'Desmarcar todos'
+                        : 'Marcar todos conformes'}
+                    </button>
+                  )}
+                </div>
+
+                {(!auditingOrder.serializedItems || auditingOrder.serializedItems.length === 0) ? (
+                  <p className="text-slate-400 italic text-xs py-2">No se incluyeron equipos seriados en este traslado.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                    {auditingOrder.serializedItems.map(item => {
+                      const isChecked = auditCheckedSerials.has(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            const next = new Set(auditCheckedSerials);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            setAuditCheckedSerials(next);
+                          }}
+                          className={`p-3 flex items-center justify-between gap-3 cursor-pointer transition ${
+                            isChecked ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <div>
+                              <p className="font-bold text-slate-900 dark:text-white text-xs">
+                                {item.product?.name || item.brand || 'Equipo'}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                                <span>MAC: <strong className="font-mono text-slate-800 dark:text-slate-200">{item.macAddress || 'N/A'}</strong></span>
+                                &bull;
+                                <span>SN: <strong className="font-mono text-slate-800 dark:text-slate-200">{item.serialNumber}</strong></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            isChecked
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                          }`}>
+                            {isChecked ? 'Conforme' : 'Pendiente'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Bobinas y Lotes */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400">
+                      <Disc className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider">
+                      Bobinas de Fibra / Lotes ({auditingOrder.batchItems?.length || 0})
+                    </h4>
+                  </div>
+                  {(auditingOrder.batchItems?.length || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allIds = (auditingOrder.batchItems || []).map(b => b.id);
+                        if (auditCheckedBatches.size === allIds.length) {
+                          setAuditCheckedBatches(new Set());
+                        } else {
+                          setAuditCheckedBatches(new Set(allIds));
+                        }
+                      }}
+                      className="text-[11px] font-bold text-amber-600 hover:text-amber-700 dark:text-amber-400 cursor-pointer"
+                    >
+                      {auditCheckedBatches.size === (auditingOrder.batchItems?.length || 0)
+                        ? 'Desmarcar todas'
+                        : 'Marcar todas conformes'}
+                    </button>
+                  )}
+                </div>
+
+                {(!auditingOrder.batchItems || auditingOrder.batchItems.length === 0) ? (
+                  <p className="text-slate-400 italic text-xs py-2">No se incluyeron bobinas en este traslado.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                    {auditingOrder.batchItems.map(batch => {
+                      const isChecked = auditCheckedBatches.has(batch.id);
+                      return (
+                        <div
+                          key={batch.id}
+                          onClick={() => {
+                            const next = new Set(auditCheckedBatches);
+                            if (next.has(batch.id)) next.delete(batch.id);
+                            else next.add(batch.id);
+                            setAuditCheckedBatches(next);
+                          }}
+                          className={`p-3 flex items-center justify-between gap-3 cursor-pointer transition ${
+                            isChecked ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <div>
+                              <p className="font-bold text-slate-900 dark:text-white text-xs">
+                                {batch.product?.name || 'Bobina de Cable'}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-500">
+                                <span>Código: <strong className="font-mono text-slate-800 dark:text-slate-200">{batch.batchNumber}</strong></span>
+                                &bull;
+                                <span>Longitud: <strong className="text-amber-600 dark:text-amber-400">{batch.currentQuantity} metros</strong></span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            isChecked
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                          }`}>
+                            {isChecked ? 'Conforme' : 'Pendiente'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Material a Granel */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-indigo-100 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400">
+                      <Boxes className="w-4 h-4" />
+                    </div>
+                    <h4 className="font-bold text-slate-900 dark:text-white text-xs uppercase tracking-wider">
+                      Material a Granel / Conectores ({auditingOrder.items?.length || 0})
+                    </h4>
+                  </div>
+                  {(auditingOrder.items?.length || 0) > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allIds = (auditingOrder.items || []).map(i => i.id);
+                        if (auditCheckedBulks.size === allIds.length) {
+                          setAuditCheckedBulks(new Set());
+                        } else {
+                          setAuditCheckedBulks(new Set(allIds));
+                        }
+                      }}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 cursor-pointer"
+                    >
+                      {auditCheckedBulks.size === (auditingOrder.items?.length || 0)
+                        ? 'Desmarcar todos'
+                        : 'Marcar todos conformes'}
+                    </button>
+                  )}
+                </div>
+
+                {(!auditingOrder.items || auditingOrder.items.length === 0) ? (
+                  <p className="text-slate-400 italic text-xs py-2">No se incluyó material a granel en este traslado.</p>
+                ) : (
+                  <div className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
+                    {auditingOrder.items.map(item => {
+                      const isChecked = auditCheckedBulks.has(item.id);
+                      return (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            const next = new Set(auditCheckedBulks);
+                            if (next.has(item.id)) next.delete(item.id);
+                            else next.add(item.id);
+                            setAuditCheckedBulks(next);
+                          }}
+                          className={`p-3 flex items-center justify-between gap-3 cursor-pointer transition ${
+                            isChecked ? 'bg-emerald-50/50 dark:bg-emerald-950/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => {}}
+                              className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <div>
+                              <p className="font-bold text-slate-900 dark:text-white text-xs">
+                                {item.product?.name || 'Material'}
+                              </p>
+                              <p className="text-[11px] text-slate-500 mt-0.5">
+                                Cantidad enviada: <strong className="text-slate-800 dark:text-slate-200">{item.quantity} {item.unitOfMeasure}</strong>
+                              </p>
+                            </div>
+                          </div>
+
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            isChecked
+                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                              : 'bg-slate-100 text-slate-500 dark:bg-slate-800'
+                          }`}>
+                            {isChecked ? 'Conforme' : 'Pendiente'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Aviso Logístico Informativo */}
+              <div className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 flex items-start gap-2.5 text-emerald-900 dark:text-emerald-200">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-[11px] leading-relaxed">
+                  <strong>Efecto en Inventario:</strong> Al confirmar la recepción total, todos los ítems pasarán de <span className="font-mono font-bold">EN_TRANSITO</span> a <span className="font-mono font-bold">EN_STOCK</span> disponible en <strong className="underline">{auditingOrder.destinationWarehouse?.name}</strong>, y la orden quedará registrada como <span className="font-bold">RECIBIDO</span> en la auditoría forense.
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Fijo con Acciones de Confirmación */}
+            <div className="flex items-center justify-between px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 backdrop-blur-md shrink-0">
+              <button
+                type="button"
+                disabled={isReceivingOrder}
+                onClick={() => setAuditingOrder(null)}
+                className="px-4 py-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-200/70 dark:hover:bg-slate-800 font-semibold text-xs transition cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                disabled={isReceivingOrder}
+                onClick={handleConfirmTotalReception}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs shadow-lg shadow-emerald-600/20 active:scale-95 transition-all flex items-center gap-2 cursor-pointer"
+              >
+                {isReceivingOrder ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Ingresando al inventario...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Confirmar Recepción Total</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

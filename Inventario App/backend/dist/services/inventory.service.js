@@ -36,23 +36,86 @@ class InventoryService {
      * Obtiene resumen global para el Dashboard Admin usando Prisma
      */
     async getDashboardKPIs() {
-        const [serialized, bulkStocks, warehouses, transfers, rmaCount] = await Promise.all([
-            db_1.prisma.serializedItem.findMany(),
-            db_1.prisma.bulkStock.findMany({ include: { product: true, warehouse: true } }),
-            db_1.prisma.warehouse.findMany(),
-            db_1.prisma.transferOrder.findMany({ where: { status: 'PENDIENTE' } }),
-            db_1.prisma.serializedItem.count({ where: { status: client_1.SerializedStatus.RMA_DEFECTUOSO } })
+        const [serialized, bulkStocks, batchItems, warehouses, products, transfers, rmaCount] = await Promise.all([
+            db_1.prisma.serializedItem.findMany({
+                include: { product: true }
+            }),
+            db_1.prisma.bulkStock.findMany({
+                include: { product: true, warehouse: true }
+            }),
+            db_1.prisma.batchItem.findMany({
+                where: { status: client_1.BatchStatus.DISPONIBLE },
+                include: { product: true }
+            }),
+            db_1.prisma.warehouse.findMany({
+                include: { parentWarehouse: true }
+            }),
+            db_1.prisma.productCatalog.findMany({
+                where: { isActive: true }
+            }),
+            db_1.prisma.transferOrder.findMany({
+                where: { status: client_1.TransferStatus.PENDIENTE }
+            }),
+            db_1.prisma.serializedItem.count({
+                where: { status: client_1.SerializedStatus.RMA_DEFECTUOSO }
+            })
         ]);
         const totalSerializedActive = serialized.filter(i => i.status !== client_1.SerializedStatus.BAJA).length;
-        const criticalStockAlerts = bulkStocks
-            .filter(s => s.product && s.quantity < (s.product.minStockAlert || 50))
-            .map(s => ({
-            warehouseName: s.warehouse?.name || 'Bodega',
-            bulkItemName: s.product.name,
-            currentQuantity: s.quantity,
-            minStockAlert: s.product.minStockAlert || 50,
-            unitOfMeasure: s.product.unitOfMeasure || 'UNIDADES'
-        }));
+        // Identificar Hub Principal (o Tocumen)
+        const hubWarehouse = warehouses.find(w => w.type === client_1.WarehouseType.PRINCIPAL) || warehouses[0];
+        // Bodegas operativas que requieren abastecimiento (Vehículos y Sucursales)
+        const operationalWarehouses = warehouses.filter(w => w.status === 'ACTIVE' && (w.type === client_1.WarehouseType.VEHICULO || w.type === client_1.WarehouseType.SUCURSAL));
+        const criticalStockAlerts = [];
+        for (const w of operationalWarehouses) {
+            for (const p of products) {
+                let currentQuantity = 0;
+                if (p.trackingType === 'SERIALIZED') {
+                    currentQuantity = serialized.filter(i => i.currentWarehouseId === w.id &&
+                        (i.status === client_1.SerializedStatus.EN_BODEGA || i.status === client_1.SerializedStatus.EN_VEHICULO) &&
+                        i.productId === p.id).length;
+                }
+                else if (p.trackingType === 'BULK') {
+                    const bs = bulkStocks.find(b => b.warehouseId === w.id && b.productId === p.id);
+                    currentQuantity = bs?.quantity || 0;
+                }
+                else if (p.trackingType === 'BATCHED') {
+                    const bi = batchItems.filter(b => b.currentWarehouseId === w.id && b.productId === p.id);
+                    currentQuantity = bi.length;
+                }
+                const minStockAlert = p.minStockAlert !== undefined && p.minStockAlert !== null ? p.minStockAlert : 5;
+                // Si el stock actual es menor o igual al mínimo definido en catálogo
+                if (currentQuantity <= minStockAlert) {
+                    const defaultOriginId = w.parentId || hubWarehouse?.id;
+                    const defaultOriginName = w.parentWarehouse?.name || hubWarehouse?.name || 'Hub Central';
+                    criticalStockAlerts.push({
+                        warehouseId: w.id,
+                        warehouseName: w.name,
+                        warehouseType: w.type,
+                        vehiclePlate: w.vehiclePlate || null,
+                        productId: p.id,
+                        productName: p.name,
+                        productCategory: p.category,
+                        sku: p.sku,
+                        trackingType: p.trackingType,
+                        currentQuantity,
+                        minStockAlert,
+                        deficit: Math.max(0, minStockAlert - currentQuantity),
+                        unitOfMeasure: p.unitOfMeasure || 'UNIDADES',
+                        hubWarehouseId: defaultOriginId,
+                        hubWarehouseName: defaultOriginName,
+                        isExhausted: currentQuantity === 0
+                    });
+                }
+            }
+        }
+        // Ordenar alertas: primero los totalmente agotados (stock 0), luego mayor déficit
+        criticalStockAlerts.sort((a, b) => {
+            if (a.isExhausted && !b.isExhausted)
+                return -1;
+            if (!a.isExhausted && b.isExhausted)
+                return 1;
+            return b.deficit - a.deficit;
+        });
         const onusByStatus = {
             enBodega: serialized.filter(i => i.status === client_1.SerializedStatus.EN_BODEGA).length,
             enTransito: serialized.filter(i => i.status === client_1.SerializedStatus.EN_TRANSITO).length,

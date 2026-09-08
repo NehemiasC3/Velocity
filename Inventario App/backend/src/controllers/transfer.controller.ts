@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '../db';
 import { TransferStatus, SerializedStatus, BatchStatus, AuditEventType, WarehouseType, Role } from '@prisma/client';
+import { inventoryService } from '../services/inventory.service';
 
 /**
  * Resuelve o provisiona de forma segura un usuario responsable para firmar traslados.
@@ -66,7 +67,7 @@ export class TransferController {
    */
   public static async getTransfers(req: Request, res: Response): Promise<void> {
     try {
-      const { warehouseId, status, search } = req.query;
+      const { warehouseId, destinationWarehouseId, sourceWarehouseId, status, search } = req.query;
 
       const where: any = {};
 
@@ -74,21 +75,55 @@ export class TransferController {
         where.status = status as TransferStatus;
       }
 
-      if (warehouseId && typeof warehouseId === 'string') {
-        where.OR = [
-          { sourceWarehouseId: warehouseId },
-          { destinationWarehouseId: warehouseId }
-        ];
+      if (destinationWarehouseId && typeof destinationWarehouseId === 'string') {
+        where.destinationWarehouseId = destinationWarehouseId;
+      }
+
+      if (sourceWarehouseId && typeof sourceWarehouseId === 'string') {
+        where.sourceWarehouseId = sourceWarehouseId;
+      }
+
+      const andConditions: any[] = [];
+
+      if (warehouseId && typeof warehouseId === 'string' && !destinationWarehouseId && !sourceWarehouseId) {
+        andConditions.push({
+          OR: [
+            { sourceWarehouseId: warehouseId },
+            { destinationWarehouseId: warehouseId }
+          ]
+        });
       }
 
       if (search && typeof search === 'string') {
         const q = search.trim();
-        where.OR = [
-          { orderNumber: { contains: q, mode: 'insensitive' } },
-          { notes: { contains: q, mode: 'insensitive' } },
-          { sourceWarehouse: { name: { contains: q, mode: 'insensitive' } } },
-          { destinationWarehouse: { name: { contains: q, mode: 'insensitive' } } }
-        ];
+        andConditions.push({
+          OR: [
+            { orderNumber: { contains: q, mode: 'insensitive' } },
+            { notes: { contains: q, mode: 'insensitive' } },
+            { sourceWarehouse: { name: { contains: q, mode: 'insensitive' } } },
+            { destinationWarehouse: { name: { contains: q, mode: 'insensitive' } } }
+          ]
+        });
+      }
+
+      // Warehouse Scoping: Si el usuario es administradora regional, filtrar traslados de su nodo y móviles
+      const user = (req as any).user;
+      if (user && user.role !== 'SUPERADMIN' && user.assignedNodeId) {
+        const childWarehouses = await prisma.warehouse.findMany({
+          where: { parentId: user.assignedNodeId },
+          select: { id: true }
+        });
+        const scopedIds = [user.assignedNodeId, ...childWarehouses.map(c => c.id)];
+        andConditions.push({
+          OR: [
+            { sourceWarehouseId: { in: scopedIds } },
+            { destinationWarehouseId: { in: scopedIds } }
+          ]
+        });
+      }
+
+      if (andConditions.length > 0) {
+        where.AND = andConditions;
       }
 
       const transfers = await prisma.transferOrder.findMany({
@@ -263,6 +298,33 @@ export class TransferController {
       if (!destinationWarehouse) {
         res.status(404).json({ success: false, error: 'Bodega de destino no encontrada' });
         return;
+      }
+
+      // ─────────────────────────────────────────────────────────────
+      // RESTRICCIÓN DE PERMISOS RBAC PARA ADMINISTRADORAS REGIONALES
+      // ─────────────────────────────────────────────────────────────
+      const user = (req as any).user;
+      const isSuperAdmin = !user || user.role === 'SUPERADMIN';
+      const assignedNodeId = user?.assignedNodeId;
+
+      if (!isSuperAdmin && assignedNodeId) {
+        // Opción A: Despacho desde su nodo regional hacia vehículos/técnicos asignados a su nodo
+        const isDispatchToAssignedVehicle = 
+          sourceWarehouseId === assignedNodeId && 
+          destinationWarehouse.parentId === assignedNodeId;
+
+        // Opción B: Solicitud de reabastecimiento desde el Hub Central hacia su nodo regional
+        const isReplenishmentFromHub = 
+          (sourceWarehouse.type === WarehouseType.PRINCIPAL || sourceWarehouse.id === 'dc337480-d190-40b2-a33f-2b9186633f29') && 
+          destinationWarehouseId === assignedNodeId;
+
+        if (!isDispatchToAssignedVehicle && !isReplenishmentFromHub) {
+          res.status(403).json({
+            success: false,
+            error: `Restricción de nodo logístico: Como administradora regional de ${user.name || 'la sucursal'}, únicamente tienes autorización para crear traslados hacia los vehículos/técnicos asignados a tu nodo o solicitar reabastecimiento desde el Hub Central (Tocumen).`
+          });
+          return;
+        }
       }
 
       const hasBulk = Array.isArray(bulkItems) && bulkItems.length > 0;
@@ -460,23 +522,25 @@ export class TransferController {
             }
           });
 
-          // Suma/Upsert en destino
-          await tx.bulkStock.upsert({
-            where: {
-              productId_warehouseId: {
+          // Suma/Upsert en destino solo si es recepción directa/inmediata
+          if (directReceive) {
+            await tx.bulkStock.upsert({
+              where: {
+                productId_warehouseId: {
+                  productId: b.productId,
+                  warehouseId: destinationWarehouseId
+                }
+              },
+              create: {
                 productId: b.productId,
-                warehouseId: destinationWarehouseId
+                warehouseId: destinationWarehouseId,
+                quantity: b.quantity
+              },
+              update: {
+                quantity: { increment: b.quantity }
               }
-            },
-            create: {
-              productId: b.productId,
-              warehouseId: destinationWarehouseId,
-              quantity: b.quantity
-            },
-            update: {
-              quantity: { increment: b.quantity }
-            }
-          });
+            });
+          }
         }
 
         // C. Trasladar Bobinas (Actualizar currentWarehouseId)
@@ -548,6 +612,7 @@ export class TransferController {
         return order;
       });
 
+      inventoryService.invalidateDashboardCache();
       res.status(201).json({
         success: true,
         message: `Orden de traslado ${result.orderNumber} procesada exitosamente.${directReceive ? ' Stock disponible inmediatamente en destino.' : ''}`,
@@ -647,7 +712,29 @@ export class TransferController {
           });
         }
 
-        // 3. Actualizar orden
+        // 3. Granel a bodega destino
+        if (transfer.items && transfer.items.length > 0) {
+          for (const item of transfer.items) {
+            await tx.bulkStock.upsert({
+              where: {
+                productId_warehouseId: {
+                  productId: item.productId,
+                  warehouseId: transfer.destinationWarehouseId
+                }
+              },
+              create: {
+                productId: item.productId,
+                warehouseId: transfer.destinationWarehouseId,
+                quantity: item.quantity
+              },
+              update: {
+                quantity: { increment: item.quantity }
+              }
+            });
+          }
+        }
+
+        // 4. Actualizar orden
         const updated = await tx.transferOrder.update({
           where: { id: orderId },
           data: {
@@ -678,6 +765,7 @@ export class TransferController {
         return updated;
       });
 
+      inventoryService.invalidateDashboardCache();
       res.status(200).json({
         success: true,
         message: `Orden de traslado ${result.orderNumber} recibida exitosamente en ${transfer.destinationWarehouse.name}.`,

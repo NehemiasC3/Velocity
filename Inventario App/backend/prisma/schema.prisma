@@ -87,7 +87,9 @@ enum TransferStatus {
 }
 
 enum InstallationTicketType {
-  INSTALACION_NUEVA
+  INSTALACION_NUEVA    // Alta: nueva instalación de servicio
+  BAJA_SERVICIO        // Baja: cancelación / retiro de hardware en campo
+  MANTENIMIENTO_RMA    // RMA: cambio de equipo defectuoso
   CAMBIO_EQUIPO
   MIGRACION
   REPARACION_DROP
@@ -108,6 +110,7 @@ enum AuditEventType {
   REPORTE_RMA
   AJUSTE_STOCK
   CONSUMO_BOBINA
+  RETIRO_POR_CANCELACION  // Retiro de hardware al cancelar servicio (Baja)
 }
 
 enum WisproClientStatus {
@@ -132,6 +135,10 @@ model User {
   baseWarehouseId     String?              @map("base_warehouse_id")
   baseWarehouse       Warehouse?           @relation("UserBaseWarehouse", fields: [baseWarehouseId], references: [id])
 
+  // Nodo Logístico Asignado (Warehouse Scoping / Administradora Regional)
+  assignedNodeId      String?              @map("assigned_node_id")
+  assignedNode        Warehouse?           @relation("UserAssignedNode", fields: [assignedNodeId], references: [id])
+
   // Bodegas donde figura como Encargado/Responsable
   managedWarehouses   Warehouse[]          @relation("WarehouseManager")
 
@@ -143,10 +150,13 @@ model User {
   // Operaciones de Campo y Auditoría
   installationTickets InstallationTicket[] @relation("TechnicianInstallations")
   auditLogs           AuditLog[]           @relation("UserAuditLogs")
+  clientAssignments   ClientAssignment[]   @relation("TechnicianClientAssignments")
 
   createdAt           DateTime             @default(now()) @map("created_at")
   updatedAt           DateTime             @updatedAt @map("updated_at")
 
+  @@index([assignedNodeId])
+  @@index([role])
   @@map("users")
 }
 
@@ -174,6 +184,7 @@ model Warehouse {
 
   // Usuarios con base en esta bodega
   assignedUsers        User[]               @relation("UserBaseWarehouse")
+  assignedNodeUsers    User[]               @relation("UserAssignedNode")
 
   // ── Existencias Físicas en esta Bodega ──
   bulkStocks           BulkStock[]          // Existencias Granel (BULK)
@@ -188,10 +199,13 @@ model Warehouse {
   installationTickets  InstallationTicket[] @relation("VehicleWarehouseTickets")
   fromAuditLogs        AuditLog[]           @relation("AuditFromWarehouse")
   toAuditLogs          AuditLog[]           @relation("AuditToWarehouse")
+  clientAssignments    ClientAssignment[]   @relation("NodeClientAssignments")
 
   createdAt            DateTime             @default(now()) @map("created_at")
   updatedAt            DateTime             @updatedAt @map("updated_at")
 
+  @@index([parentId])
+  @@index([type])
   @@map("warehouses")
 }
 
@@ -272,6 +286,7 @@ model BatchItem {
   @@unique([productId, batchNumber])
   @@index([currentWarehouseId])
   @@index([status])
+  @@index([batchNumber])
   @@map("batch_items")
 }
 
@@ -299,6 +314,10 @@ model SerializedItem {
   warrantyExpiration  DateTime?          @map("warranty_expiration")
   notes               String?
 
+  // Asignación multi-equipo a Contrato de Cliente
+  clientAssignmentId  String?            @map("client_assignment_id")
+  clientAssignment    ClientAssignment?  @relation("ClientAssignmentItems", fields: [clientAssignmentId], references: [id])
+
   transferOrders      TransferOrder[]    @relation("TransferOrderSerializedItems")
 
   createdAt           DateTime           @default(now()) @map("created_at")
@@ -306,6 +325,9 @@ model SerializedItem {
 
   @@index([currentWarehouseId])
   @@index([status])
+  @@index([macAddress])
+  @@index([currentWarehouseId, status])
+  @@index([clientAssignmentId])
   @@map("serialized_items")
 }
 
@@ -348,6 +370,11 @@ model TransferOrder {
   createdAt              DateTime             @default(now()) @map("created_at")
   updatedAt              DateTime             @updatedAt @map("updated_at")
 
+  @@index([sourceWarehouseId])
+  @@index([destinationWarehouseId])
+  @@index([status])
+  @@index([sourceWarehouseId, status])
+  @@index([destinationWarehouseId, status])
   @@map("transfer_orders")
 }
 
@@ -440,21 +467,32 @@ model AuditLog {
 // ──────────────────────────────────────────────
 
 model WisproClient {
-  id             String             @id @default(uuid())
-  name           String
-  email          String?
-  phone          String?
-  address        String
-  identification String?
-  nodeName       String             @map("node_name")
-  contractId     String             @unique @map("contract_id")
-  planName       String             @map("plan_name")
-  currentOnuMac  String?            @map("current_onu_mac")
-  status         WisproClientStatus @default(ACTIVO)
+  id                String             @id @default(uuid())
+  name              String
+  email             String?
+  phone             String?
+  address           String
+  identification    String?
+  nodeName          String             @map("node_name")
+  contractId        String             @unique @map("contract_id")
+  publicId          Int?               @map("public_id")
+  planName          String             @map("plan_name")
+  currentOnuMac     String?            @map("current_onu_mac")
+  currentOnuSerial  String?            @map("current_onu_serial")
+  model             String?            @map("model")
+  ipAddress         String?            @map("ip_address")
+  wisproState       String?            @map("wispro_state")
+  status            WisproClientStatus @default(ACTIVO)
+  wisproUpdatedAt   DateTime?          @map("wispro_updated_at")
 
-  createdAt      DateTime           @default(now()) @map("created_at")
-  updatedAt      DateTime           @updatedAt @map("updated_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
 
+  @@index([publicId])
+  @@index([name])
+  @@index([identification])
+  @@index([currentOnuSerial])
+  @@index([currentOnuMac])
   @@map("wispro_clients")
 }
 
@@ -464,7 +502,40 @@ model WisproConfig {
   apiToken          String    @default("") @map("api_token")
   autoSyncMinutes   Int       @default(15) @map("auto_sync_minutes")
   lastSyncTimestamp DateTime? @map("last_sync_timestamp")
+  lastSyncedAt      DateTime? @map("last_synced_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@map("wispro_configs")
 }
+
+// ──────────────────────────────────────────────
+// 10. ASIGNACIÓN MULTI-EQUIPO A CLIENTES (Wispro)
+// ──────────────────────────────────────────────
+
+model ClientAssignment {
+  id               String           @id @default(uuid())
+  wisproContractId String           @map("wispro_contract_id") // ID del Contrato en Wispro (#4823)
+  clientName       String           @map("client_name")        // Nombre del Cliente
+  
+  // Relación con los equipos físicos de inventario (ONU, TV Box, Cámaras, etc.)
+  items            SerializedItem[] @relation("ClientAssignmentItems")
+  
+  assignedAt       DateTime         @default(now()) @map("assigned_at")
+  technicianId     String?          @map("technician_id")      // Técnico que realizó la instalación
+  technician       User?            @relation("TechnicianClientAssignments", fields: [technicianId], references: [id])
+
+  nodeId           String           @map("node_id")            // Nodo/Bodega Zonal responsable
+  node             Warehouse        @relation("NodeClientAssignments", fields: [nodeId], references: [id])
+
+  notes            String?
+  status           String           @default("ACTIVO")         // ACTIVO, FINALIZADO, RETIRADO
+
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
+
+  @@index([wisproContractId])
+  @@index([nodeId])
+  @@index([technicianId])
+  @@map("client_assignments")
+}
+

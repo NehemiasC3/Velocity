@@ -483,11 +483,14 @@
                         <button 
                             onclick="switchTab('inventory', 'traslados')" 
                             id="nav-sub-inventory-traslados" 
-                            class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
+                            class="subnav-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
                             title="Envíos y Traslados"
                         >
-                            <span class="material-symbols-outlined text-[16px]">local_shipping</span>
-                            <span class="subnav-label">Envíos / Traslados</span>
+                            <div class="flex items-center gap-2.5">
+                                <span class="material-symbols-outlined text-[16px]">local_shipping</span>
+                                <span class="subnav-label">Envíos / Traslados</span>
+                            </div>
+                            <span id="transfers-pending-badge" class="hidden px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white leading-none shadow-sm animate-pulse">0</span>
                         </button>
 
                         <!-- Sub-ítem 6: Devoluciones RMA -->

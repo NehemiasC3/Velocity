@@ -76,7 +76,7 @@ const ClientDetailModal: React.FC<{
                   {client.status.replace(/_/g, ' ')}
                 </span>
                 <span className="text-xs text-slate-300 flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {client.nodeName}
+                  <MapPin className="w-3 h-3" /> {(!client.nodeName || client.nodeName === 'OLT-Central' || client.nodeName === 'Sin NAP') ? 'Sin NAP' : client.nodeName}
                 </span>
                 <span className="text-xs text-slate-300 flex items-center gap-1">
                   <Zap className="w-3 h-3" /> {client.planName}
@@ -482,8 +482,15 @@ export const ClientEquipmentModule: React.FC = () => {
                           {client.currentOnuMac && <p className="font-mono text-[10px] text-slate-400 mt-0.5">{client.currentOnuMac}</p>}
                         </td>
                         <td className="py-3 px-4 hidden md:table-cell">
-                          <p className="font-medium text-slate-700">{client.nodeName}</p>
-                          <p className="text-[11px] text-slate-400">{client.planName}</p>
+                          {(!client.nodeName || client.nodeName === 'OLT-Central' || client.nodeName === 'Sin NAP') ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-50 text-amber-700 border border-amber-200 font-semibold">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              Sin NAP
+                            </span>
+                          ) : (
+                            <p className="font-medium text-slate-700">{client.nodeName}</p>
+                          )}
+                          <p className="text-[11px] text-slate-400 mt-0.5">{client.planName}</p>
                         </td>
                         <td className="py-3 px-4 hidden lg:table-cell max-w-[200px]">
                           <p className="text-slate-600 truncate">{client.address}</p>

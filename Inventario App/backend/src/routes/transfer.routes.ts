@@ -1,7 +1,10 @@
 import { Router } from 'express';
 import { TransferController } from '../controllers/transfer.controller';
+import { optionalAuth } from '../middlewares/auth.middleware';
 
 const router = Router();
+
+router.use(optionalAuth);
 
 // Consultas de Traslados y Stock por Bodega
 router.get('/', TransferController.getTransfers);

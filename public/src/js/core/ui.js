@@ -702,6 +702,46 @@ function renderTab(tab, subTab) {
 
 // Sincronización bidireccional entre el Supervisor y el Iframe de Inventario
 if (typeof window !== 'undefined') {
+    window.updateTransfersPendingBadge = function(count) {
+        const badge = document.getElementById('transfers-pending-badge');
+        if (!badge) return;
+        const num = parseInt(count, 10) || 0;
+        if (num > 0) {
+            badge.textContent = num > 99 ? '99+' : String(num);
+            badge.classList.remove('hidden');
+        } else {
+            badge.textContent = '0';
+            badge.classList.add('hidden');
+        }
+    };
+
+    window.fetchTransfersPendingCount = async function() {
+        try {
+            const apiUrl = window.INVENTORY_API_URL || 'http://localhost:4000/api';
+            const res = await fetch(`${apiUrl}/transfers?status=EN_TRANSITO`);
+            if (res.ok) {
+                const data = await res.json();
+                const transfers = data.transfers || [];
+                const userSession = JSON.parse(localStorage.getItem('isp_user') || sessionStorage.getItem('isp_user') || '{}');
+                let count = transfers.length;
+                if (userSession && userSession.id && userSession.role !== 'SUPERADMIN' && userSession.role !== 'ADMIN_BODEGA') {
+                    const userWhIds = new Set();
+                    if (userSession.baseWarehouseId) userWhIds.add(userSession.baseWarehouseId);
+                    if (userSession.assignedWarehouseId) userWhIds.add(userSession.assignedWarehouseId);
+                    if (userSession.managedWarehouses && Array.isArray(userSession.managedWarehouses)) {
+                        userSession.managedWarehouses.forEach(w => userWhIds.add(w.id));
+                    }
+                    if (userWhIds.size > 0) {
+                        count = transfers.filter(t => userWhIds.has(t.destinationWarehouseId)).length;
+                    }
+                }
+                window.updateTransfersPendingBadge(count);
+            }
+        } catch (e) {
+            // Ignorar errores silenciosamente si el backend aún no responde
+        }
+    };
+
     window.addEventListener('message', (ev) => {
         if (ev.data && ev.data.type === 'IFRAME_READY') {
             const iframe = document.getElementById('inventory-react-iframe');
@@ -727,8 +767,20 @@ if (typeof window !== 'undefined') {
                     iframe.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: canonicalTab }, '*');
                 } catch (e) {}
             }
+            window.fetchTransfersPendingCount();
+        }
+
+        if (ev.data && ev.data.type === 'UPDATE_PENDING_TRANSFERS_COUNT') {
+            window.updateTransfersPendingBadge(ev.data.count);
         }
     });
+
+    // Cargar badge al iniciar
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => window.fetchTransfersPendingCount());
+    } else {
+        window.fetchTransfersPendingCount();
+    }
 }
 
 // ── PWA ACTUALIZACIÓN DETECTADA & HÁMSTER ANIMATION ─────────────────────────

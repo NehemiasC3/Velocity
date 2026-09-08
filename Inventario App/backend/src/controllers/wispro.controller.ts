@@ -3,13 +3,14 @@ import { WisproService } from '../services/wispro.service';
 
 export class WisproController {
   /**
-   * Endpoint de Sincronización REST con Wispro
+   * Endpoint de Sincronización Diferencial REST con Wispro
    * POST /api/wispro/sync
    */
   public static async syncWispro(req: Request, res: Response): Promise<void> {
     try {
       console.log('[WisproController] Recibida solicitud POST /api/wispro/sync');
-      const result = await WisproService.syncActiveContracts();
+      const forceFull = req.query.force === 'true' || req.body?.forceFullDump === true;
+      const result = await WisproService.syncWisproContractsIncremental({ forceFullDump: forceFull });
       res.status(200).json(result);
     } catch (error: any) {
       console.error('Error en sincronización con Wispro:', error);
@@ -22,34 +23,60 @@ export class WisproController {
   }
 
   /**
-   * Obtiene la lista de contratos activos desde Wispro REST API
-   * GET /api/wispro/contracts/active
+   * Consulta 100% Local de Contratos sobre PostgreSQL (Sub-20ms)
+   * GET /api/wispro/contracts
    */
-  public static async getActiveContracts(req: Request, res: Response): Promise<void> {
+  public static async getContracts(req: Request, res: Response): Promise<void> {
     try {
-      const page = req.query.page ? Number(req.query.page) : undefined;
-      const perPage = req.query.per_page || req.query.limit ? Number(req.query.per_page || req.query.limit) : undefined;
-      const loadAll = req.query.all === 'true' || req.query.loadAll === 'true' || (!req.query.page && !req.query.per_page);
-      const forceRefresh = req.query.forceRefresh === 'true' || req.query.refresh === 'true';
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const isAll = req.query.per_page === 'ALL' || req.query.limit === 'ALL' || req.query.all === 'true' || req.query.loadAll === 'true';
+      const perPage = isAll ? 'ALL' : Math.min(200, Math.max(1, Number(req.query.per_page || req.query.limit) || 50));
+      const loadAll = isAll;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      const filterState = req.query.filterState ? String(req.query.filterState) : (req.query.state ? String(req.query.state) : undefined);
+      const filterSerial = req.query.filterSerial ? String(req.query.filterSerial) : undefined;
+      const filterNap = req.query.filterNap ? String(req.query.filterNap) : undefined;
+      const sortOrder = (req.query.sortOrder === 'asc' || req.query.order === 'asc') ? 'asc' : 'desc';
 
-      const result = await WisproService.fetchActiveContracts({ page, perPage, loadAll, forceRefresh });
+      const result = await WisproService.getLocalContracts({
+        page,
+        perPage,
+        loadAll,
+        search,
+        filterState,
+        filterSerial,
+        filterNap,
+        sortOrder
+      });
+
       res.status(200).json({
         success: true,
-        count: result.contracts ? result.contracts.length : (Array.isArray(result) ? result.length : 0),
-        total: result.total || (result.contracts ? result.contracts.length : (Array.isArray(result) ? result.length : 0)),
-        page: result.page || 1,
-        perPage: result.perPage || 100,
-        totalPages: result.totalPages || 1,
-        contracts: result.contracts || result
+        count: result.contracts.length,
+        total: result.total,
+        page: result.page,
+        perPage: result.perPage,
+        totalPages: result.totalPages,
+        lastSyncedAt: result.lastSyncedAt,
+        source: 'PostgreSQL Local Mirror',
+        kpis: result.kpis,
+        contracts: result.contracts
       });
     } catch (error: any) {
-      console.error('Error obteniendo contratos de Wispro:', error);
+      console.error('Error consultando contratos locales:', error);
       res.status(500).json({
         success: false,
         error: 'Error al consultar contratos',
         details: error.message
       });
     }
+  }
+
+  /**
+   * Obtiene la lista de contratos activos desde PostgreSQL Local Mirror
+   * GET /api/wispro/contracts/active (Alias a getContracts)
+   */
+  public static async getActiveContracts(req: Request, res: Response): Promise<void> {
+    return WisproController.getContracts(req, res);
   }
 
   /**

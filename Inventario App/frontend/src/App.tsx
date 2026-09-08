@@ -12,6 +12,8 @@ import { PersonnelMetricsModule } from './components/PersonnelMetricsModule';
 import { TechnicianMobileApp } from './components/TechnicianMobileApp';
 import { WisproModule } from './components/WisproModule';
 import { ClientEquipmentModule } from './components/ClientEquipmentModule';
+import { WorkOrdersModule } from './components/WorkOrdersModule';
+
 import { InventorySearch } from './components/InventorySearch';
 import { GlobalCommandPalette } from './components/GlobalCommandPalette';
 import { Login } from './components/Login';
@@ -52,6 +54,11 @@ const mapTabParam = (rawTab: string | null): string => {
     case 'equipos-cliente':
     case 'clientes':
       return 'client-equipment';
+    case 'work-orders':
+    case 'mesa-ordenes':
+    case 'ordenes':
+      return 'work-orders';
+
     case 'personnel':
     case 'metricas':
       return 'personnel';
@@ -81,6 +88,7 @@ const AppContent: React.FC = () => {
   });
 
   const [auditInitialQuery, setAuditInitialQuery] = useState<string | undefined>(undefined);
+  const [pendingTransferIntent, setPendingTransferIntent] = useState<any>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
 
@@ -162,6 +170,14 @@ const AppContent: React.FC = () => {
   const handleNavigateTab = (tab: string, param?: string) => {
     if (tab === 'audit' && param) {
       setAuditInitialQuery(param);
+    }
+    if (tab === 'transfers' && param) {
+      try {
+        const parsed = typeof param === 'string' ? JSON.parse(param) : param;
+        setPendingTransferIntent(parsed);
+      } catch (e) {
+        setPendingTransferIntent(null);
+      }
     }
     setActiveTab(tab);
   };
@@ -275,7 +291,7 @@ const AppContent: React.FC = () => {
           </div>
           <div className={`w-full ${activeTab === 'warehouses' ? 'block' : 'hidden'}`}>
             <ErrorBoundary moduleName="Bodegas y Sucursales" onReset={handleRefreshAll}>
-              <WarehousesModule />
+              <WarehousesModule onNavigateTab={handleNavigateTab} />
             </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'catalog' ? 'block' : 'hidden'}`}>
@@ -290,7 +306,10 @@ const AppContent: React.FC = () => {
           </div>
           <div className={`w-full ${activeTab === 'transfers' ? 'block' : 'hidden'}`}>
             <ErrorBoundary moduleName="Traslados y Despachos" onReset={handleRefreshAll}>
-              <TransfersModule />
+              <TransfersModule 
+                initialTransferData={pendingTransferIntent}
+                onClearInitialTransferData={() => setPendingTransferIntent(null)}
+              />
             </ErrorBoundary>
           </div>
           <div className={`w-full ${activeTab === 'rma' ? 'block' : 'hidden'}`}>
@@ -326,6 +345,11 @@ const AppContent: React.FC = () => {
           <div className={`w-full ${activeTab === 'client-equipment' ? 'block' : 'hidden'}`}>
             <ErrorBoundary moduleName="Equipos por Cliente" onReset={handleRefreshAll}>
               <ClientEquipmentModule />
+            </ErrorBoundary>
+          </div>
+          <div className={`w-full ${activeTab === 'work-orders' ? 'block' : 'hidden'}`}>
+            <ErrorBoundary moduleName="Mesa de Órdenes" onReset={handleRefreshAll}>
+              <WorkOrdersModule />
             </ErrorBoundary>
           </div>
         </div>

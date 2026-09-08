@@ -388,8 +388,10 @@ export const GlobalCommandPalette: React.FC<GlobalCommandPaletteProps> = ({
                             {client.currentOnuMac && (
                               <span className="text-blue-700 font-semibold">ONU MAC: {client.currentOnuMac}</span>
                             )}
-                            {client.nodeName && (
-                              <span>Nodo: {client.nodeName}</span>
+                            {client.nodeName && client.nodeName !== 'OLT-Central' && client.nodeName !== 'Sin NAP' ? (
+                              <span>NAP: {client.nodeName}</span>
+                            ) : (
+                              <span className="text-amber-600 font-medium">Sin NAP</span>
                             )}
                           </div>
                         </div>

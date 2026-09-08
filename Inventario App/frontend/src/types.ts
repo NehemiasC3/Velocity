@@ -19,6 +19,9 @@ export interface User {
   baseWarehouseId?: string | null;
   baseWarehouseName?: string | null;
   assignedWarehouseId?: string;
+  assignedNodeId?: string | null;
+  assignedNodeName?: string | null;
+  assignedNode?: Warehouse | null;
   managedWarehouses?: { id: string; name: string; type: string }[];
   createdAt?: string;
 }
@@ -164,7 +167,15 @@ export interface TransferOrder {
   updatedAt?: string;
 }
 
-export type InstallationTicketType = 'INSTALACION_NUEVA' | 'CAMBIO_EQUIPO' | 'MIGRACION' | 'REPARACION_DROP';
+// ─── Tipos de Órdenes de Trabajo ─────────────────────────────────────────────
+
+export type InstallationTicketType =
+  | 'INSTALACION_NUEVA'   // 🟢 Alta: nueva instalación de servicio
+  | 'BAJA_SERVICIO'       // 🔴 Baja: cancelación y retiro de hardware en campo
+  | 'MANTENIMIENTO_RMA'   // 🔧 Cambio de equipo defectuoso
+  | 'CAMBIO_EQUIPO'
+  | 'MIGRACION'
+  | 'REPARACION_DROP';
 
 export interface InstallationTicket {
   id: string;
@@ -176,10 +187,15 @@ export interface InstallationTicket {
   wisproNode?: string;
   clientAddress: string;
   technicianId: string;
+  technician?: { id: string; name: string; email?: string; phone?: string };
   technicianName?: string;
   vehicleWarehouseId: string;
+  vehicleWarehouse?: { id: string; name: string; code: string; type?: string };
   installedOnuMac?: string;
   installedOnuSerial?: string;
+  installedRouterMac?: string;
+  retiredDeviceMac?: string;
+  retiredDeviceStatus?: 'RMA_DEFECTUOSO' | 'RECUPERADO_BUENO';
   cableDropMetersUsed: number;
   connectorsUsed: number;
   tensorsUsed: number;
@@ -189,21 +205,60 @@ export interface InstallationTicket {
   wisproSynced: boolean;
   wisproSyncMessage?: string;
   createdAt: string;
+  updatedAt?: string;
+}
+
+// ─── Work Order (alias enriquecido de InstallationTicket para la Mesa de Órdenes) ─
+
+export interface WorkOrderRetrievalItem {
+  id: string;
+  serialNumber?: string;
+  macAddress?: string;
+  product?: { id: string; name: string; brand?: string; model?: string; category?: string };
+  currentWarehouse?: { id: string; name: string; code: string };
+  status: SerializedStatus;
+}
+
+export interface WorkOrderDetail {
+  success: boolean;
+  ticket: InstallationTicket;
+  retrievalChecklist: WorkOrderRetrievalItem[];
+  contractAssignment: ClientAssignment | null;
+  retrievalCount: number;
+}
+
+export interface WorkOrderListResponse {
+  success: boolean;
+  data: InstallationTicket[];
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
+
+export interface WorkOrderCompletePayload {
+  defectiveItemIds?: string[];
+  returnWarehouseId?: string;
+  notes?: string;
 }
 
 export interface AuditLog {
   id: string;
   macAddress?: string;
   serialNumber?: string;
-  eventType: 
-    | 'ALTA_INVENTARIO' 
-    | 'DESPACHO_TRASLADO' 
-    | 'RECEPCION_TRASLADO' 
-    | 'CARGA_VEHICULO' 
-    | 'INSTALACION_CLIENTE' 
-    | 'RETIRO_CLIENTE' 
-    | 'REPORTE_RMA' 
-    | 'AJUSTE_STOCK';
+  eventType:
+    | 'ALTA_INVENTARIO'
+    | 'DESPACHO_TRASLADO'
+    | 'RECEPCION_TRASLADO'
+    | 'CARGA_VEHICULO'
+    | 'INSTALACION_CLIENTE'
+    | 'RETIRO_CLIENTE'
+    | 'REPORTE_RMA'
+    | 'AJUSTE_STOCK'
+    | 'CONSUMO_BOBINA'
+    | 'RETIRO_POR_CANCELACION';
   fromWarehouseId?: string;
   fromWarehouseName?: string;
   toWarehouseId?: string;
@@ -228,15 +283,30 @@ export interface WisproClient {
   status: 'ACTIVO' | 'PENDIENTE_INSTALACION' | 'SUSPENDIDO';
 }
 
+export interface CriticalStockAlert {
+  warehouseId: string;
+  warehouseName: string;
+  warehouseType: WarehouseType;
+  vehiclePlate?: string | null;
+  productId: string;
+  productName: string;
+  productCategory: string;
+  sku: string;
+  trackingType: TrackingType;
+  currentQuantity: number;
+  minStockAlert: number;
+  deficit: number;
+  unitOfMeasure: string;
+  hubWarehouseId?: string | null;
+  hubWarehouseName?: string | null;
+  isExhausted: boolean;
+}
+
 export interface DashboardKPIs {
+  scopedNodeId?: string | null;
+  scopedNodeName?: string | null;
   totalSerializedActive: number;
-  criticalStockAlerts: {
-    warehouseName: string;
-    bulkItemName: string;
-    currentQuantity: number;
-    minStockAlert: number;
-    unitOfMeasure: string;
-  }[];
+  criticalStockAlerts: CriticalStockAlert[];
   rmaCount: number;
   rmaItems: SerializedItem[];
   onusByStatus: {
@@ -390,5 +460,30 @@ export interface UniversalSearchResults {
   clients: WisproClient[];
   transfers: Array<TransferOrder & { sourceWarehouse?: Warehouse; destinationWarehouse?: Warehouse; createdByUser?: User }>;
   audit: Array<AuditLog & { user?: User; fromWarehouse?: Warehouse; toWarehouse?: Warehouse }>;
+}
+
+export interface ClientAssignment {
+  id: string;
+  wisproContractId: string;
+  clientName: string;
+  assignedAt: string;
+  technicianId?: string | null;
+  technician?: { id: string; name: string; email?: string; role?: string } | null;
+  nodeId: string;
+  node?: { id: string; name: string; code?: string; type?: string } | null;
+  notes?: string | null;
+  status: string;
+  items?: Array<SerializedItem & { product?: ProductCatalog; currentWarehouse?: { id: string; name: string; code: string } }>;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateAssignmentPayload {
+  wisproContractId: string;
+  clientName: string;
+  nodeId?: string;
+  technicianId?: string;
+  notes?: string;
+  itemIds: string[];
 }
 

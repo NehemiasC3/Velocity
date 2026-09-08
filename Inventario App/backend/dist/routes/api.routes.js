@@ -34,9 +34,27 @@ router.use('/auth', auth_routes_1.default);
 // ==========================================
 // 2. DASHBOARD GENERAL (KPIS Y ALERTAS)
 // ==========================================
-router.get('/dashboard/kpis', auth_middleware_1.authMiddleware, async (req, res) => {
-    const kpis = await inventory_service_1.inventoryService.getDashboardKPIs();
-    res.json(kpis);
+router.get('/dashboard/kpis', async (req, res) => {
+    try {
+        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs();
+        res.json(kpis);
+    }
+    catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+router.get('/inventory/critical-alerts', async (req, res) => {
+    try {
+        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs();
+        res.json({
+            success: true,
+            count: kpis.criticalStockAlerts.length,
+            alerts: kpis.criticalStockAlerts
+        });
+    }
+    catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
 });
 // ==========================================
 // 3. CATÁLOGO CENTRAL DE PRODUCTOS (PRISMA)

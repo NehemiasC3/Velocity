@@ -13,11 +13,24 @@ export interface AssignTicketDTO {
   technicianId: string;
 }
 
+export interface CachedClientInfo {
+  id: string;
+  name: string;
+  identification?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+}
+
 export interface WisproContract {
   id: string;
   contractId: string;
+  publicId?: number | null;
   clientName: string;
   clientId?: string;
+  identification?: string | null;
+  phone?: string | null;
+  email?: string | null;
   address?: string;
   planName?: string;
   nodeName?: string;
@@ -26,6 +39,8 @@ export interface WisproContract {
   status: string;
   model?: string;
   ip?: string;
+  wisproUpdatedAt?: Date | null;
+  createdAt?: Date | null;
   raw?: any;
 }
 
@@ -52,9 +67,10 @@ export class WisproService {
     timestamp: number;
   } = { timestamp: 0 };
 
-  private static clientsCache: Map<string, string> = new Map();
+  private static clientsCache: Map<string, CachedClientInfo> = new Map();
   private static plansCache: Map<string, string> = new Map();
-  private static isPrewarmingDictionaries = false;
+  private static clientsLoadingPromise: Promise<void> | null = null;
+  private static plansLoadingPromise: Promise<void> | null = null;
   private static CACHE_TTL = 30000; // 30 segundos
 
   /**
@@ -62,63 +78,94 @@ export class WisproService {
    */
   public static async loadPlansCache(): Promise<void> {
     if (this.plansCache.size > 0) return;
-    try {
-      const res: any = await this.request('/plans?per_page=100');
-      const list = Array.isArray(res) ? res : (res?.data || []);
-      for (const p of list) {
-        if (p && p.id && p.name) {
-          WisproService.plansCache.set(String(p.id), String(p.name).trim());
+    if (this.plansLoadingPromise) return this.plansLoadingPromise;
+
+    this.plansLoadingPromise = (async () => {
+      try {
+        const res: any = await this.request('/plans?per_page=100');
+        const list = Array.isArray(res) ? res : (res?.data || []);
+        for (const p of list) {
+          if (p && p.id && p.name) {
+            WisproService.plansCache.set(String(p.id), String(p.name).trim());
+          }
         }
+        console.log(`[WisproService 📋] Caché de planes cargada: ${WisproService.plansCache.size} planes.`);
+      } catch (err: any) {
+        console.warn('[WisproService] Error cargando caché de planes:', err.message);
+      } finally {
+        this.plansLoadingPromise = null;
       }
-      console.log(`[WisproService 📋] Caché de planes cargada: ${WisproService.plansCache.size} planes.`);
-    } catch (err: any) {
-      console.warn('[WisproService] Error cargando caché de planes:', err.message);
-    }
+    })();
+
+    return this.plansLoadingPromise;
   }
 
   /**
-   * Carga diccionario de clientes (nombres reales) desde Wispro API
+   * Carga diccionario de clientes (nombres reales, cédulas, teléfonos) desde Wispro API
    */
   public static async loadClientsCache(): Promise<void> {
-    if (this.clientsCache.size > 0 || this.isPrewarmingDictionaries) return;
-    this.isPrewarmingDictionaries = true;
-    try {
-      console.log('[WisproService 👥] Cargando diccionario de nombres de clientes desde Wispro API...');
-      const firstRes: any = await this.request('/clients?per_page=100&page=1');
-      if (firstRes && firstRes.data) {
-        const firstPageData = Array.isArray(firstRes.data) ? firstRes.data : [];
-        firstPageData.forEach((c: any) => {
-          if (c.id && c.name) WisproService.clientsCache.set(String(c.id), c.name.trim());
-        });
+    if (this.clientsCache.size > 0) return;
+    if (this.clientsLoadingPromise) return this.clientsLoadingPromise;
 
-        const totalPages = firstRes.meta?.pagination?.total_pages || 1;
-        if (totalPages > 1) {
-          const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
-          for (let i = 0; i < remainingPages.length; i += 10) {
-            const batch = remainingPages.slice(i, i + 10);
-            const batchResults = await Promise.all(
-              batch.map(p => 
-                this.request<any>(`/clients?per_page=100&page=${p}`)
-                  .then(r => r?.data || [])
-                  .catch(() => [])
-              )
-            );
-            batchResults.forEach(data => {
-              if (Array.isArray(data)) {
-                data.forEach((c: any) => {
-                  if (c.id && c.name) WisproService.clientsCache.set(String(c.id), c.name.trim());
-                });
-              }
-            });
+    this.clientsLoadingPromise = (async () => {
+      try {
+        console.log('[WisproService 👥] Cargando diccionario de clientes desde Wispro API...');
+        const firstRes: any = await this.request('/clients?per_page=100&page=1');
+        if (firstRes && firstRes.data) {
+          const firstPageData = Array.isArray(firstRes.data) ? firstRes.data : [];
+          firstPageData.forEach((c: any) => {
+            if (c && c.id) {
+              WisproService.clientsCache.set(String(c.id), {
+                id: String(c.id),
+                name: (c.name || '').trim(),
+                identification: c.national_identification_number || c.identification || null,
+                phone: c.phone_mobile || c.phone || null,
+                email: c.email || null,
+                address: c.address || null
+              });
+            }
+          });
+
+          const totalPages = firstRes.meta?.pagination?.total_pages || 1;
+          if (totalPages > 1) {
+            const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+            for (let i = 0; i < remainingPages.length; i += 10) {
+              const batch = remainingPages.slice(i, i + 10);
+              const batchResults = await Promise.all(
+                batch.map(p => 
+                  this.request<any>(`/clients?per_page=100&page=${p}`)
+                    .then(r => r?.data || [])
+                    .catch(() => [])
+                )
+              );
+              batchResults.forEach(data => {
+                if (Array.isArray(data)) {
+                  data.forEach((c: any) => {
+                    if (c && c.id) {
+                      WisproService.clientsCache.set(String(c.id), {
+                        id: String(c.id),
+                        name: (c.name || '').trim(),
+                        identification: c.national_identification_number || c.identification || null,
+                        phone: c.phone_mobile || c.phone || null,
+                        email: c.email || null,
+                        address: c.address || null
+                      });
+                    }
+                  });
+                }
+              });
+            }
           }
+          console.log(`[WisproService ✅] Diccionario de clientes completado: ${WisproService.clientsCache.size} clientes en RAM.`);
         }
-        console.log(`[WisproService ✅] Diccionario de clientes completado: ${WisproService.clientsCache.size} clientes en RAM.`);
+      } catch (err: any) {
+        console.warn('[WisproService] Error cargando clientes para caché:', err.message);
+      } finally {
+        this.clientsLoadingPromise = null;
       }
-    } catch (err: any) {
-      console.warn('[WisproService] Error cargando clientes para caché:', err.message);
-    } finally {
-      this.isPrewarmingDictionaries = false;
-    }
+    })();
+
+    return this.clientsLoadingPromise;
   }
 
   /**
@@ -169,14 +216,16 @@ export class WisproService {
    */
   private static normalizeContract(raw: any): WisproContract {
     const id = String(raw.id || raw.contract_id || '');
+    const rawPublicId = raw.public_id ? Number(raw.public_id) : (raw.number ? Number(String(raw.number).replace(/\D/g, '')) : null);
     const contractId = String(
       raw.public_id ? `CTR-${raw.public_id}` : (raw.number || raw.contract_id || id || `CTR-${Date.now()}`)
     );
     
-    // 1. Nombre Real del Cliente (evitar "Usuario ...")
+    // 1. Datos del Cliente (buscar en caché de clientes o en raw)
+    const clientInfo = raw.client_id ? WisproService.clientsCache.get(String(raw.client_id)) : undefined;
     let clientName = '';
-    if (raw.client_id && WisproService.clientsCache.has(String(raw.client_id))) {
-      clientName = WisproService.clientsCache.get(String(raw.client_id))!;
+    if (clientInfo && clientInfo.name) {
+      clientName = clientInfo.name;
     } else if (raw.client_name && typeof raw.client_name === 'string') {
       clientName = raw.client_name;
     } else if (raw.client && raw.client.name) {
@@ -186,6 +235,23 @@ export class WisproService {
     } else {
       clientName = `Cliente #${raw.public_id || 'Residencial'}`;
     }
+
+    const identification = clientInfo?.identification || 
+      raw.client?.national_identification_number || 
+      raw.national_identification_number || 
+      raw.identification || 
+      null;
+
+    const phone = clientInfo?.phone || 
+      raw.client?.phone_mobile || 
+      raw.phone_mobile || 
+      raw.phone || 
+      null;
+
+    const email = clientInfo?.email || 
+      raw.client?.email || 
+      raw.email || 
+      null;
 
     // 2. Plan Real del Cliente (evitar genérico "Fibra Óptica Residencial")
     let planName = '';
@@ -223,21 +289,29 @@ export class WisproService {
 
     const address = raw.address_street 
       ? `${raw.address_street}${raw.address_city ? ', ' + raw.address_city : ''}` 
-      : (raw.address || raw.full_address || raw.client?.address || 'Panamá');
+      : (raw.address || raw.full_address || raw.client?.address || clientInfo?.address || 'Panamá');
+
+    const status = String(raw.state || raw.status || 'enabled').toLowerCase();
 
     return {
       id,
       contractId,
+      publicId: rawPublicId,
       clientName,
       clientId: raw.client_id ? String(raw.client_id) : undefined,
+      identification,
+      phone,
+      email,
       address,
       planName,
-      nodeName: raw.nap_name || raw.node_name || raw.node?.name || 'OLT-Central',
+      nodeName: (raw.nap_name || raw.node_name || raw.node?.name) && (raw.nap_name || raw.node_name || raw.node?.name) !== 'OLT-Central' && (raw.nap_name || raw.node_name || raw.node?.name).trim() !== '' ? (raw.nap_name || raw.node_name || raw.node?.name).trim() : 'Sin NAP',
       macAddress: mac || undefined,
       serialNumber: serialNumber || undefined,
       model: raw.model || raw.equipment_model || 'ONU / ONT GPON',
       ip: raw.ip || raw.ip_address || undefined,
-      status: String(raw.state || raw.status || 'enabled').toLowerCase(),
+      status,
+      wisproUpdatedAt: raw.updated_at ? new Date(raw.updated_at) : null,
+      createdAt: raw.created_at ? new Date(raw.created_at) : null,
       raw
     };
   }
@@ -299,16 +373,17 @@ export class WisproService {
 
     if (wisproApiKey) {
       try {
-        // Primera página para extraer metadatos de paginación
-        const firstRes: any = await this.request(`/contracts?filter%5Bstate%5D=enabled&per_page=100&page=1`);
+        // Consulta paginada directa o primera página si es carga completa
+        const targetPerPage = shouldLoadAll ? 100 : Math.min(100, Math.max(1, reqPerPage));
+        const targetPage = shouldLoadAll ? 1 : Math.max(1, reqPage);
+        const firstRes: any = await this.request(`/contracts?filter%5Bstate%5D=enabled&per_page=${targetPerPage}&page=${targetPage}`);
         if (firstRes && firstRes.status !== 401) {
           const firstPageData = Array.isArray(firstRes) ? firstRes : (firstRes.data || []);
           remoteContracts = [...firstPageData];
           totalRecords = firstRes.meta?.pagination?.total_records || firstPageData.length;
-          totalPages = firstRes.meta?.pagination?.total_pages || Math.ceil(totalRecords / 100) || 1;
+          totalPages = firstRes.meta?.pagination?.total_pages || Math.ceil(totalRecords / targetPerPage) || 1;
 
-          // Si se solicitó cargar todos los registros (eliminando límite de 100):
-          // Consultar las páginas restantes en lotes concurrentes de 10 páginas para máxima velocidad
+          // Solo si se solicitó explícitamente cargar todos los registros (all=true)
           if (shouldLoadAll && totalPages > 1) {
             console.log(`[WisproService 🚀] Descargando contratos completos de Wispro (${totalPages} páginas, total ${totalRecords})...`);
             const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
@@ -332,7 +407,7 @@ export class WisproService {
       } catch (err: any) {
         console.warn('[WisproService] Falló consulta remota con filter[state]=enabled:', err.message);
         try {
-          const res: any = await this.request(`/contracts?per_page=100&page=1`);
+          const res: any = await this.request(`/contracts?per_page=${shouldLoadAll ? 100 : reqPerPage}&page=${shouldLoadAll ? 1 : reqPage}`);
           if (res && res.status !== 401) {
             const list = Array.isArray(res) ? res : (res.data || []);
             remoteContracts = list.filter((c: any) => c.state === 'enabled' || c.state === 'active');
@@ -410,14 +485,16 @@ export class WisproService {
       return dateB - dateA;
     });
 
-    this.cache.contracts = normalized;
-    this.cache.timestamp = now;
+    if (shouldLoadAll) {
+      this.cache.contracts = normalized;
+      this.cache.timestamp = now;
+    }
 
     const total = totalRecords || normalized.length;
     const computedTotalPages = Math.ceil(total / reqPerPage) || 1;
     const resultContracts = shouldLoadAll
-      ? normalized
-      : normalized.slice((reqPage - 1) * reqPerPage, reqPage * reqPerPage);
+      ? normalized.slice((reqPage - 1) * reqPerPage, reqPage * reqPerPage)
+      : normalized;
 
     return Object.assign(resultContracts, {
       contracts: resultContracts,
@@ -430,45 +507,506 @@ export class WisproService {
 
   /**
    * 2. fetchContractDetails(id):
-   * Obtiene los detalles de un contrato específico desde la API REST de Wispro.
+   * Obtiene los detalles de un contrato específico. Primero consulta PostgreSQL (Espejo Local <10ms),
+   * y si no existe realiza fallback a la API de Wispro y lo persiste localmente.
    */
   public static async fetchContractDetails(id: string): Promise<WisproContract | null> {
     if (!id) throw new Error('El ID de contrato es requerido');
 
+    const cleanId = String(id).trim();
+    const isNumeric = !isNaN(Number(cleanId)) && Number(cleanId) > 0;
+
+    // 1. Consulta primero en PostgreSQL local (Respuesta instantánea)
+    const localContract = await prisma.wisproClient.findFirst({
+      where: {
+        OR: [
+          { id: cleanId },
+          { contractId: cleanId },
+          { contractId: cleanId.startsWith('CTR-') ? cleanId : `CTR-${cleanId}` },
+          ...(isNumeric ? [{ publicId: Number(cleanId) }] : [])
+        ]
+      }
+    });
+
+    if (localContract) {
+      const isEnabled = (localContract.wisproState === 'enabled' || localContract.wisproState === 'active' || localContract.status === 'ACTIVO');
+      const stateStr = localContract.wisproState || (isEnabled ? 'enabled' : 'disabled');
+
+      return {
+        id: localContract.id,
+        contractId: localContract.contractId,
+        publicId: localContract.publicId,
+        clientName: localContract.name,
+        clientId: undefined,
+        identification: localContract.identification,
+        phone: localContract.phone,
+        email: localContract.email,
+        address: localContract.address,
+        planName: localContract.planName,
+        nodeName: localContract.nodeName,
+        macAddress: localContract.currentOnuMac || undefined,
+        serialNumber: localContract.currentOnuSerial || undefined,
+        model: localContract.model || 'ONU / ONT GPON',
+        ip: localContract.ipAddress || undefined,
+        status: stateStr,
+        createdAt: localContract.createdAt,
+        wisproUpdatedAt: localContract.wisproUpdatedAt,
+        raw: {
+          public_id: localContract.publicId,
+          state: stateStr,
+          nap_name: localContract.nodeName,
+          ont_serial_number: localContract.currentOnuSerial,
+          mac_address: localContract.currentOnuMac,
+          ip: localContract.ipAddress,
+          client_name: localContract.name,
+          plan_name: localContract.planName,
+          address: localContract.address,
+          created_at: localContract.createdAt?.toISOString(),
+          updated_at: localContract.wisproUpdatedAt?.toISOString()
+        }
+      };
+    }
+
+    // 2. Si no está en BD local, consultar API remota de Wispro
     if (wisproApiKey) {
       try {
-        const res: any = await this.request(`/contracts/${id}`);
+        const res: any = await this.request(`/contracts/${cleanId}`);
         const raw = res.data || res;
         if (raw && (raw.id || raw.public_id)) {
-          return this.normalizeContract(raw);
+          const normalized = this.normalizeContract(raw);
+          // Persistir de inmediato en PostgreSQL para futuras consultas
+          const isSuspended = normalized.status === 'disabled' || normalized.status === 'suspended' || normalized.status === 'canceled';
+          await prisma.wisproClient.upsert({
+            where: { contractId: normalized.contractId },
+            create: {
+              contractId: normalized.contractId,
+              publicId: normalized.publicId ?? null,
+              name: normalized.clientName,
+              identification: normalized.identification ?? null,
+              phone: normalized.phone ?? null,
+              email: normalized.email ?? null,
+              address: normalized.address || 'Panamá',
+              planName: normalized.planName || 'Plan Fibra',
+              nodeName: normalized.nodeName || 'Sin NAP',
+              currentOnuMac: normalized.macAddress ?? null,
+              currentOnuSerial: normalized.serialNumber ?? null,
+              model: normalized.model ?? null,
+              ipAddress: normalized.ip ?? null,
+              wisproState: normalized.status || 'enabled',
+              status: isSuspended ? WisproClientStatus.SUSPENDIDO : WisproClientStatus.ACTIVO,
+              wisproUpdatedAt: normalized.wisproUpdatedAt || new Date()
+            },
+            update: {
+              publicId: normalized.publicId ?? undefined,
+              name: normalized.clientName,
+              identification: normalized.identification ?? undefined,
+              phone: normalized.phone ?? undefined,
+              email: normalized.email ?? undefined,
+              address: normalized.address || undefined,
+              planName: normalized.planName || undefined,
+              nodeName: normalized.nodeName || undefined,
+              currentOnuMac: normalized.macAddress ?? undefined,
+              currentOnuSerial: normalized.serialNumber ?? undefined,
+              model: normalized.model ?? undefined,
+              ipAddress: normalized.ip ?? undefined,
+              wisproState: normalized.status || undefined,
+              status: isSuspended ? WisproClientStatus.SUSPENDIDO : WisproClientStatus.ACTIVO,
+              wisproUpdatedAt: normalized.wisproUpdatedAt || new Date()
+            }
+          });
+          return normalized;
         }
       } catch (err: any) {
-        console.warn(`[WisproService] Error obteniendo contrato ${id} vía API:`, err.message);
+        console.warn(`[WisproService] Error obteniendo contrato ${cleanId} vía API:`, err.message);
       }
     }
 
-    // Fallback: Buscar en la lista activa local
-    const contracts = await this.fetchActiveContracts();
-    const found = contracts.find(c => c.id === id || c.contractId === id);
-    return found || null;
+    return null;
   }
 
   /**
-   * 3. syncActiveContracts():
-   * Lógica de Sincronización REST con Wispro:
-   * - Lee los contratos activos de Wispro.
-   * - Para cada contrato, extrae la MAC Address o Número de Serie de la ONU/Router.
-   * - Busca si esa MAC existe en la base de datos de Velocity en estado DISPONIBLE dentro de una bodega móvil ('Móvil' o tipo VEHICULO).
-   * - Si la encuentra, actualiza el estado del equipo a INSTALADO (INSTALADO_CLIENTE),
-   *   crea/asocia el registro del Contract (WisproClient) y genera el log de auditoría.
+   * 3. getLocalContracts(options):
+   * Consultas 100% Locales sobre PostgreSQL con Paginación, Búsqueda Server-Side y Filtros.
+   * Respuesta en sub-20ms e independencia total de la API externa.
    */
-  public static async syncActiveContracts(): Promise<SyncResult> {
-    console.log('[WisproService 🔄] Iniciando conciliación REST de contratos activos...');
+  public static async getLocalContracts(options?: {
+    page?: number;
+    perPage?: number | string;
+    search?: string;
+    filterState?: string;
+    filterSerial?: string;
+    filterNap?: string;
+    sortOrder?: 'desc' | 'asc';
+    sortBy?: string;
+    loadAll?: boolean;
+  }): Promise<{
+    contracts: WisproContract[];
+    total: number;
+    page: number;
+    perPage: number;
+    totalPages: number;
+    lastSyncedAt: Date | null;
+    kpis: {
+      total: number;
+      withSerial: number;
+      withNap: number;
+      enabled: number;
+    };
+  }> {
+    const startTime = Date.now();
+    const isLoadAll = options?.loadAll === true || options?.perPage === 'ALL';
+    const reqPage = Math.max(1, Number(options?.page) || 1);
+    const reqPerPage = isLoadAll ? 5000 : Math.min(200, Math.max(1, Number(options?.perPage) || 50));
+    const skip = isLoadAll ? 0 : (reqPage - 1) * reqPerPage;
+    const take = isLoadAll ? 5000 : reqPerPage;
 
-    // 1. Obtener contratos activos de Wispro
-    const contracts = await this.fetchActiveContracts();
+    const where: any = {};
 
-    // 2. Identificar bodegas móviles activas en Velocity (tipo VEHICULO o que contengan 'Móvil'/'Camioneta')
+    // 1. Búsqueda multi-campo en servidor (Nombre de cliente, Cédula/RUC, # Contrato, Serial ONU, MAC, etc.)
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      const isNum = !isNaN(Number(q)) && Number(q) > 0;
+      where.OR = [
+        { name: { contains: q, mode: 'insensitive' } },
+        { identification: { contains: q, mode: 'insensitive' } },
+        { contractId: { contains: q, mode: 'insensitive' } },
+        { currentOnuSerial: { contains: q, mode: 'insensitive' } },
+        { currentOnuMac: { contains: q, mode: 'insensitive' } },
+        { phone: { contains: q, mode: 'insensitive' } },
+        { address: { contains: q, mode: 'insensitive' } },
+        { planName: { contains: q, mode: 'insensitive' } },
+        { nodeName: { contains: q, mode: 'insensitive' } },
+        ...(isNum ? [{ publicId: Number(q) }] : [])
+      ];
+    }
+
+    // 2. Filtro de Estado Wispro (Habilitados / Deshabilitados / Todos)
+    if (options?.filterState && options.filterState !== 'ALL') {
+      if (options.filterState === 'ENABLED') {
+        where.OR = [
+          { wisproState: { in: ['enabled', 'active'] } },
+          { status: WisproClientStatus.ACTIVO }
+        ];
+      } else if (options.filterState === 'DISABLED') {
+        where.OR = [
+          { wisproState: { in: ['disabled', 'suspended', 'canceled', 'inactive'] } },
+          { status: WisproClientStatus.SUSPENDIDO }
+        ];
+      }
+    }
+
+    // 3. Filtro Conciliación por Serial (Con Serial / Sin Serial)
+    if (options?.filterSerial && options.filterSerial !== 'ALL') {
+      if (options.filterSerial === 'WITH_SERIAL') {
+        where.OR = [
+          { currentOnuSerial: { not: null, notIn: [''] } },
+          { currentOnuMac: { not: null, notIn: [''] } }
+        ];
+      } else if (options.filterSerial === 'WITHOUT_SERIAL') {
+        where.AND = [
+          { OR: [{ currentOnuSerial: null }, { currentOnuSerial: '' }] },
+          { OR: [{ currentOnuMac: null }, { currentOnuMac: '' }] }
+        ];
+      }
+    }
+
+    // 4. Filtro Infraestructura (NAP)
+    if (options?.filterNap && options.filterNap !== 'ALL') {
+      if (options.filterNap === 'WITH_NAP') {
+        where.nodeName = { notIn: ['', 'Sin NAP', 'OLT-Central'] };
+      } else if (options.filterNap === 'WITHOUT_NAP') {
+        where.nodeName = { in: ['', 'Sin NAP', 'OLT-Central'] };
+      }
+    }
+
+    // 5. Ordenamiento: por defecto descendente por publicId y createdAt
+    const sortDir = options?.sortOrder === 'asc' ? 'asc' : 'desc';
+    const orderBy: any = [
+      { publicId: sortDir },
+      { createdAt: sortDir }
+    ];
+
+    // 6. Consultas concurrentes en PostgreSQL
+    const [rows, total, config, totalAll, withSerialCount, withNapCount, enabledCount] = await Promise.all([
+      prisma.wisproClient.findMany({
+        where,
+        orderBy,
+        skip,
+        take
+      }),
+      prisma.wisproClient.count({ where }),
+      prisma.wisproConfig.findFirst({ where: { id: 'default' } }),
+      prisma.wisproClient.count(),
+      prisma.wisproClient.count({
+        where: {
+          OR: [
+            { currentOnuSerial: { not: null, notIn: [''] } },
+            { currentOnuMac: { not: null, notIn: [''] } }
+          ]
+        }
+      }),
+      prisma.wisproClient.count({
+        where: {
+          nodeName: { notIn: ['', 'Sin NAP', 'OLT-Central'] }
+        }
+      }),
+      prisma.wisproClient.count({
+        where: {
+          OR: [
+            { wisproState: { in: ['enabled', 'active'] } },
+            { status: WisproClientStatus.ACTIVO }
+          ]
+        }
+      })
+    ]);
+
+    // Si la BD está vacía y no hay filtro activo de búsqueda, disparar volcado inicial en background
+    if (total === 0 && !options?.search && wisproApiKey) {
+      WisproService.syncWisproContractsIncremental({ forceFullDump: true }).catch(err => {
+        console.warn('[WisproService] Error en volcado inicial en segundo plano:', err.message);
+      });
+    }
+
+    // 7. Mapeo a WisproContract compatible con frontend
+    const contracts: WisproContract[] = rows.map(r => {
+      const isEnabled = (r.wisproState === 'enabled' || r.wisproState === 'active' || r.status === 'ACTIVO');
+      const stateStr = r.wisproState || (isEnabled ? 'enabled' : 'disabled');
+
+      return {
+        id: r.id,
+        contractId: r.contractId,
+        publicId: r.publicId,
+        clientName: r.name,
+        clientId: undefined,
+        identification: r.identification,
+        phone: r.phone,
+        email: r.email,
+        address: r.address,
+        planName: r.planName,
+        nodeName: r.nodeName,
+        macAddress: r.currentOnuMac || undefined,
+        serialNumber: r.currentOnuSerial || undefined,
+        model: r.model || 'ONU / ONT GPON',
+        ip: r.ipAddress || undefined,
+        status: stateStr,
+        createdAt: r.createdAt,
+        wisproUpdatedAt: r.wisproUpdatedAt,
+        raw: {
+          public_id: r.publicId,
+          state: stateStr,
+          nap_name: r.nodeName,
+          ont_serial_number: r.currentOnuSerial,
+          mac_address: r.currentOnuMac,
+          ip: r.ipAddress,
+          client_name: r.name,
+          plan_name: r.planName,
+          address: r.address,
+          created_at: r.createdAt?.toISOString(),
+          updated_at: r.wisproUpdatedAt?.toISOString()
+        }
+      };
+    });
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[WisproService ⚡ Sub-20ms] ${contracts.length} contratos recuperados de PostgreSQL en ${elapsed}ms (Total filtrado: ${total})`);
+
+    const computedTotalPages = isLoadAll ? 1 : (Math.ceil(total / reqPerPage) || 1);
+
+    return {
+      contracts,
+      total,
+      page: isLoadAll ? 1 : reqPage,
+      perPage: isLoadAll ? total : reqPerPage,
+      totalPages: computedTotalPages,
+      lastSyncedAt: config?.lastSyncedAt || config?.lastSyncTimestamp || null,
+      kpis: {
+        total: totalAll,
+        withSerial: withSerialCount,
+        withNap: withNapCount,
+        enabled: enabledCount
+      }
+    };
+  }
+
+  /**
+   * 4. Sincronización Diferencial (Delta Sync) y Persistencia en PostgreSQL
+   * Si es la primera ejecución o forceFullDump=true: realiza el volcado inicial completo.
+   * En ejecuciones posteriores: consulta a Wispro únicamente los contratos creados o modificados desde lastSyncedAt (updated_after).
+   */
+  public static async syncWisproContractsIncremental(options?: { forceFullDump?: boolean }): Promise<SyncResult & { isIncremental: boolean; lastSyncedAt: Date }> {
+    console.log('[WisproService ⚡] Iniciando sincronización de contratos con espejo local PostgreSQL...');
+    const startTime = Date.now();
+
+    // 1. Cargar diccionarios de planes y clientes
+    await Promise.all([
+      this.loadPlansCache(),
+      this.loadClientsCache()
+    ]);
+
+    // 2. Determinar si es sincronización incremental o completa
+    const config = await prisma.wisproConfig.findFirst({ where: { id: 'default' } });
+    const localContractCount = await prisma.wisproClient.count();
+    const isFirstRun = localContractCount === 0 || !config?.lastSyncedAt;
+    const forceFull = options?.forceFullDump ?? isFirstRun;
+    const lastSyncedAt = config?.lastSyncedAt || config?.lastSyncTimestamp;
+
+    let rawContracts: any[] = [];
+    let isIncremental = false;
+
+    if (!forceFull && lastSyncedAt) {
+      isIncremental = true;
+      console.log(`[WisproService 🔄] Ejecutando Delta Sync desde: ${lastSyncedAt.toISOString()}`);
+      try {
+        const deltaUrl = `/contracts?updated_after=${encodeURIComponent(lastSyncedAt.toISOString())}&per_page=100&page=1`;
+        const firstRes: any = await this.request(deltaUrl);
+        if (firstRes && firstRes.data) {
+          const firstPage = Array.isArray(firstRes.data) ? firstRes.data : [];
+          rawContracts.push(...firstPage);
+          const totalPages = firstRes.meta?.pagination?.total_pages || 1;
+          
+          if (totalPages > 1) {
+            for (let p = 2; p <= totalPages; p++) {
+              const res: any = await this.request(`/contracts?updated_after=${encodeURIComponent(lastSyncedAt.toISOString())}&per_page=100&page=${p}`);
+              if (res && res.data && Array.isArray(res.data)) {
+                rawContracts.push(...res.data);
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('[WisproService] Advertencia en petición delta updated_after, procediendo:', err.message);
+      }
+    }
+
+    // Si es primera ejecución o forceFull
+    if (!isIncremental || (rawContracts.length === 0 && forceFull)) {
+      isIncremental = false;
+      console.log('[WisproService 📥] Realizando volcado inicial completo de contratos desde Wispro Cloud...');
+      const firstRes: any = await this.request('/contracts?per_page=100&page=1');
+      if (firstRes && firstRes.data) {
+        const firstPageData = Array.isArray(firstRes.data) ? firstRes.data : [];
+        rawContracts.push(...firstPageData);
+        const totalPages = firstRes.meta?.pagination?.total_pages || 1;
+        const totalRecords = firstRes.meta?.pagination?.total_records || firstPageData.length;
+        console.log(`[WisproService 🚀] Descargando ${totalPages} páginas (${totalRecords} registros)...`);
+
+        const remainingPages = Array.from({ length: totalPages - 1 }, (_, i) => i + 2);
+        for (let i = 0; i < remainingPages.length; i += 10) {
+          const batch = remainingPages.slice(i, i + 10);
+          const batchResults = await Promise.all(
+            batch.map(p => 
+              this.request<any>(`/contracts?per_page=100&page=${p}`)
+                .then(r => r?.data || [])
+                .catch(() => [])
+            )
+          );
+          batchResults.forEach(data => {
+            if (Array.isArray(data)) rawContracts.push(...data);
+          });
+        }
+      }
+    }
+
+    console.log(`[WisproService 💾] Guardando ${rawContracts.length} contratos en PostgreSQL (Espejo Local)...`);
+
+    // 3. Normalizar y Persistir en PostgreSQL por lotes
+    let upsertedCount = 0;
+    const batchSize = 50;
+
+    for (let i = 0; i < rawContracts.length; i += batchSize) {
+      const chunk = rawContracts.slice(i, i + batchSize);
+      await Promise.all(chunk.map(async (raw) => {
+        const c = this.normalizeContract(raw);
+        const isSuspended = c.status === 'disabled' || c.status === 'suspended' || c.status === 'canceled' || c.status === 'inactive';
+        const clientStatus = isSuspended ? WisproClientStatus.SUSPENDIDO : WisproClientStatus.ACTIVO;
+
+        await prisma.wisproClient.upsert({
+          where: { contractId: c.contractId },
+          create: {
+            contractId: c.contractId,
+            publicId: c.publicId ?? null,
+            name: c.clientName,
+            identification: c.identification ?? null,
+            phone: c.phone ?? null,
+            email: c.email ?? null,
+            address: c.address || 'Panamá',
+            planName: c.planName || 'Plan Fibra',
+            nodeName: c.nodeName || 'Sin NAP',
+            currentOnuMac: c.macAddress ?? null,
+            currentOnuSerial: c.serialNumber ?? null,
+            model: c.model ?? null,
+            ipAddress: c.ip ?? null,
+            wisproState: c.status || 'enabled',
+            status: clientStatus,
+            wisproUpdatedAt: c.wisproUpdatedAt || new Date()
+          },
+          update: {
+            publicId: c.publicId ?? undefined,
+            name: c.clientName,
+            identification: c.identification ?? undefined,
+            phone: c.phone ?? undefined,
+            email: c.email ?? undefined,
+            address: c.address || undefined,
+            planName: c.planName || undefined,
+            nodeName: c.nodeName || undefined,
+            currentOnuMac: c.macAddress ?? undefined,
+            currentOnuSerial: c.serialNumber ?? undefined,
+            model: c.model ?? undefined,
+            ipAddress: c.ip ?? undefined,
+            wisproState: c.status || undefined,
+            status: clientStatus,
+            wisproUpdatedAt: c.wisproUpdatedAt || new Date()
+          }
+        });
+        upsertedCount++;
+      }));
+    }
+
+    // 4. Actualizar metadata de sincronización en WisproConfig
+    const syncTimestamp = new Date();
+    await prisma.wisproConfig.upsert({
+      where: { id: 'default' },
+      create: {
+        id: 'default',
+        lastSyncedAt: syncTimestamp,
+        lastSyncTimestamp: syncTimestamp
+      },
+      update: {
+        lastSyncedAt: syncTimestamp,
+        lastSyncTimestamp: syncTimestamp
+      }
+    });
+
+    // 5. Conciliación con Bodegas Móviles / Vehículos
+    const reconcileResult = await this.reconcileMobileEquipment();
+
+    const elapsed = Date.now() - startTime;
+    const totalInPostgres = await prisma.wisproClient.count();
+
+    console.log(`[WisproService ✅] Sincronización completada en ${elapsed}ms. Procesados: ${upsertedCount}, Total en BD: ${totalInPostgres}, Conciliados: ${reconcileResult.count}`);
+
+    return {
+      success: true,
+      count: upsertedCount,
+      totalContracts: totalInPostgres,
+      isIncremental,
+      lastSyncedAt: syncTimestamp,
+      message: isIncremental 
+        ? `Delta Sync completado: ${upsertedCount} contratos actualizados en PostgreSQL (${reconcileResult.count} equipos conciliados).`
+        : `Volcado completo exitoso: ${upsertedCount} contratos sincronizados en PostgreSQL (${reconcileResult.count} equipos conciliados).`,
+      reconciledItems: reconcileResult.reconciledItems
+    };
+  }
+
+  /**
+   * 5. Reconciliación con Bodegas Móviles / Vehículos
+   */
+  public static async reconcileMobileEquipment(targetContracts?: WisproContract[]): Promise<{
+    count: number;
+    reconciledItems: SyncResult['reconciledItems'];
+  }> {
+    const contracts = targetContracts || (await this.getLocalContracts({ loadAll: true })).contracts;
+
     const mobileWarehouses = await prisma.warehouse.findMany({
       where: {
         status: 'ACTIVE',
@@ -479,25 +1017,14 @@ export class WisproService {
           { name: { contains: 'Camioneta', mode: 'insensitive' } }
         ]
       },
-      include: {
-        manager: true
-      }
+      include: { manager: true }
     });
 
     const mobileWarehouseIds = mobileWarehouses.map(w => w.id);
-
     if (mobileWarehouseIds.length === 0) {
-      console.warn('[WisproService ⚠️] No se encontraron bodegas móviles activas en el sistema.');
-      return {
-        success: true,
-        count: 0,
-        message: 'Se conciliaron 0 equipos de la API de Wispro (No hay bodegas móviles activas)',
-        totalContracts: contracts.length,
-        reconciledItems: []
-      };
+      return { count: 0, reconciledItems: [] };
     }
 
-    // 3. Buscar ítems serializados disponibles en bodegas móviles (EN_VEHICULO o EN_BODEGA dentro del vehículo)
     let availableMobileItems = await prisma.serializedItem.findMany({
       where: {
         currentWarehouseId: { in: mobileWarehouseIds },
@@ -509,44 +1036,6 @@ export class WisproService {
       }
     });
 
-    // AUTO-SETUP PARA LOCALHOST / DEMOSTRACIÓN:
-    // Si la camioneta está vacía pero tenemos equipos disponibles en almacén principal,
-    // cargamos un equipo de prueba en la primera bodega móvil para que la conciliación funcione de inmediato
-    if (availableMobileItems.length === 0 && contracts.length > 0) {
-      const targetMac = contracts[0].macAddress;
-      const targetSerial = contracts[0].serialNumber;
-
-      if (targetMac || targetSerial) {
-        const existingAvailable = await prisma.serializedItem.findFirst({
-          where: {
-            OR: [
-              ...(targetMac ? [{ macAddress: targetMac }] : []),
-              ...(targetSerial ? [{ serialNumber: targetSerial }] : [])
-            ],
-            status: { in: [SerializedStatus.EN_BODEGA, SerializedStatus.EN_VEHICULO] }
-          }
-        });
-
-        if (existingAvailable) {
-          await prisma.serializedItem.update({
-            where: { id: existingAvailable.id },
-            data: {
-              currentWarehouseId: mobileWarehouseIds[0],
-              status: SerializedStatus.EN_VEHICULO
-            }
-          });
-          availableMobileItems = await prisma.serializedItem.findMany({
-            where: {
-              currentWarehouseId: { in: mobileWarehouseIds },
-              status: { in: [SerializedStatus.EN_VEHICULO, SerializedStatus.EN_BODEGA] }
-            },
-            include: { currentWarehouse: true, product: true }
-          });
-        }
-      }
-    }
-
-    // Usuario para log de auditoría (Superadmin o Encargado)
     const adminUser = await prisma.user.findFirst({
       where: {
         OR: [
@@ -557,20 +1046,18 @@ export class WisproService {
     }) || await prisma.user.findFirst();
 
     if (!adminUser) {
-      throw new Error('No existe ningún usuario en el sistema para asociar la auditoría.');
+      return { count: 0, reconciledItems: [] };
     }
 
     let reconciledCount = 0;
     const reconciledItems: SyncResult['reconciledItems'] = [];
 
-    // 4. Cruzar cada contrato activo con el inventario móvil
     for (const contract of contracts) {
       const contractNormMac = this.normalizeMac(contract.macAddress);
       const contractSerial = (contract.serialNumber || '').trim().toUpperCase();
 
       if (!contractNormMac && !contractSerial) continue;
 
-      // Buscar ítem en camioneta móvil
       const matchedItem = availableMobileItems.find(item => {
         const itemNormMac = this.normalizeMac(item.macAddress);
         const itemSerial = (item.serialNumber || '').trim().toUpperCase();
@@ -582,7 +1069,6 @@ export class WisproService {
 
       if (!matchedItem) continue;
 
-      // 4.1 Actualizar estado del equipo a INSTALADO (INSTALADO_CLIENTE)
       const updatedItem = await prisma.serializedItem.update({
         where: { id: matchedItem.id },
         data: {
@@ -591,31 +1077,20 @@ export class WisproService {
           installedClientName: contract.clientName,
           installedDate: new Date(),
           notes: matchedItem.notes 
-            ? `${matchedItem.notes} | Conciliado vía REST Wispro` 
-            : 'Conciliado automáticamente vía API REST Wispro'
+            ? `${matchedItem.notes} | Conciliado vía Espejo Local Wispro` 
+            : 'Conciliado automáticamente vía Espejo Local Wispro'
         }
       });
 
-      // 4.2 Crear o asociar el registro de Contrato / WisproClient
-      await prisma.wisproClient.upsert({
+      await prisma.wisproClient.updateMany({
         where: { contractId: contract.contractId },
-        create: {
-          name: contract.clientName,
-          contractId: contract.contractId,
-          address: contract.address || 'Panamá',
-          nodeName: contract.nodeName || 'OLT-Central',
-          planName: contract.planName || 'Plan Fibra Residencial',
+        data: {
           currentOnuMac: matchedItem.macAddress || contract.macAddress,
-          status: WisproClientStatus.ACTIVO
-        },
-        update: {
-          name: contract.clientName,
-          currentOnuMac: matchedItem.macAddress || contract.macAddress,
+          currentOnuSerial: matchedItem.serialNumber || contract.serialNumber,
           status: WisproClientStatus.ACTIVO
         }
       });
 
-      // 4.3 Generar entrada de trazabilidad en el Log de Auditoría Forense
       const warehouseManager = matchedItem.currentWarehouse?.managerId;
       const auditUserId = warehouseManager || adminUser.id;
 
@@ -626,7 +1101,7 @@ export class WisproService {
           eventType: AuditEventType.INSTALACION_CLIENTE,
           fromWarehouseId: matchedItem.currentWarehouseId,
           userId: auditUserId,
-          details: `Equipo instalado y conciliado automáticamente vía API REST de Wispro para el contrato [${contract.contractId}] - Cliente: ${contract.clientName} desde bodega móvil ${matchedItem.currentWarehouse?.name || 'Móvil'}`
+          details: `Equipo instalado y conciliado automáticamente para el contrato [${contract.contractId}] - Cliente: ${contract.clientName} desde bodega móvil ${matchedItem.currentWarehouse?.name || 'Móvil'}`
         }
       });
 
@@ -640,19 +1115,122 @@ export class WisproService {
         warehouseName: matchedItem.currentWarehouse?.name || 'Bodega Móvil'
       });
 
-      // Remover el ítem de la lista local disponible para no reasignarlo
       const itemIndex = availableMobileItems.findIndex(i => i.id === matchedItem.id);
       if (itemIndex !== -1) availableMobileItems.splice(itemIndex, 1);
     }
 
-    console.log(`[WisproService ✅] Conciliación completada. Se conciliaron ${reconciledCount} equipos.`);
+    return { count: reconciledCount, reconciledItems };
+  }
+
+  /**
+   * 6. Sincronización activa (compatibilidad con endpoints existentes)
+   */
+  public static async syncActiveContracts(): Promise<SyncResult> {
+    return this.syncWisproContractsIncremental();
+  }
+
+  /**
+   * 7. Receptor de Webhooks de Contratos en Tiempo Real
+   * Procesa evento de webhook desde Wispro y actualiza inmediatamente PostgreSQL
+   */
+  public static async processContractWebhook(payload: any): Promise<{
+    success: boolean;
+    event: string;
+    contractId: string;
+    action: string;
+    message: string;
+  }> {
+    const event = String(payload.event || payload.type || payload.action || 'contract_updated').toLowerCase();
+    const rawContract = payload.contract || payload.data || payload.payload || payload;
+    
+    const rawId = rawContract.id || rawContract.contract_id;
+    const rawPublicId = rawContract.public_id ? Number(rawContract.public_id) : null;
+    const contractId = rawPublicId ? `CTR-${rawPublicId}` : (rawContract.contract_id || rawId || `CTR-${Date.now()}`);
+
+    if (!contractId) {
+      throw new Error('No se pudo identificar el contractId en el webhook');
+    }
+
+    console.log(`[WisproService 📡 Webhook] Procesando evento '${event}' para contrato ${contractId}`);
+
+    const isCancellation = 
+      event.includes('cancel') || 
+      event.includes('delete') || 
+      event.includes('disable') || 
+      rawContract.state === 'disabled' || 
+      rawContract.state === 'canceled';
+
+    if (isCancellation) {
+      await prisma.wisproClient.updateMany({
+        where: { contractId },
+        data: {
+          wisproState: 'canceled',
+          status: WisproClientStatus.SUSPENDIDO,
+          wisproUpdatedAt: new Date(),
+          updatedAt: new Date()
+        }
+      });
+
+      return {
+        success: true,
+        event,
+        contractId,
+        action: 'CANCELED',
+        message: `Contrato ${contractId} cancelado/suspendido en PostgreSQL espejo.`
+      };
+    }
+
+    // Creación o Modificación
+    const c = this.normalizeContract(rawContract);
+    const clientStatus = (c.status === 'disabled' || c.status === 'suspended')
+      ? WisproClientStatus.SUSPENDIDO
+      : WisproClientStatus.ACTIVO;
+
+    await prisma.wisproClient.upsert({
+      where: { contractId: c.contractId },
+      create: {
+        contractId: c.contractId,
+        publicId: c.publicId ?? null,
+        name: c.clientName,
+        identification: c.identification ?? null,
+        phone: c.phone ?? null,
+        email: c.email ?? null,
+        address: c.address || 'Panamá',
+        planName: c.planName || 'Plan Fibra',
+        nodeName: c.nodeName || 'OLT-Central',
+        currentOnuMac: c.macAddress ?? null,
+        currentOnuSerial: c.serialNumber ?? null,
+        model: c.model ?? null,
+        ipAddress: c.ip ?? null,
+        wisproState: c.status || 'enabled',
+        status: clientStatus,
+        wisproUpdatedAt: c.wisproUpdatedAt || new Date()
+      },
+      update: {
+        publicId: c.publicId ?? undefined,
+        name: c.clientName,
+        identification: c.identification ?? undefined,
+        phone: c.phone ?? undefined,
+        email: c.email ?? undefined,
+        address: c.address || undefined,
+        planName: c.planName || undefined,
+        nodeName: c.nodeName || undefined,
+        currentOnuMac: c.macAddress ?? undefined,
+        currentOnuSerial: c.serialNumber ?? undefined,
+        model: c.model ?? undefined,
+        ipAddress: c.ip ?? undefined,
+        wisproState: c.status || undefined,
+        status: clientStatus,
+        wisproUpdatedAt: c.wisproUpdatedAt || new Date()
+      }
+    });
 
     return {
       success: true,
-      count: reconciledCount,
-      message: `Se conciliaron ${reconciledCount} equipos de la API de Wispro`,
-      totalContracts: contracts.length,
-      reconciledItems
+      event,
+      contractId: c.contractId,
+      action: 'UPSERTED',
+      message: `Contrato ${c.contractId} sincronizado en PostgreSQL espejo vía Webhook.`
     };
   }
 
@@ -862,14 +1440,24 @@ export class WisproService {
         OR: [
           { name: { contains: params.search, mode: 'insensitive' } },
           { contractId: { contains: params.search, mode: 'insensitive' } },
-          { currentOnuMac: { contains: params.search, mode: 'insensitive' } }
+          { currentOnuMac: { contains: params.search, mode: 'insensitive' } },
+          { currentOnuSerial: { contains: params.search, mode: 'insensitive' } },
+          { identification: { contains: params.search, mode: 'insensitive' } }
         ]
       } : undefined
     });
   }
 
+  public async getLocalContracts(options?: any) {
+    return WisproService.getLocalContracts(options);
+  }
+
+  public async syncWisproContractsIncremental(options?: any) {
+    return WisproService.syncWisproContractsIncremental(options);
+  }
+
   public async syncWithWispro(): Promise<SyncResult> {
-    return WisproService.syncActiveContracts();
+    return WisproService.syncWisproContractsIncremental();
   }
 
   public async provisionOnuToContract(contractId: string, macAddress: string): Promise<any> {

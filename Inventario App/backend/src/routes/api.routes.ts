@@ -19,6 +19,7 @@ import analyticsRoutes from './analytics.routes';
 import authRoutes from './auth.routes';
 import assignmentRoutes from './assignment.routes';
 import workOrdersRoutes from './workOrders.routes';
+import { ContractController } from '../controllers/contract.controller';
 
 
 const router = Router();
@@ -308,8 +309,11 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
 });
 
 // ==========================================
-// 12. INTEGRACIÓN WISPRO CLOUD
+// 12. INTEGRACIÓN WISPRO CLOUD & CONTRATOS LOCALES (POSTGRESQL SUB-50MS)
 // ==========================================
+router.get('/contracts', ContractController.getContracts);
+router.get('/contracts/active', ContractController.getActiveContracts);
+router.get('/contracts/:id', ContractController.getContractDetails);
 router.use('/wispro', wisproRoutes);
 
 router.get('/wispro/clients', async (req: AuthenticatedRequest, res: Response) => {

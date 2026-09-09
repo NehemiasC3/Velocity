@@ -68,15 +68,20 @@ export function createApp(): Application {
   app.use('/api', apiRouter);
 
   // Proxy local para Inventory API
+  const inventoryApiUrl = (
+    process.env.INVENTORY_API_URL ||
+    (process.env.NODE_ENV === 'production' ? 'http://inventory-backend:4000/api' : 'http://127.0.0.1:4000/api')
+  ).replace(/\/+$/, '');
+
   app.use('/inventory-api', async (req: Request, res: Response) => {
-    const targetUrl = `http://127.0.0.1:4000/api${req.url}`;
+    const targetUrl = `${inventoryApiUrl}${req.url}`;
     try {
       const response = await axios({
         method: req.method as any,
         url: targetUrl,
         headers: {
           ...req.headers,
-          host: '127.0.0.1:4000'
+          host: new URL(inventoryApiUrl).host
         },
         data: req.body,
         validateStatus: () => true

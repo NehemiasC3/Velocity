@@ -535,6 +535,38 @@ class ApiService {
     return this.request(`/wispro/contracts${query ? `?${query}` : ''}`);
   }
 
+  public async getContracts(params?: { 
+    page?: number; 
+    perPage?: number | string; 
+    loadAll?: boolean;
+    search?: string;
+    filterState?: string;
+    filterSerial?: string;
+    filterNap?: string;
+    sortOrder?: string;
+    forceRefresh?: boolean;
+  }): Promise<{ 
+    success: boolean; 
+    count: number; 
+    total?: number; 
+    totalPages?: number; 
+    page?: number; 
+    perPage?: number; 
+    contracts: any[];
+    lastSyncedAt?: string | null;
+  }> {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const query = new URLSearchParams(cleanParams).toString();
+    return this.request(`/contracts${query ? `?${query}` : ''}`);
+  }
+
   public async syncWispro(options?: { force?: boolean }): Promise<{ 
     success: boolean; 
     message: string; 

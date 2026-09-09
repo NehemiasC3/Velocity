@@ -3,22 +3,62 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.WisproController = void 0;
 const wispro_service_1 = require("../services/wispro.service");
 class WisproController {
+    static isSyncing = false;
     /**
-     * Endpoint de Sincronización Diferencial REST con Wispro
+     * Endpoint de Sincronización Diferencial REST con Wispro en Segundo Plano (Seeding / Sync)
      * POST /api/wispro/sync
+     * No bloquea la respuesta HTTP del usuario; ejecuta la descarga e inserción en background.
      */
     static async syncWispro(req, res) {
         try {
             console.log('[WisproController] Recibida solicitud POST /api/wispro/sync');
             const forceFull = req.query.force === 'true' || req.body?.forceFullDump === true;
-            const result = await wispro_service_1.WisproService.syncWisproContractsIncremental({ forceFullDump: forceFull });
-            res.status(200).json(result);
+            const wait = req.query.wait === 'true';
+            if (WisproController.isSyncing) {
+                res.status(200).json({
+                    success: true,
+                    status: 'running',
+                    message: 'La sincronización con Wispro ya se encuentra en ejecución en segundo plano.'
+                });
+                return;
+            }
+            if (wait) {
+                WisproController.isSyncing = true;
+                try {
+                    const result = await wispro_service_1.WisproService.syncWisproContractsIncremental({ forceFullDump: forceFull });
+                    res.status(200).json(result);
+                }
+                finally {
+                    WisproController.isSyncing = false;
+                }
+                return;
+            }
+            // Sincronización asíncrona en segundo plano sin bloquear al cliente
+            WisproController.isSyncing = true;
+            setImmediate(async () => {
+                try {
+                    console.log('[WisproController 🚀] Iniciando sincronización en background...');
+                    const result = await wispro_service_1.WisproService.syncWisproContractsIncremental({ forceFullDump: forceFull });
+                    console.log('[WisproController ✅] Sincronización background completada exitosamente:', result.message);
+                }
+                catch (bgError) {
+                    console.error('[WisproController ❌] Error en sincronización background:', bgError.message);
+                }
+                finally {
+                    WisproController.isSyncing = false;
+                }
+            });
+            res.status(200).json({
+                success: true,
+                status: 'started',
+                message: 'Sincronización con Wispro Cloud iniciada en segundo plano sin bloquear el sistema.'
+            });
         }
         catch (error) {
-            console.error('Error en sincronización con Wispro:', error);
+            console.error('Error al iniciar sincronización con Wispro:', error);
             res.status(500).json({
                 success: false,
-                error: 'Error al sincronizar con Wispro',
+                error: 'Error al iniciar sincronización con Wispro',
                 details: error.message
             });
         }

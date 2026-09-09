@@ -6,14 +6,19 @@ declare global {
   var prisma: PrismaClient | undefined;
 }
 
-export const prisma =
+const basePrisma =
   global.prisma ||
   new PrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   });
 
+// Alias para soportar consultas directas tipo prisma.contract.findMany() sobre WisproClient
+(basePrisma as any).contract = (basePrisma as any).wisproClient;
+
+export const prisma = basePrisma as PrismaClient & { contract: typeof basePrisma.wisproClient };
+
 if (process.env.NODE_ENV !== 'production') {
-  global.prisma = prisma;
+  global.prisma = basePrisma;
 }
 
 export const db = prisma;

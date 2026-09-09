@@ -45,6 +45,12 @@ services:
       - NODE_ENV=production
       - DATA_DIR=/usr/src/app/data
       - PORT=3000
+      - INVENTORY_API_URL=http://inventory-backend:4000/api
+      - WISPRO_API_URL=${WISPRO_API_URL:-https://www.cloud.wispro.co/api/v1}
+      - WISPRO_BASE_URL=${WISPRO_BASE_URL:-https://www.cloud.wispro.co/api/v1}
+      - WISPRO_API_KEY=${WISPRO_API_KEY}
+      - WISPRO_API_TOKEN=${WISPRO_API_TOKEN:-${WISPRO_API_KEY}}
+      - WISPRO_TOKEN=${WISPRO_TOKEN:-${WISPRO_API_KEY}}
     volumes:
       - ./data:/usr/src/app/data
       - ./public:/usr/src/app/public
@@ -84,6 +90,11 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public
       - JWT_SECRET=${JWT_SECRET:-velocity_secret_key_production_2026}
       - SENTRY_DSN=${SENTRY_DSN}
+      - WISPRO_API_URL=${WISPRO_API_URL:-https://www.cloud.wispro.co/api/v1}
+      - WISPRO_BASE_URL=${WISPRO_BASE_URL:-https://www.cloud.wispro.co/api/v1}
+      - WISPRO_API_KEY=${WISPRO_API_KEY}
+      - WISPRO_API_TOKEN=${WISPRO_API_TOKEN:-${WISPRO_API_KEY}}
+      - WISPRO_TOKEN=${WISPRO_TOKEN:-${WISPRO_API_KEY}}
     depends_on:
       postgres:
         condition: service_healthy

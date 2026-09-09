@@ -23,6 +23,7 @@ const analytics_routes_1 = __importDefault(require("./analytics.routes"));
 const auth_routes_1 = __importDefault(require("./auth.routes"));
 const assignment_routes_1 = __importDefault(require("./assignment.routes"));
 const workOrders_routes_1 = __importDefault(require("./workOrders.routes"));
+const contract_controller_1 = require("../controllers/contract.controller");
 const router = (0, express_1.Router)();
 // ==========================================
 // 0. BÚSQUEDA UNIVERSAL GLOBAL (COMMAND PALETTE)
@@ -278,8 +279,11 @@ router.get('/clients/equipment-view', auth_middleware_1.authMiddleware, async (r
     }
 });
 // ==========================================
-// 12. INTEGRACIÓN WISPRO CLOUD
+// 12. INTEGRACIÓN WISPRO CLOUD & CONTRATOS LOCALES (POSTGRESQL SUB-50MS)
 // ==========================================
+router.get('/contracts', contract_controller_1.ContractController.getContracts);
+router.get('/contracts/active', contract_controller_1.ContractController.getActiveContracts);
+router.get('/contracts/:id', contract_controller_1.ContractController.getContractDetails);
 router.use('/wispro', wispro_routes_1.default);
 router.get('/wispro/clients', async (req, res) => {
     const { status, search } = req.query;

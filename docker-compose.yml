@@ -76,11 +76,14 @@ services:
     restart: always
     ports:
       - "${INVENTORY_API_PORT:-4000}:4000"
+    env_file:
+      - .env
     environment:
       - NODE_ENV=production
       - PORT=4000
       - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public
       - JWT_SECRET=${JWT_SECRET:-velocity_secret_key_production_2026}
+      - SENTRY_DSN=${SENTRY_DSN}
     depends_on:
       postgres:
         condition: service_healthy

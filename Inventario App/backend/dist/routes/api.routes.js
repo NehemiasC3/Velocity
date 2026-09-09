@@ -21,7 +21,8 @@ const rma_routes_1 = __importDefault(require("./rma.routes"));
 const wispro_routes_1 = __importDefault(require("./wispro.routes"));
 const analytics_routes_1 = __importDefault(require("./analytics.routes"));
 const auth_routes_1 = __importDefault(require("./auth.routes"));
-const webhook_routes_1 = __importDefault(require("./webhook.routes"));
+const assignment_routes_1 = __importDefault(require("./assignment.routes"));
+const workOrders_routes_1 = __importDefault(require("./workOrders.routes"));
 const router = (0, express_1.Router)();
 // ==========================================
 // 0. BÚSQUEDA UNIVERSAL GLOBAL (COMMAND PALETTE)
@@ -34,22 +35,34 @@ router.use('/auth', auth_routes_1.default);
 // ==========================================
 // 2. DASHBOARD GENERAL (KPIS Y ALERTAS)
 // ==========================================
-router.get('/dashboard/kpis', async (req, res) => {
+router.get('/dashboard/kpis', auth_middleware_1.optionalAuth, async (req, res) => {
     try {
-        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs();
+        const user = req.user;
+        const queryNodeId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+        const scopedNodeId = (user && user.role !== 'SUPERADMIN' && user.assignedNodeId)
+            ? user.assignedNodeId
+            : (queryNodeId && queryNodeId !== 'all' ? queryNodeId : undefined);
+        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs(scopedNodeId);
         res.json(kpis);
     }
     catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
-router.get('/inventory/critical-alerts', async (req, res) => {
+router.get('/inventory/critical-alerts', auth_middleware_1.optionalAuth, async (req, res) => {
     try {
-        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs();
+        const user = req.user;
+        const queryNodeId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
+        const scopedNodeId = (user && user.role !== 'SUPERADMIN' && user.assignedNodeId)
+            ? user.assignedNodeId
+            : (queryNodeId && queryNodeId !== 'all' ? queryNodeId : undefined);
+        const kpis = await inventory_service_1.inventoryService.getDashboardKPIs(scopedNodeId);
         res.json({
             success: true,
             count: kpis.criticalStockAlerts.length,
-            alerts: kpis.criticalStockAlerts
+            alerts: kpis.criticalStockAlerts,
+            scopedNodeId: kpis.scopedNodeId,
+            scopedNodeName: kpis.scopedNodeName
         });
     }
     catch (error) {
@@ -83,6 +96,14 @@ router.post('/technician/tickets/close', auth_middleware_1.authMiddleware, liqui
 // 8. LOGÍSTICA INVERSA & RMA
 // ==========================================
 router.use('/rma', rma_routes_1.default);
+// ==========================================
+// 8.1. ASIGNACIÓN MULTI-EQUIPO A CLIENTES (WISPRO)
+// ==========================================
+router.use('/assignments', assignment_routes_1.default);
+// ==========================================
+// 8.2. MESA DE ÓRDENES DE TRABAJO
+// ==========================================
+router.use('/work-orders', workOrders_routes_1.default);
 // ==========================================
 // 9. AUDITORÍA FORENSE & ANALÍTICA
 // ==========================================
@@ -268,10 +289,6 @@ router.get('/wispro/clients', async (req, res) => {
     });
     res.json({ clients });
 });
-// ==========================================
-// 12.1. WEBHOOKS AUTOMATIZACIÓN ZERO-TOUCH (WISPRO)
-// ==========================================
-router.use('/webhooks', webhook_routes_1.default);
 // ==========================================
 // 12. MÉTRICAS DE PERSONAL Y MERMAS DE CABLE
 // ==========================================

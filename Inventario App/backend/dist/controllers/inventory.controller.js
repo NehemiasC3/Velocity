@@ -3,6 +3,30 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.inventoryController = exports.InventoryController = void 0;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
+const inventory_service_1 = require("../services/inventory.service");
+/**
+ * Resuelve el filtro de bodega(s) permitidas según el rol y asignación del usuario (Warehouse Scoping)
+ */
+async function resolveAllowedWarehouseFilter(req, requestedWarehouseId) {
+    const user = req.user;
+    const isSuperAdmin = !user || user.role === 'SUPERADMIN';
+    const assignedNodeId = user?.assignedNodeId;
+    if (!isSuperAdmin && assignedNodeId) {
+        const childNodes = await db_1.prisma.warehouse.findMany({
+            where: { parentId: assignedNodeId },
+            select: { id: true }
+        });
+        const allowedIds = [assignedNodeId, ...childNodes.map(c => c.id)];
+        if (requestedWarehouseId && requestedWarehouseId !== 'all') {
+            return allowedIds.includes(requestedWarehouseId) ? requestedWarehouseId : { in: allowedIds };
+        }
+        return { in: allowedIds };
+    }
+    if (requestedWarehouseId && requestedWarehouseId !== 'all') {
+        return requestedWarehouseId;
+    }
+    return undefined;
+}
 class InventoryController {
     /**
      * Endpoint transaccional para dar de alta stock físico (Inbound Inventory)
@@ -17,6 +41,22 @@ class InventoryController {
                     error: 'La bodega de destino (warehouseId) es obligatoria'
                 });
                 return;
+            }
+            // Restricción RBAC: Administradoras regionales solo pueden ingresar a su nodo o móviles asignadas
+            const user = req.user;
+            if (user && user.role !== 'SUPERADMIN' && user.assignedNodeId) {
+                const childNodes = await db_1.prisma.warehouse.findMany({
+                    where: { parentId: user.assignedNodeId },
+                    select: { id: true }
+                });
+                const allowedIds = [user.assignedNodeId, ...childNodes.map(c => c.id)];
+                if (!allowedIds.includes(warehouseId)) {
+                    res.status(403).json({
+                        success: false,
+                        error: 'Restricción de nodo logístico: Únicamente tienes autorización para dar de alta stock en tu bodega asignada o en sus cuadrillas móviles vinculadas.'
+                    });
+                    return;
+                }
             }
             if (!productId) {
                 res.status(400).json({
@@ -100,6 +140,7 @@ class InventoryController {
                     }
                     return bulkStock;
                 });
+                inventory_service_1.inventoryService.invalidateDashboardCache();
                 res.status(201).json({
                     success: true,
                     message: `Se ingresaron exitosamente ${qty} ${product.unitOfMeasure} de "${product.name}" a ${warehouse.name}`,
@@ -185,6 +226,7 @@ class InventoryController {
                     }
                     return createdList;
                 });
+                inventory_service_1.inventoryService.invalidateDashboardCache();
                 res.status(201).json({
                     success: true,
                     message: `Se ingresaron ${resultBatches.length} bobina(s)/lote(s) de "${product.name}" en ${warehouse.name}`,
@@ -292,6 +334,7 @@ class InventoryController {
                     }
                     return list;
                 });
+                inventory_service_1.inventoryService.invalidateDashboardCache();
                 res.status(201).json({
                     success: true,
                     message: `Se registraron exitosamente ${createdSerialized.length} equipo(s) seriado(s) de "${product.name}" en ${warehouse.name}`,
@@ -317,6 +360,7 @@ class InventoryController {
     }
     /**
      * Obtiene todos los artículos seriados con filtros por bodega, estado y búsqueda
+     * Implementa paginación eficiente de alto rendimiento en base de datos (take: 50, skip: X)
      * GET /api/inventory/serialized
      */
     static async getSerializedItems(req, res) {
@@ -325,8 +369,9 @@ class InventoryController {
             const status = req.query.status ? String(req.query.status) : undefined;
             const search = req.query.search ? String(req.query.search).trim() : undefined;
             const where = {};
-            if (warehouseId && warehouseId !== 'all') {
-                where.currentWarehouseId = warehouseId;
+            const warehouseFilter = await resolveAllowedWarehouseFilter(req, warehouseId);
+            if (warehouseFilter) {
+                where.currentWarehouseId = warehouseFilter;
             }
             if (status && status !== 'ALL') {
                 where.status = status;
@@ -341,20 +386,68 @@ class InventoryController {
                     { product: { brand: { contains: search, mode: 'insensitive' } } }
                 ];
             }
-            const items = await db_1.prisma.serializedItem.findMany({
-                where,
-                include: {
-                    product: true,
-                    currentWarehouse: true
-                },
-                orderBy: [
-                    { currentWarehouse: { name: 'asc' } },
-                    { serialNumber: 'asc' }
-                ]
-            });
+            // Parámetros de paginación por defecto: take: 50, skip: 0
+            const page = Math.max(1, Number(req.query.page) || 1);
+            const limitParam = req.query.limit || req.query.take || req.query.per_page;
+            const limit = limitParam === 'all' ? undefined : Math.min(100, Math.max(1, Number(limitParam) || 50));
+            const skip = limit !== undefined ? (page - 1) * limit : undefined;
+            const take = limit;
+            const [total, items] = await Promise.all([
+                db_1.prisma.serializedItem.count({ where }),
+                db_1.prisma.serializedItem.findMany({
+                    where,
+                    select: {
+                        id: true,
+                        serialNumber: true,
+                        macAddress: true,
+                        verificationCode: true,
+                        status: true,
+                        notes: true,
+                        installedClientId: true,
+                        installedClientName: true,
+                        installedContractId: true,
+                        installedDate: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        productId: true,
+                        currentWarehouseId: true,
+                        product: {
+                            select: {
+                                id: true,
+                                sku: true,
+                                name: true,
+                                brand: true,
+                                model: true,
+                                category: true,
+                                trackingType: true,
+                                unitOfMeasure: true
+                            }
+                        },
+                        currentWarehouse: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                type: true,
+                                vehiclePlate: true
+                            }
+                        }
+                    },
+                    orderBy: [
+                        { currentWarehouse: { name: 'asc' } },
+                        { serialNumber: 'asc' }
+                    ],
+                    skip,
+                    take
+                })
+            ]);
             res.status(200).json({
                 success: true,
                 count: items.length,
+                total,
+                page,
+                limit: limit || total,
+                totalPages: limit ? Math.ceil(total / limit) : 1,
                 items
             });
         }
@@ -423,6 +516,7 @@ class InventoryController {
                     currentWarehouse: true
                 }
             });
+            inventory_service_1.inventoryService.invalidateDashboardCache();
             res.status(201).json({
                 success: true,
                 item
@@ -447,8 +541,9 @@ class InventoryController {
             const status = req.query.status ? String(req.query.status) : undefined;
             const search = req.query.search ? String(req.query.search).trim() : undefined;
             const where = {};
-            if (warehouseId && warehouseId !== 'all') {
-                where.currentWarehouseId = warehouseId;
+            const warehouseFilter = await resolveAllowedWarehouseFilter(req, warehouseId);
+            if (warehouseFilter) {
+                where.currentWarehouseId = warehouseFilter;
             }
             if (status && status !== 'ALL') {
                 where.status = status;
@@ -462,9 +557,39 @@ class InventoryController {
             }
             const items = await db_1.prisma.batchItem.findMany({
                 where,
-                include: {
-                    product: true,
-                    currentWarehouse: true
+                select: {
+                    id: true,
+                    batchNumber: true,
+                    initialQuantity: true,
+                    currentQuantity: true,
+                    unitOfMeasure: true,
+                    status: true,
+                    notes: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    productId: true,
+                    currentWarehouseId: true,
+                    product: {
+                        select: {
+                            id: true,
+                            sku: true,
+                            name: true,
+                            brand: true,
+                            model: true,
+                            category: true,
+                            trackingType: true,
+                            unitOfMeasure: true
+                        }
+                    },
+                    currentWarehouse: {
+                        select: {
+                            id: true,
+                            name: true,
+                            code: true,
+                            type: true,
+                            vehiclePlate: true
+                        }
+                    }
                 },
                 orderBy: [
                     { currentWarehouse: { name: 'asc' } },
@@ -495,8 +620,9 @@ class InventoryController {
             const warehouseId = req.query.warehouseId ? String(req.query.warehouseId) : undefined;
             const search = req.query.search ? String(req.query.search).trim() : undefined;
             const where = {};
-            if (warehouseId && warehouseId !== 'all') {
-                where.warehouseId = warehouseId;
+            const warehouseFilter = await resolveAllowedWarehouseFilter(req, warehouseId);
+            if (warehouseFilter) {
+                where.warehouseId = warehouseFilter;
             }
             if (search) {
                 where.product = {
@@ -605,6 +731,7 @@ class InventoryController {
                     warehouse: true
                 }
             });
+            inventory_service_1.inventoryService.invalidateDashboardCache();
             res.status(200).json({
                 success: true,
                 stock: {

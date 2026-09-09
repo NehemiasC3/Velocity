@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import * as Sentry from '@sentry/react';
+import { RefreshCw, AlertTriangle } from 'lucide-react';
 import { Navigation } from './components/Navigation';
 import { InventorySearch } from './components/InventorySearch';
 import { SystemOverview } from './components/SystemOverview';
@@ -9,8 +11,38 @@ import { OfflineBanner } from './components/OfflineBanner';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import { useAuth } from './hooks/useAuth';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
-export const App: React.FC = () => {
+const SentryFallbackView: React.FC<{ resetError?: () => void }> = ({ resetError }) => (
+  <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
+    <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl text-center space-y-4">
+      <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+        <AlertTriangle className="w-8 h-8" />
+      </div>
+      <h2 className="text-xl font-bold text-slate-100">Ocurrió un error en esta vista</h2>
+      <p className="text-sm text-slate-400">
+        Se ha producido una interrupción en el renderizado de la interfaz. El incidente ha sido registrado automáticamente en Sentry para su análisis.
+      </p>
+      <div className="pt-2">
+        <button
+          onClick={() => {
+            if (resetError) {
+              resetError();
+            } else {
+              window.location.reload();
+            }
+          }}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-all shadow-lg shadow-blue-500/25 active:scale-95 cursor-pointer"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Reintentar</span>
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const AppContent: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'inventory' | 'overview' | 'settings'>('inventory');
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
@@ -49,9 +81,11 @@ export const App: React.FC = () => {
 
       {/* 6. Main View Area */}
       <main className="flex-1 pb-10">
-        {activeTab === 'inventory' && <InventorySearch />}
-        {activeTab === 'overview' && <SystemOverview />}
-        {activeTab === 'settings' && <NotificationPreferences />}
+        <ErrorBoundary viewName={activeTab}>
+          {activeTab === 'inventory' && <InventorySearch />}
+          {activeTab === 'overview' && <SystemOverview />}
+          {activeTab === 'settings' && <NotificationPreferences />}
+        </ErrorBoundary>
       </main>
 
       {/* 7. Auth Modal */}
@@ -70,6 +104,16 @@ export const App: React.FC = () => {
         </div>
       </footer>
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <ErrorBoundary viewName="Velocity Portal">
+      <Sentry.ErrorBoundary fallback={({ resetError }) => <SentryFallbackView resetError={resetError} />}>
+        <AppContent />
+      </Sentry.ErrorBoundary>
+    </ErrorBoundary>
   );
 };
 

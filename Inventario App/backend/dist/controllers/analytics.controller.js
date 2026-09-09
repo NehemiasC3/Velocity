@@ -1,15 +1,25 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AnalyticsController = void 0;
+exports.AnalyticsController = exports.invalidateAnalyticsCache = void 0;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
+let analyticsKpiCache = null;
+const ANALYTICS_CACHE_TTL_MS = 60 * 1000; // 60 segundos
+function invalidateAnalyticsCache() {
+    analyticsKpiCache = null;
+}
+exports.invalidateAnalyticsCache = invalidateAnalyticsCache;
 class AnalyticsController {
     /**
-     * Métricas gerenciales y KPIs clave
+     * Métricas gerenciales y KPIs clave con caché RAM (TTL 60s)
      * GET /api/analytics/kpis
      */
     static async getKPIs(req, res) {
         try {
+            if (analyticsKpiCache && analyticsKpiCache.expiresAt > Date.now()) {
+                res.status(200).json(analyticsKpiCache.data);
+                return;
+            }
             const now = new Date();
             const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
             // 1. ONUs Activas (En Bodegas y en Vehículos)
@@ -109,7 +119,7 @@ class AnalyticsController {
             }
             // 7. Resumen de Bodegas
             const totalWarehouses = await db_1.prisma.warehouse.count();
-            res.status(200).json({
+            const responsePayload = {
                 success: true,
                 kpis: {
                     total_active_onus: totalActiveOnus,
@@ -121,7 +131,12 @@ class AnalyticsController {
                     total_warehouses: totalWarehouses,
                     total_tickets_month: monthlyTickets.length
                 }
-            });
+            };
+            analyticsKpiCache = {
+                data: responsePayload,
+                expiresAt: Date.now() + ANALYTICS_CACHE_TTL_MS
+            };
+            res.status(200).json(responsePayload);
         }
         catch (error) {
             console.error('Error al generar KPIs:', error);

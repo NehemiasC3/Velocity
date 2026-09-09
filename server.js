@@ -898,52 +898,6 @@ app.post('/api/internal/alerts', (req, res) => {
     res.json({ success: true, alert });
 });
 
-// ── WEBHOOK LISTENER: ACTIVACIÓN ZERO-TOUCH WISPRO ─────────────────────────
-app.post(['/api/webhooks/wispro/activation', '/api/webhooks/activation'], async (req, res) => {
-    console.log('[Velocity Gateway 📡] Webhook de activación recibido:', JSON.stringify(req.body));
-    const inventoryApiUrl = process.env.INVENTORY_API_URL || 'http://localhost:4000/api';
-
-    try {
-        const response = await fetch(`${inventoryApiUrl}/webhooks/wispro/activation`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify(req.body)
-        });
-
-        const data = await response.json().catch(() => ({}));
-
-        if (response.status === 422) {
-            const mac = req.body.macAddress || req.body.mac || req.body.serial || req.body.serialNumber || 'Desconocida';
-            const alertMsg = data.message || `Equipo desconocido intentó ser activado en Wispro: [${mac}]`;
-            addSystemAlert(alertMsg, 'error', {
-                contractId: req.body.contractId,
-                clientName: req.body.clientName,
-                payload: req.body
-            });
-            return res.status(422).json(data);
-        }
-
-        return res.status(response.status).json(data);
-    } catch (err) {
-        console.error('[Velocity Gateway ❌] Error conectando con API de Inventario (Puerto 4000):', err.message);
-        const mac = req.body.macAddress || req.body.mac || req.body.serial || 'Desconocida';
-        const alertMsg = `Equipo desconocido intentó ser activado en Wispro: [${mac}]`;
-        addSystemAlert(alertMsg, 'error', {
-            error: err.message,
-            payload: req.body
-        });
-        return res.status(422).json({
-            success: false,
-            error: 'Unprocessable Entity',
-            message: alertMsg,
-            macAddress: mac
-        });
-    }
-});
-
 app.post('/api/test-report-email', validateToken, async (req, res) => {
     try {
         console.log('[Velocity Reports] Solicitud de envío de reporte de prueba manual recibida...');

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import * as Sentry from '@sentry/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { Header } from './components/Header';
 import { DashboardHome } from './components/DashboardHome';
@@ -387,16 +388,55 @@ const AppContent: React.FC = () => {
   );
 };
 
+interface SentryFallbackProps {
+  error?: unknown;
+  resetError?: () => void;
+}
+
+export const SentryFallbackView: React.FC<SentryFallbackProps> = ({ resetError }) => {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
+      <div className="max-w-md w-full bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl text-center space-y-4">
+        <div className="w-16 h-16 mx-auto rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-400">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-100">Ocurrió un error en esta vista</h2>
+        <p className="text-sm text-slate-400">
+          Se ha producido una interrupción en el renderizado de la interfaz. El incidente ha sido registrado automáticamente en Sentry para su análisis.
+        </p>
+        <div className="pt-2">
+          <button
+            onClick={() => {
+              if (resetError) {
+                resetError();
+              } else {
+                window.location.reload();
+              }
+            }}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-medium text-sm transition-all shadow-lg shadow-blue-500/25 active:scale-95 cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4" />
+            <span>Reintentar</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const App: React.FC = () => {
   return (
-    <ErrorBoundary moduleName="Sistema de Inventario Velocity Pro">
-      <AuthProvider>
-        <AppContent />
-      </AuthProvider>
-    </ErrorBoundary>
+    <Sentry.ErrorBoundary fallback={({ resetError }) => <SentryFallbackView resetError={resetError} />}>
+      <ErrorBoundary moduleName="Sistema de Inventario Velocity Pro">
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ErrorBoundary>
+    </Sentry.ErrorBoundary>
   );
 };
 
 export default App;
+
 
 

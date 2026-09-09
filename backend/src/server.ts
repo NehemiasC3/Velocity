@@ -5,6 +5,20 @@ import path from 'path';
 dotenv.config();
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+import * as Sentry from '@sentry/node';
+
+// Inicialización de Sentry con SENTRY_DSN opcional
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    tracesSampleRate: 1.0,
+  });
+  console.log('📡 [Sentry] Observabilidad backend (Sentry) inicializada correctamente.');
+} else {
+  console.log('ℹ️ [Sentry] SENTRY_DSN no configurado. Continuando sin reporte externo a Sentry.');
+}
+
 import { createApp } from './app';
 import { dbService } from './services/DbService';
 import { wisproService } from './services/WisproService';

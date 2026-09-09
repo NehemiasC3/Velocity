@@ -94,24 +94,6 @@ async function serverSync() {
             localStorage.setItem('Velocity_Sync_State', JSON.stringify(remoteState));
             console.log('[Velocity] Estado sincronizado desde el servidor');
 
-            // Notificaciones en tiempo real de alertas de seguridad y webhooks de Wispro
-            if (remoteState.alerts && Array.isArray(remoteState.alerts)) {
-                let seenAlerts = [];
-                try {
-                    seenAlerts = JSON.parse(sessionStorage.getItem('Velocity_Seen_Alerts') || '[]');
-                } catch(e) {}
-
-                remoteState.alerts.forEach(alt => {
-                    if (alt && alt.id && !seenAlerts.includes(alt.id)) {
-                        if (typeof showNotification === 'function') {
-                            showNotification('🚨 Alerta Wispro Webhook', alt.message, 'warning');
-                        }
-                        seenAlerts.push(alt.id);
-                    }
-                });
-                sessionStorage.setItem('Velocity_Seen_Alerts', JSON.stringify(seenAlerts.slice(-100)));
-            }
-
             if (typeof window.updateActiveTechs === 'function') {
                 window.updateActiveTechs();
             }

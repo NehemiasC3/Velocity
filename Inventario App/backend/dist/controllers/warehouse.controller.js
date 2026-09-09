@@ -10,7 +10,19 @@ class WarehouseController {
      */
     static async getWarehouses(req, res) {
         try {
+            const authUser = req.user;
+            const assignedNodeId = authUser?.assignedNodeId || authUser?.baseWarehouseId;
+            const isSuperAdmin = !authUser || authUser.role === 'SUPERADMIN' || authUser.role === 'ADMIN_BODEGA';
+            const where = {};
+            if (assignedNodeId && !isSuperAdmin) {
+                where.OR = [
+                    { id: assignedNodeId },
+                    { parentId: assignedNodeId },
+                    { type: client_1.WarehouseType.PRINCIPAL }
+                ];
+            }
             const warehouses = await db_1.prisma.warehouse.findMany({
+                where,
                 include: {
                     parentWarehouse: {
                         select: {
@@ -76,18 +88,79 @@ class WarehouseController {
             const id = String(req.params.id);
             const warehouse = await db_1.prisma.warehouse.findUnique({
                 where: { id },
-                include: {
-                    parentWarehouse: true,
-                    childWarehouses: true,
-                    manager: true,
+                select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    type: true,
+                    status: true,
+                    address: true,
+                    vehiclePlate: true,
+                    parentId: true,
+                    managerId: true,
+                    createdAt: true,
+                    updatedAt: true,
+                    parentWarehouse: {
+                        select: { id: true, name: true, code: true, type: true, address: true }
+                    },
+                    childWarehouses: {
+                        select: { id: true, name: true, code: true, type: true, status: true, vehiclePlate: true }
+                    },
+                    manager: {
+                        select: { id: true, name: true, email: true, role: true, phone: true }
+                    },
                     bulkStocks: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            quantity: true,
+                            updatedAt: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, category: true, unitOfMeasure: true, minStockAlert: true }
+                            }
+                        },
+                        orderBy: { product: { name: 'asc' } }
                     },
                     batchItems: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            batchNumber: true,
+                            initialQuantity: true,
+                            currentQuantity: true,
+                            unitOfMeasure: true,
+                            status: true,
+                            notes: true,
+                            createdAt: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, category: true }
+                            }
+                        },
+                        orderBy: { batchNumber: 'asc' }
                     },
                     serializedItems: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            serialNumber: true,
+                            macAddress: true,
+                            verificationCode: true,
+                            status: true,
+                            installedClientName: true,
+                            notes: true,
+                            createdAt: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, brand: true, model: true, category: true }
+                            }
+                        },
+                        orderBy: { serialNumber: 'asc' }
+                    },
+                    _count: {
+                        select: {
+                            serializedItems: true,
+                            batchItems: true,
+                            bulkStocks: true
+                        }
                     }
                 }
             });
@@ -287,17 +360,58 @@ class WarehouseController {
                         { name: { contains: identifier, mode: 'insensitive' } }
                     ]
                 },
-                include: {
-                    parentWarehouse: true,
-                    manager: true,
+                select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    type: true,
+                    status: true,
+                    address: true,
+                    vehiclePlate: true,
+                    parentId: true,
+                    managerId: true,
+                    parentWarehouse: {
+                        select: { id: true, name: true, code: true, type: true }
+                    },
+                    manager: {
+                        select: { id: true, name: true, email: true, role: true, phone: true }
+                    },
                     bulkStocks: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            quantity: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, category: true, unitOfMeasure: true }
+                            }
+                        }
                     },
                     batchItems: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            batchNumber: true,
+                            initialQuantity: true,
+                            currentQuantity: true,
+                            unitOfMeasure: true,
+                            status: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, category: true }
+                            }
+                        }
                     },
                     serializedItems: {
-                        include: { product: true }
+                        select: {
+                            id: true,
+                            productId: true,
+                            serialNumber: true,
+                            macAddress: true,
+                            verificationCode: true,
+                            status: true,
+                            product: {
+                                select: { id: true, name: true, sku: true, brand: true, model: true, category: true }
+                            }
+                        }
                     }
                 }
             });
@@ -319,17 +433,58 @@ class WarehouseController {
                         status: client_1.WarehouseStatus.ACTIVE,
                         address: `Cuadrilla móvil en ruta`
                     },
-                    include: {
-                        parentWarehouse: true,
-                        manager: true,
+                    select: {
+                        id: true,
+                        name: true,
+                        code: true,
+                        type: true,
+                        status: true,
+                        address: true,
+                        vehiclePlate: true,
+                        parentId: true,
+                        managerId: true,
+                        parentWarehouse: {
+                            select: { id: true, name: true, code: true, type: true }
+                        },
+                        manager: {
+                            select: { id: true, name: true, email: true, role: true, phone: true }
+                        },
                         bulkStocks: {
-                            include: { product: true }
+                            select: {
+                                id: true,
+                                productId: true,
+                                quantity: true,
+                                product: {
+                                    select: { id: true, name: true, sku: true, category: true, unitOfMeasure: true }
+                                }
+                            }
                         },
                         batchItems: {
-                            include: { product: true }
+                            select: {
+                                id: true,
+                                productId: true,
+                                batchNumber: true,
+                                initialQuantity: true,
+                                currentQuantity: true,
+                                unitOfMeasure: true,
+                                status: true,
+                                product: {
+                                    select: { id: true, name: true, sku: true, category: true }
+                                }
+                            }
                         },
                         serializedItems: {
-                            include: { product: true }
+                            select: {
+                                id: true,
+                                productId: true,
+                                serialNumber: true,
+                                macAddress: true,
+                                verificationCode: true,
+                                status: true,
+                                product: {
+                                    select: { id: true, name: true, sku: true, brand: true, model: true, category: true }
+                                }
+                            }
                         }
                     }
                 });

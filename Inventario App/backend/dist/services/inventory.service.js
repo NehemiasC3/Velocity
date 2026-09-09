@@ -31,38 +31,197 @@ async function getOrCreateSystemUser(preferredId) {
         throw err;
     }
 }
+const dashboardKpiCache = new Map();
+const KPI_CACHE_TTL_MS = 45 * 1000; // 45 segundos de caché RAM
 class InventoryService {
     /**
-     * Obtiene resumen global para el Dashboard Admin usando Prisma
+     * Invalida la caché en memoria del Dashboard y Alertas Críticas
      */
-    async getDashboardKPIs() {
-        const [serialized, bulkStocks, batchItems, warehouses, products, transfers, rmaCount] = await Promise.all([
-            db_1.prisma.serializedItem.findMany({
-                include: { product: true }
+    invalidateDashboardCache() {
+        dashboardKpiCache.clear();
+    }
+    /**
+     * Obtiene resumen global para el Dashboard Admin usando Prisma, con soporte de Warehouse Scoping
+     */
+    async getDashboardKPIs(scopedNodeId) {
+        const cacheKey = scopedNodeId || 'GLOBAL';
+        const cached = dashboardKpiCache.get(cacheKey);
+        const now = Date.now();
+        if (cached && cached.expiresAt > now) {
+            return cached.data;
+        }
+        let scopedWarehouseIds = null;
+        let scopedNodeName = null;
+        if (scopedNodeId) {
+            const nodes = await db_1.prisma.warehouse.findMany({
+                where: {
+                    OR: [
+                        { id: scopedNodeId },
+                        { parentId: scopedNodeId }
+                    ]
+                },
+                select: { id: true, name: true }
+            });
+            scopedWarehouseIds = nodes.map(n => n.id);
+            if (!scopedWarehouseIds.includes(scopedNodeId)) {
+                scopedWarehouseIds.push(scopedNodeId);
+            }
+            const selfNode = nodes.find(n => n.id === scopedNodeId);
+            scopedNodeName = selfNode?.name || null;
+        }
+        // 1. Ejecución paralela con agregaciones nativas (groupBy, count, select estricto)
+        const [onusStatusGroups, serializedStockGroups, batchStockGroups, bulkStocks, warehouses, products, transfers, rmaItems, allHubs] = await Promise.all([
+            // Agrupación nativa en Postgres por estado (sin traer toda la tabla a memoria JS)
+            db_1.prisma.serializedItem.groupBy({
+                by: ['status'],
+                _count: { id: true },
+                where: scopedWarehouseIds ? { currentWarehouseId: { in: scopedWarehouseIds } } : undefined
             }),
+            // Existencias serializadas en bodegas operativas (EN_BODEGA o EN_VEHICULO)
+            db_1.prisma.serializedItem.groupBy({
+                by: ['currentWarehouseId', 'productId'],
+                _count: { id: true },
+                where: {
+                    status: { in: [client_1.SerializedStatus.EN_BODEGA, client_1.SerializedStatus.EN_VEHICULO] },
+                    ...(scopedWarehouseIds ? { currentWarehouseId: { in: scopedWarehouseIds } } : {})
+                }
+            }),
+            // Bobinas y lotes disponibles por bodega y producto
+            db_1.prisma.batchItem.groupBy({
+                by: ['currentWarehouseId', 'productId'],
+                _count: { id: true },
+                where: {
+                    status: client_1.BatchStatus.DISPONIBLE,
+                    ...(scopedWarehouseIds ? { currentWarehouseId: { in: scopedWarehouseIds } } : {})
+                }
+            }),
+            // Materiales a granel con select explícito (solo campos estrictamente necesarios)
             db_1.prisma.bulkStock.findMany({
-                include: { product: true, warehouse: true }
+                where: scopedWarehouseIds ? { warehouseId: { in: scopedWarehouseIds } } : undefined,
+                select: {
+                    productId: true,
+                    warehouseId: true,
+                    quantity: true
+                }
             }),
-            db_1.prisma.batchItem.findMany({
-                where: { status: client_1.BatchStatus.DISPONIBLE },
-                include: { product: true }
-            }),
+            // Bodegas con select liviano
             db_1.prisma.warehouse.findMany({
-                include: { parentWarehouse: true }
+                where: scopedWarehouseIds ? { id: { in: scopedWarehouseIds } } : undefined,
+                select: {
+                    id: true,
+                    name: true,
+                    code: true,
+                    type: true,
+                    status: true,
+                    vehiclePlate: true,
+                    parentId: true,
+                    parentWarehouse: {
+                        select: { id: true, name: true, code: true }
+                    }
+                },
+                orderBy: [
+                    { type: 'asc' },
+                    { name: 'asc' }
+                ]
             }),
+            // Catálogo de productos activos con select explícito
             db_1.prisma.productCatalog.findMany({
-                where: { isActive: true }
+                where: { isActive: true },
+                select: {
+                    id: true,
+                    sku: true,
+                    name: true,
+                    category: true,
+                    trackingType: true,
+                    unitOfMeasure: true,
+                    minStockAlert: true
+                }
             }),
+            // Traslados pendientes (top 10 con select puntual)
             db_1.prisma.transferOrder.findMany({
-                where: { status: client_1.TransferStatus.PENDIENTE }
+                where: {
+                    status: client_1.TransferStatus.PENDIENTE,
+                    ...(scopedWarehouseIds ? {
+                        OR: [
+                            { sourceWarehouseId: { in: scopedWarehouseIds } },
+                            { destinationWarehouseId: { in: scopedWarehouseIds } }
+                        ]
+                    } : {})
+                },
+                select: {
+                    id: true,
+                    orderNumber: true,
+                    status: true,
+                    createdAt: true,
+                    sourceWarehouse: { select: { id: true, name: true, code: true } },
+                    destinationWarehouse: { select: { id: true, name: true, code: true } }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 10
             }),
-            db_1.prisma.serializedItem.count({
-                where: { status: client_1.SerializedStatus.RMA_DEFECTUOSO }
+            // Ítems RMA recientes
+            db_1.prisma.serializedItem.findMany({
+                where: {
+                    status: client_1.SerializedStatus.RMA_DEFECTUOSO,
+                    ...(scopedWarehouseIds ? { currentWarehouseId: { in: scopedWarehouseIds } } : {})
+                },
+                select: {
+                    id: true,
+                    serialNumber: true,
+                    macAddress: true,
+                    status: true,
+                    notes: true,
+                    installedClientName: true,
+                    product: {
+                        select: { id: true, name: true, model: true, brand: true, sku: true }
+                    },
+                    currentWarehouse: {
+                        select: { id: true, name: true, code: true }
+                    }
+                },
+                orderBy: { updatedAt: 'desc' },
+                take: 10
+            }),
+            // Hubs principales
+            db_1.prisma.warehouse.findMany({
+                where: { type: client_1.WarehouseType.PRINCIPAL },
+                select: { id: true, name: true, code: true },
+                take: 1
             })
         ]);
-        const totalSerializedActive = serialized.filter(i => i.status !== client_1.SerializedStatus.BAJA).length;
+        // Mapeo O(1) para existencias por bodega y producto
+        const serializedStockMap = new Map();
+        for (const g of serializedStockGroups) {
+            serializedStockMap.set(`${g.currentWarehouseId}_${g.productId}`, g._count.id);
+        }
+        const batchStockMap = new Map();
+        for (const g of batchStockGroups) {
+            batchStockMap.set(`${g.currentWarehouseId}_${g.productId}`, g._count.id);
+        }
+        const bulkStockMap = new Map();
+        for (const b of bulkStocks) {
+            bulkStockMap.set(`${b.warehouseId}_${b.productId}`, b.quantity);
+        }
+        // Calcular desglose de estados de ONUs/Equipos desde agregación groupBy
+        const onusStatusMap = new Map();
+        for (const s of onusStatusGroups) {
+            onusStatusMap.set(s.status, s._count.id);
+        }
+        const onusByStatus = {
+            enBodega: onusStatusMap.get(client_1.SerializedStatus.EN_BODEGA) || 0,
+            enTransito: onusStatusMap.get(client_1.SerializedStatus.EN_TRANSITO) || 0,
+            enVehiculo: onusStatusMap.get(client_1.SerializedStatus.EN_VEHICULO) || 0,
+            instaladoCliente: onusStatusMap.get(client_1.SerializedStatus.INSTALADO_CLIENTE) || 0,
+            rmaDefectuoso: onusStatusMap.get(client_1.SerializedStatus.RMA_DEFECTUOSO) || 0,
+            baja: onusStatusMap.get(client_1.SerializedStatus.BAJA) || 0
+        };
+        const totalSerializedActive = (onusByStatus.enBodega +
+            onusByStatus.enTransito +
+            onusByStatus.enVehiculo +
+            onusByStatus.instaladoCliente +
+            onusByStatus.rmaDefectuoso);
         // Identificar Hub Principal (o Tocumen)
-        const hubWarehouse = warehouses.find(w => w.type === client_1.WarehouseType.PRINCIPAL) || warehouses[0];
+        const hubWarehouse = allHubs[0] || warehouses.find(w => w.type === client_1.WarehouseType.PRINCIPAL) || warehouses[0];
         // Bodegas operativas que requieren abastecimiento (Vehículos y Sucursales)
         const operationalWarehouses = warehouses.filter(w => w.status === 'ACTIVE' && (w.type === client_1.WarehouseType.VEHICULO || w.type === client_1.WarehouseType.SUCURSAL));
         const criticalStockAlerts = [];
@@ -70,17 +229,13 @@ class InventoryService {
             for (const p of products) {
                 let currentQuantity = 0;
                 if (p.trackingType === 'SERIALIZED') {
-                    currentQuantity = serialized.filter(i => i.currentWarehouseId === w.id &&
-                        (i.status === client_1.SerializedStatus.EN_BODEGA || i.status === client_1.SerializedStatus.EN_VEHICULO) &&
-                        i.productId === p.id).length;
+                    currentQuantity = serializedStockMap.get(`${w.id}_${p.id}`) || 0;
                 }
                 else if (p.trackingType === 'BULK') {
-                    const bs = bulkStocks.find(b => b.warehouseId === w.id && b.productId === p.id);
-                    currentQuantity = bs?.quantity || 0;
+                    currentQuantity = bulkStockMap.get(`${w.id}_${p.id}`) || 0;
                 }
                 else if (p.trackingType === 'BATCHED') {
-                    const bi = batchItems.filter(b => b.currentWarehouseId === w.id && b.productId === p.id);
-                    currentQuantity = bi.length;
+                    currentQuantity = batchStockMap.get(`${w.id}_${p.id}`) || 0;
                 }
                 const minStockAlert = p.minStockAlert !== undefined && p.minStockAlert !== null ? p.minStockAlert : 5;
                 // Si el stock actual es menor o igual al mínimo definido en catálogo
@@ -116,24 +271,24 @@ class InventoryService {
                 return 1;
             return b.deficit - a.deficit;
         });
-        const onusByStatus = {
-            enBodega: serialized.filter(i => i.status === client_1.SerializedStatus.EN_BODEGA).length,
-            enTransito: serialized.filter(i => i.status === client_1.SerializedStatus.EN_TRANSITO).length,
-            enVehiculo: serialized.filter(i => i.status === client_1.SerializedStatus.EN_VEHICULO).length,
-            instaladoCliente: serialized.filter(i => i.status === client_1.SerializedStatus.INSTALADO_CLIENTE).length,
-            rmaDefectuoso: rmaCount,
-            baja: serialized.filter(i => i.status === client_1.SerializedStatus.BAJA).length
-        };
-        return {
+        const result = {
+            scopedNodeId: scopedNodeId || null,
+            scopedNodeName: scopedNodeName || null,
             totalSerializedActive,
             criticalStockAlerts,
-            rmaCount,
-            rmaItems: serialized.filter(i => i.status === client_1.SerializedStatus.RMA_DEFECTUOSO).slice(0, 10),
+            rmaCount: onusByStatus.rmaDefectuoso,
+            rmaItems,
             onusByStatus,
             totalWarehouses: warehouses.length,
             pendingTransfersCount: transfers.length,
             pendingTransfers: transfers
         };
+        // Guardar en caché RAM con TTL
+        dashboardKpiCache.set(cacheKey, {
+            data: result,
+            expiresAt: Date.now() + KPI_CACHE_TTL_MS
+        });
+        return result;
     }
     /**
      * Búsqueda Forense de MAC en Prisma
@@ -230,7 +385,7 @@ class InventoryService {
         // ─────────────────────────────────────────────────────────────
         // EJECUCIÓN 100% TRANSACCIONAL CON BARRERA DE PROTECCIÓN (ZERO CORRUPCIÓN)
         // ─────────────────────────────────────────────────────────────
-        return await db_1.prisma.$transaction(async (tx) => {
+        const result = await db_1.prisma.$transaction(async (tx) => {
             // En nodos de prueba sin custodio, persistir el responsable temporal
             if (!destinationWarehouse.managerId) {
                 try {
@@ -387,6 +542,8 @@ class InventoryService {
             });
             return order;
         });
+        this.invalidateDashboardCache();
+        return result;
     }
     /**
      * Cierre de ticket / Liquidación de campo con transacción atómica y validación de stock
@@ -407,7 +564,7 @@ class InventoryService {
         ]);
         const vehicleWarehouse = tech?.managedWarehouses?.[0];
         const vehicleWarehouseId = vehicleWarehouse?.id || 'wh-veh-01';
-        return await db_1.prisma.$transaction(async (tx) => {
+        const result = await db_1.prisma.$transaction(async (tx) => {
             // 1. Validar y descontar ONU instalada
             let targetOnu = null;
             if (dto.installedOnuMac) {
@@ -508,6 +665,8 @@ class InventoryService {
             });
             return ticket;
         });
+        this.invalidateDashboardCache();
+        return result;
     }
     /**
      * Métricas de Cuadrillas

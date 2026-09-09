@@ -1,4 +1,4 @@
-import express, { Application, Request, Response, NextFunction } from 'express';
+import express, { Application, Request, Response } from 'express';
 import axios from 'axios';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import apiRouter from './routes';
 import { generalLimiter } from './middlewares/rateLimitMiddleware';
+import { errorMiddleware } from './middlewares/error.middleware';
 
 export function createApp(): Application {
   const app: Application = express();
@@ -132,15 +133,8 @@ export function createApp(): Application {
     });
   });
 
-  // Manejador global de errores
-  app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    console.error('[Global App Error]', err);
-    res.status(500).json({
-      success: false,
-      error: 'InternalServerError',
-      message: err.message || 'Error interno en el servidor'
-    });
-  });
+  // Manejador global de errores con Sentry
+  app.use(errorMiddleware);
 
   return app;
 }

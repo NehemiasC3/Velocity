@@ -128,6 +128,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ==========================================
+  # 📊 DOZZLE (Real-time Docker Logs Viewer)
+  # ==========================================
+  dozzle:
+    container_name: velocity_logs
+    image: amir20/dozzle:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8080:8080"
+    restart: always
+    networks:
+      - velocity-net
+
 networks:
   velocity-net:
     driver: bridge

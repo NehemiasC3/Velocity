@@ -17,7 +17,6 @@ import rmaRoutes from './rma.routes';
 import wisproRoutes from './wispro.routes';
 import analyticsRoutes from './analytics.routes';
 import authRoutes from './auth.routes';
-import webhookRoutes from './webhook.routes';
 import assignmentRoutes from './assignment.routes';
 import workOrdersRoutes from './workOrders.routes';
 
@@ -321,12 +320,6 @@ router.get('/wispro/clients', async (req: AuthenticatedRequest, res: Response) =
   });
   res.json({ clients });
 });
-
-
-// ==========================================
-// 12.1. WEBHOOKS AUTOMATIZACIÓN ZERO-TOUCH (WISPRO)
-// ==========================================
-router.use('/webhooks', webhookRoutes);
 
 // ==========================================
 // 12. MÉTRICAS DE PERSONAL Y MERMAS DE CABLE

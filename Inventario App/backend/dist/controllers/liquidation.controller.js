@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.LiquidationController = void 0;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
+const inventory_service_1 = require("../services/inventory.service");
 class LiquidationController {
     /**
      * Obtiene el listado de tickets o liquidaciones realizadas
@@ -269,6 +270,7 @@ class LiquidationController {
                 });
                 return ticket;
             });
+            inventory_service_1.inventoryService.invalidateDashboardCache();
             res.status(201).json({
                 success: true,
                 message: `Liquidación del ticket ${result.ticketNumber} registrada exitosamente. Materiales descontados del vehículo ${vehicleWarehouse.name}.`,

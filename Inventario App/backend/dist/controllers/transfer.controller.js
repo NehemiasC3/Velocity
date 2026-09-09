@@ -1,9 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TransferController = void 0;
-exports.resolveResponsibleUser = resolveResponsibleUser;
+exports.TransferController = exports.resolveResponsibleUser = void 0;
 const db_1 = require("../db");
 const client_1 = require("@prisma/client");
+const inventory_service_1 = require("../services/inventory.service");
 /**
  * Resuelve o provisiona de forma segura un usuario responsable para firmar traslados.
  * Prioridad:
@@ -60,6 +60,7 @@ async function resolveResponsibleUser(req) {
         throw createErr;
     }
 }
+exports.resolveResponsibleUser = resolveResponsibleUser;
 class TransferController {
     /**
      * Obtiene el historial de órdenes de traslado
@@ -95,6 +96,21 @@ class TransferController {
                         { notes: { contains: q, mode: 'insensitive' } },
                         { sourceWarehouse: { name: { contains: q, mode: 'insensitive' } } },
                         { destinationWarehouse: { name: { contains: q, mode: 'insensitive' } } }
+                    ]
+                });
+            }
+            // Warehouse Scoping: Si el usuario es administradora regional, filtrar traslados de su nodo y móviles
+            const user = req.user;
+            if (user && user.role !== 'SUPERADMIN' && user.assignedNodeId) {
+                const childWarehouses = await db_1.prisma.warehouse.findMany({
+                    where: { parentId: user.assignedNodeId },
+                    select: { id: true }
+                });
+                const scopedIds = [user.assignedNodeId, ...childWarehouses.map(c => c.id)];
+                andConditions.push({
+                    OR: [
+                        { sourceWarehouseId: { in: scopedIds } },
+                        { destinationWarehouseId: { in: scopedIds } }
                     ]
                 });
             }
@@ -250,6 +266,27 @@ class TransferController {
             if (!destinationWarehouse) {
                 res.status(404).json({ success: false, error: 'Bodega de destino no encontrada' });
                 return;
+            }
+            // ─────────────────────────────────────────────────────────────
+            // RESTRICCIÓN DE PERMISOS RBAC PARA ADMINISTRADORAS REGIONALES
+            // ─────────────────────────────────────────────────────────────
+            const user = req.user;
+            const isSuperAdmin = !user || user.role === 'SUPERADMIN';
+            const assignedNodeId = user?.assignedNodeId;
+            if (!isSuperAdmin && assignedNodeId) {
+                // Opción A: Despacho desde su nodo regional hacia vehículos/técnicos asignados a su nodo
+                const isDispatchToAssignedVehicle = sourceWarehouseId === assignedNodeId &&
+                    destinationWarehouse.parentId === assignedNodeId;
+                // Opción B: Solicitud de reabastecimiento desde el Hub Central hacia su nodo regional
+                const isReplenishmentFromHub = (sourceWarehouse.type === client_1.WarehouseType.PRINCIPAL || sourceWarehouse.id === 'dc337480-d190-40b2-a33f-2b9186633f29') &&
+                    destinationWarehouseId === assignedNodeId;
+                if (!isDispatchToAssignedVehicle && !isReplenishmentFromHub) {
+                    res.status(403).json({
+                        success: false,
+                        error: `Restricción de nodo logístico: Como administradora regional de ${user.name || 'la sucursal'}, únicamente tienes autorización para crear traslados hacia los vehículos/técnicos asignados a tu nodo o solicitar reabastecimiento desde el Hub Central (Tocumen).`
+                    });
+                    return;
+                }
             }
             const hasBulk = Array.isArray(bulkItems) && bulkItems.length > 0;
             const hasBatches = Array.isArray(batchIds) && batchIds.length > 0;
@@ -507,6 +544,7 @@ class TransferController {
                 });
                 return order;
             });
+            inventory_service_1.inventoryService.invalidateDashboardCache();
             res.status(201).json({
                 success: true,
                 message: `Orden de traslado ${result.orderNumber} procesada exitosamente.${directReceive ? ' Stock disponible inmediatamente en destino.' : ''}`,
@@ -644,6 +682,7 @@ class TransferController {
                 });
                 return updated;
             });
+            inventory_service_1.inventoryService.invalidateDashboardCache();
             res.status(200).json({
                 success: true,
                 message: `Orden de traslado ${result.orderNumber} recibida exitosamente en ${transfer.destinationWarehouse.name}.`,

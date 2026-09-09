@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApp = createApp;
 const express_1 = __importDefault(require("express"));
+const axios_1 = __importDefault(require("axios"));
 const cors_1 = __importDefault(require("cors"));
 const helmet_1 = __importDefault(require("helmet"));
 const compression_1 = __importDefault(require("compression"));
@@ -12,6 +13,7 @@ const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
 const routes_1 = __importDefault(require("./routes"));
 const rateLimitMiddleware_1 = require("./middlewares/rateLimitMiddleware");
+const error_middleware_1 = require("./middlewares/error.middleware");
 function createApp() {
     const app = (0, express_1.default)();
     // Habilitar trust proxy para resolver IPs reales detrás de Nginx / Cloudflare / Docker
@@ -54,6 +56,26 @@ function createApp() {
     });
     // Master API Router
     app.use('/api', routes_1.default);
+    // Proxy local para Inventory API
+    app.use('/inventory-api', async (req, res) => {
+        const targetUrl = `http://127.0.0.1:4000/api${req.url}`;
+        try {
+            const response = await (0, axios_1.default)({
+                method: req.method,
+                url: targetUrl,
+                headers: {
+                    ...req.headers,
+                    host: '127.0.0.1:4000'
+                },
+                data: req.body,
+                validateStatus: () => true
+            });
+            res.status(response.status).set(response.headers).send(response.data);
+        }
+        catch (err) {
+            res.status(502).json({ error: 'Error conectando con el servicio de inventario en el puerto 4000', details: err.message });
+        }
+    });
     // Servir archivos estáticos del Core y Módulo de Inventario
     const possiblePublicDirs = [
         process.env.PUBLIC_DIR,
@@ -77,7 +99,7 @@ function createApp() {
         // Soporte para Pretty URLs en archivos estáticos (/pages/supervisor -> supervisor.html)
         app.use(express_1.default.static(publicDir, { extensions: ['html', 'htm'] }));
         // Accesos directos raíz limpios (Pretty URLs)
-        app.get('/supervisor', (_req, res) => {
+        app.get(['/supervisor', '/supervisor/*', '/supervisor/contratos'], (_req, res) => {
             res.sendFile(path_1.default.join(publicDir, 'pages/supervisor.html'));
         });
         app.get('/login', (_req, res) => {
@@ -95,14 +117,7 @@ function createApp() {
             message: 'Ruta no encontrada en el servidor'
         });
     });
-    // Manejador global de errores
-    app.use((err, _req, res, _next) => {
-        console.error('[Global App Error]', err);
-        res.status(500).json({
-            success: false,
-            error: 'InternalServerError',
-            message: err.message || 'Error interno en el servidor'
-        });
-    });
+    // Manejador global de errores con Sentry
+    app.use(error_middleware_1.errorMiddleware);
     return app;
 }

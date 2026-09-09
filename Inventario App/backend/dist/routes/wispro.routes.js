@@ -5,7 +5,8 @@ const wispro_controller_1 = require("../controllers/wispro.controller");
 const router = (0, express_1.Router)();
 // Sincronización REST de contratos & inventario
 router.post('/sync', wispro_controller_1.WisproController.syncWispro);
-// Contratos y detalles
+// Contratos y detalles (Espejo Local PostgreSQL Sub-20ms)
+router.get('/contracts', wispro_controller_1.WisproController.getContracts);
 router.get('/contracts/active', wispro_controller_1.WisproController.getActiveContracts);
 router.get('/contracts/:id', wispro_controller_1.WisproController.getContractDetails);
 // Tickets e instalaciones

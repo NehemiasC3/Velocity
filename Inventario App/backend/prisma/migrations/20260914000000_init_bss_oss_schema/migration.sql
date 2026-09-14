@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "RouterServerType" AS ENUM ('MIKROTIK', 'MIKROTIK_V7', 'HUAWEI', 'CISCO', 'OTHER');
 
 -- CreateTable

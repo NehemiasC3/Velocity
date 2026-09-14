@@ -319,6 +319,7 @@ model SerializedItem {
   clientAssignment    ClientAssignment?  @relation("ClientAssignmentItems", fields: [clientAssignmentId], references: [id])
 
   transferOrders      TransferOrder[]    @relation("TransferOrderSerializedItems")
+  inventoryItem       InventoryItem?     @relation("SerializedInventoryItem")
 
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
@@ -485,6 +486,9 @@ model WisproClient {
   status            WisproClientStatus @default(ACTIVO)
   wisproUpdatedAt   DateTime?          @map("wispro_updated_at")
 
+  contracts         Contract[]         @relation("WisproClientContracts")
+  clients           Client[]           @relation("WisproClientClients")
+
   createdAt         DateTime           @default(now()) @map("created_at")
   updatedAt         DateTime           @updatedAt @map("updated_at")
 
@@ -539,3 +543,127 @@ model ClientAssignment {
   @@map("client_assignments")
 }
 
+
+
+// ============================================================================
+// 11. MODELOS DE RED, CLIENTES, PLANES Y CONTRATOS (ESTÁNDAR WISPRO)
+// ============================================================================
+
+enum RouterServerType {
+  MIKROTIK
+  HUAWEI
+  CISCO
+  OTHER
+}
+
+model Client {
+  id             String        @id @default(uuid())
+  name           String
+  email          String?
+  phone          String?
+  identification String?
+  address        String?
+  
+  wisproClientId String?       @map("wispro_client_id")
+  wisproClient   WisproClient? @relation("WisproClientClients", fields: [wisproClientId], references: [id])
+  
+  contracts      Contract[]
+  
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  @@index([name])
+  @@index([identification])
+  @@map("clients")
+}
+
+model ServicePlan {
+  id            String     @id @default(uuid())
+  name          String
+  downloadSpeed Int        @map("download_speed") // En Mbps
+  uploadSpeed   Int        @map("upload_speed")   // En Mbps
+  price         Decimal    @db.Decimal(10, 2)
+  contracts     Contract[]
+
+  createdAt     DateTime   @default(now()) @map("created_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  @@map("service_plans")
+}
+
+model RouterServer {
+  id        String           @id @default(uuid())
+  name      String
+  ipAddress String           @map("ip_address")
+  apiPort   Int              @default(8728) @map("api_port")
+  type      RouterServerType @default(MIKROTIK)
+  contracts Contract[]
+
+  createdAt DateTime         @default(now()) @map("created_at")
+  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  @@map("router_servers")
+}
+
+model OltDevice {
+  id        String   @id @default(uuid())
+  name      String
+  brand     String   // Huawei, ZTE, VSOL, Fiberhome
+  ipAddress String   @map("ip_address")
+  ponPorts  Int      @default(8) @map("pon_ports")
+  status    String   @default("ONLINE")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("olt_devices")
+}
+
+model Contract {
+  id               String          @id @default(uuid())
+  contractNumber   String?         @unique @map("contract_number")
+  wisproContractId String?         @map("wispro_contract_id")
+  wisproClient     WisproClient?   @relation("WisproClientContracts", fields: [wisproContractId], references: [contractId])
+  
+  clientId         String          @map("client_id")
+  client           Client          @relation(fields: [clientId], references: [id])
+  
+  servicePlanId    String?         @map("service_plan_id")
+  servicePlan      ServicePlan?    @relation(fields: [servicePlanId], references: [id])
+  
+  routerServerId   String?         @map("router_server_id")
+  routerServer     RouterServer?   @relation(fields: [routerServerId], references: [id])
+  
+  status           String          @default("ACTIVO")
+  inventoryItems   InventoryItem[]
+
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@index([clientId])
+  @@index([wisproContractId])
+  @@map("contracts")
+}
+
+model InventoryItem {
+  id               String          @id @default(uuid())
+  name             String
+  category         ItemCategory?
+  macAddress       String?         @map("mac_address")
+  serialNumber     String?         @map("serial_number")
+  status           String          @default("DISPONIBLE")
+  
+  contractId       String?         @map("contract_id")
+  contract         Contract?       @relation(fields: [contractId], references: [id])
+  
+  serializedItemId String?         @unique @map("serialized_item_id")
+  serializedItem   SerializedItem? @relation("SerializedInventoryItem", fields: [serializedItemId], references: [id])
+
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@index([macAddress])
+  @@index([serialNumber])
+  @@index([contractId])
+  @@map("inventory_items")
+}

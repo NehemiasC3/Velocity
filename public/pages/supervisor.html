@@ -384,164 +384,145 @@
         <!-- Sidebar Navigation Items -->
         <nav class="flex flex-col gap-1 w-full flex-1" id="sidebar-menu">
             
-            <!-- 1. Inicio -->
-            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl font-medium text-xs transition-all duration-200 active:scale-95 bg-primary-container text-white shadow-sm" title="Inicio / Resumen">
+            <!-- 1. 📊 Panel de Control -->
+            <button onclick="switchTab('dashboard')" id="nav-dashboard" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl font-medium text-xs transition-all duration-200 active:scale-95 bg-primary-container text-white shadow-sm" title="Panel de Control">
                 <span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">dashboard</span>
-                <span class="font-bold tracking-wide nav-label">Inicio</span>
+                <span class="font-bold tracking-wide nav-label">Panel de Control</span>
             </button>
 
-            <!-- 2. Mesa de Órdenes (Con Burbuja Total de Órdenes e Instalaciones/Reportes de Hoy) -->
-            <button onclick="switchTab('prueba')" id="nav-prueba" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low relative" title="Mesa de Órdenes">
-                <div class="flex items-center gap-3.5">
-                    <div class="relative flex items-center justify-center">
-                        <span class="material-symbols-outlined text-[20px]">receipt_long</span>
-                        <!-- Badge en Modo Colapsado (Solo Íconos) -->
-                        <span id="mesa-badge-collapsed" class="absolute -top-1.5 -right-2 bg-[#ff3b30] text-white font-black text-[9px] px-1 rounded-full min-w-[16px] h-[16px] flex items-center justify-center border border-white shadow-sm hidden">0</span>
-                    </div>
-                    <span class="font-bold tracking-wide nav-label">Mesa de Órdenes</span>
-                </div>
-                <!-- Badge en Modo Expandido -->
-                <span id="mesa-badge" class="bg-[#ff3b30] text-white font-black text-[10px] px-1.5 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-white shadow-sm nav-label hidden">0</span>
-            </button>
-            
-            <!-- 3. Técnicos -->
-            <button onclick="switchTab('technicians')" id="nav-technicians" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Gestión de Técnicos">
-                <span class="material-symbols-outlined text-[20px]">engineering</span>
-                <span class="font-bold tracking-wide nav-label">Técnicos</span>
+            <!-- 2. 👥 Clientes -->
+            <button onclick="switchTab('clients')" id="nav-clients" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Gestión de Clientes">
+                <span class="material-symbols-outlined text-[20px]">people</span>
+                <span class="font-bold tracking-wide nav-label">Clientes</span>
             </button>
 
-            <!-- 3.1 Contratos y Conciliación Wispro -->
-            <button onclick="switchTab('contratos')" id="nav-contratos" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Contratos y Conciliación Wispro">
-                <span class="material-symbols-outlined text-[20px]">assignment</span>
+            <!-- 3. 📄 Contratos -->
+            <button onclick="switchTab('contracts')" id="nav-contracts" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Contratos y Conciliación Wispro">
+                <span class="material-symbols-outlined text-[20px]">description</span>
                 <span class="font-bold tracking-wide nav-label">Contratos</span>
             </button>
 
-            <!-- 4. 📦 MÓDULO INVENTARIO CON SUBMENÚ ACORDEÓN (ESTILO WISPRO) -->
+            <!-- 4. ⚡ Planes -->
+            <button onclick="switchTab('plans')" id="nav-plans" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Planes de Internet">
+                <span class="material-symbols-outlined text-[20px]">bolt</span>
+                <span class="font-bold tracking-wide nav-label">Planes</span>
+            </button>
+
+            <!-- 5. 🌐 Red & Infraestructura (Routers MikroTik, OLTs, NAPs) -->
+            <button onclick="switchTab('network')" id="nav-network" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low relative" title="Red & Infraestructura (MikroTik, OLTs, NAPs)">
+                <div class="flex items-center gap-3.5">
+                    <div class="relative flex items-center justify-center">
+                        <span class="material-symbols-outlined text-[20px]">lan</span>
+                        <span id="network-badge-collapsed" class="absolute -top-1.5 -right-2 bg-[#ff3b30] text-white font-black text-[9px] px-1 rounded-full min-w-[16px] h-[16px] flex items-center justify-center border border-white shadow-sm hidden">0</span>
+                    </div>
+                    <span class="font-bold tracking-wide nav-label">Red & Infraestructura</span>
+                </div>
+                <span id="network-badge" class="bg-[#ff3b30] text-white font-black text-[10px] px-1.5 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-white shadow-sm nav-label hidden">0</span>
+            </button>
+
+            <!-- 6. 📦 Inventario Avanzado (velocity-inventory-api :4000) -->
             <div class="accordion-item w-full flex flex-col" id="accordion-inventory">
                 <button 
                     type="button"
                     onclick="toggleNavAccordion('accordion-inventory')" 
                     id="nav-inventory-parent" 
                     class="parent-nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low group"
-                    title="Módulo de Inventario"
+                    title="Inventario Avanzado (Hub & Spoke)"
                 >
                     <div class="flex items-center gap-3.5">
                         <span class="material-symbols-outlined text-[20px] group-hover:text-secondary transition-colors">inventory_2</span>
-                        <span class="font-bold tracking-wide nav-label">Inventario</span>
+                        <span class="font-bold tracking-wide nav-label">Inventario Avanzado</span>
                     </div>
                     <span class="material-symbols-outlined text-[18px] text-outline-variant chevron-icon" id="chevron-inventory">expand_more</span>
                 </button>
 
-                <!-- Submenús Expandibles -->
+                <!-- Submenús Expandibles de Inventario -->
                 <div class="accordion-content" id="content-inventory">
                     <div class="accordion-inner submenu-tree pl-8 pr-1 pt-1 pb-1 flex flex-col gap-1">
-                        <!-- Sub-ítem 1: Dashboard -->
-                        <button 
-                            onclick="switchTab('inventory', 'dashboard')" 
-                            id="nav-sub-inventory-dashboard" 
-                            class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Dashboard de Inventario"
-                        >
-                            <span class="material-symbols-outlined text-[16px]">bar_chart</span>
-                            <span class="subnav-label">Dashboard</span>
-                        </button>
-
-                        <!-- Sub-ítem 2: Bodegas -->
+                        <!-- Sub-ítem 1: Stock General -->
                         <button 
                             onclick="switchTab('inventory', 'bodegas')" 
                             id="nav-sub-inventory-bodegas" 
                             class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Gestión de Bodegas"
+                            title="Stock General (Bodegas Central y Sucursales)"
                         >
                             <span class="material-symbols-outlined text-[16px]">domain</span>
-                            <span class="subnav-label">Bodegas</span>
+                            <span class="subnav-label">Stock General</span>
                         </button>
 
-                        <!-- Sub-ítem 3: Catálogo -->
+                        <!-- Sub-ítem 2: Gestión de Seriales/MACs -->
                         <button 
                             onclick="switchTab('inventory', 'catalog')" 
                             id="nav-sub-inventory-catalog" 
                             class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Catálogo de Productos"
+                            title="Gestión de Seriales/MACs (ONTs, Routers, IoT)"
                         >
-                            <span class="material-symbols-outlined text-[16px]">category</span>
-                            <span class="subnav-label">Catálogo</span>
+                            <span class="material-symbols-outlined text-[16px]">qr_code_2</span>
+                            <span class="subnav-label">Seriales & MACs</span>
                         </button>
 
-                        <!-- Sub-ítem 4: Ingreso de Mercancía -->
+                        <!-- Sub-ítem 3: Stock por Vehículo Técnico -->
                         <button 
-                            onclick="switchTab('inventory', 'inbound')" 
-                            id="nav-sub-inventory-inbound" 
+                            onclick="switchTab('inventory', 'mobile')" 
+                            id="nav-sub-inventory-mobile" 
                             class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Ingreso de Mercancía (Inbound)"
+                            title="Stock por Vehículo Técnico (Cuadrillas Móviles)"
                         >
-                            <span class="material-symbols-outlined text-[16px]">move_to_inbox</span>
-                            <span class="subnav-label">Ingreso Inbound</span>
+                            <span class="material-symbols-outlined text-[16px]">directions_car</span>
+                            <span class="subnav-label">Vehículos Técnicos</span>
                         </button>
 
-                        <!-- Sub-ítem 5: Envíos / Traslados -->
-                        <button 
-                            onclick="switchTab('inventory', 'traslados')" 
-                            id="nav-sub-inventory-traslados" 
-                            class="subnav-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Envíos y Traslados"
-                        >
-                            <div class="flex items-center gap-2.5">
-                                <span class="material-symbols-outlined text-[16px]">local_shipping</span>
-                                <span class="subnav-label">Envíos / Traslados</span>
-                            </div>
-                            <span id="transfers-pending-badge" class="hidden px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white leading-none shadow-sm animate-pulse">0</span>
-                        </button>
-
-                        <!-- Sub-ítem 6: Devoluciones RMA -->
+                        <!-- Sub-ítem 4: Firma de Retiro / RMA -->
                         <button 
                             onclick="switchTab('inventory', 'rma')" 
                             id="nav-sub-inventory-rma" 
                             class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Devoluciones y RMA"
+                            title="Firma de Retiro / RMA (Garantías y Bajas)"
                         >
                             <span class="material-symbols-outlined text-[16px]">assignment_return</span>
-                            <span class="subnav-label">RMA / Devoluciones</span>
+                            <span class="subnav-label">Retiro / RMA</span>
                         </button>
 
-                        <!-- Sub-ítem 7: Auditorías -->
+                        <!-- Sub-ítem 5: Movimientos Atómicos -->
                         <button 
-                            onclick="switchTab('inventory', 'auditorias')" 
-                            id="nav-sub-inventory-auditorias" 
-                            class="subnav-btn w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
-                            title="Auditorías de Stock"
+                            onclick="switchTab('inventory', 'traslados')" 
+                            id="nav-sub-inventory-traslados" 
+                            class="subnav-btn w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-on-surface-variant transition-all hover:bg-surface-container hover:text-secondary"
+                            title="Movimientos Atómicos y Traslados (Cadena de Custodia)"
                         >
-                            <span class="material-symbols-outlined text-[16px]">fact_check</span>
-                            <span class="subnav-label">Auditorías</span>
+                            <div class="flex items-center gap-2.5">
+                                <span class="material-symbols-outlined text-[16px]">local_shipping</span>
+                                <span class="subnav-label">Movimientos Atómicos</span>
+                            </div>
+                            <span id="transfers-pending-badge" class="hidden px-2 py-0.5 text-[10px] font-bold rounded-full bg-rose-500 text-white leading-none shadow-sm animate-pulse">0</span>
                         </button>
                     </div>
                 </div>
             </div>
 
-            <!-- 5. NAPs -->
-            <button onclick="switchTab('naps')" id="nav-naps" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low relative" title="Gestión de NAPs">
+            <!-- 7. 🛠️ Soporte & Órdenes -->
+            <button onclick="switchTab('work-orders')" id="nav-work-orders" class="nav-btn w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low relative" title="Soporte & Mesa de Órdenes">
                 <div class="flex items-center gap-3.5">
                     <div class="relative flex items-center justify-center">
-                        <span class="material-symbols-outlined text-[20px]">hub</span>
-                        <span id="naps-badge-collapsed" class="absolute -top-1.5 -right-2 bg-[#ff3b30] text-white font-black text-[9px] px-1 rounded-full min-w-[16px] h-[16px] flex items-center justify-center border border-white shadow-sm hidden">0</span>
+                        <span class="material-symbols-outlined text-[20px]">build</span>
+                        <span id="mesa-badge-collapsed" class="absolute -top-1.5 -right-2 bg-[#ff3b30] text-white font-black text-[9px] px-1 rounded-full min-w-[16px] h-[16px] flex items-center justify-center border border-white shadow-sm hidden">0</span>
                     </div>
-                    <span class="font-bold tracking-wide nav-label">NAPs</span>
+                    <span class="font-bold tracking-wide nav-label">Soporte & Órdenes</span>
                 </div>
-                <span id="naps-badge" class="bg-[#ff3b30] text-white font-black text-[10px] px-1.5 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-white shadow-sm nav-label hidden">0</span>
+                <span id="mesa-badge" class="bg-[#ff3b30] text-white font-black text-[10px] px-1.5 rounded-full min-w-[18px] h-[18px] flex items-center justify-center border border-white shadow-sm nav-label hidden">0</span>
             </button>
 
-            <!-- 6. Cuentas -->
-            <button onclick="switchTab('users')" id="nav-users" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Cuentas de Usuario">
-                <span class="material-symbols-outlined text-[20px]">manage_accounts</span>
-                <span class="font-bold tracking-wide nav-label">Cuentas</span>
+            <!-- 8. 💳 Facturación & Yappy -->
+            <button onclick="switchTab('billing')" id="nav-billing" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Facturación & Pasarela Yappy">
+                <span class="material-symbols-outlined text-[20px]">payments</span>
+                <span class="font-bold tracking-wide nav-label">Facturación & Yappy</span>
             </button>
 
-            <!-- 7. Ajustes -->
+            <!-- 9. ⚙️ Ajustes -->
             <button onclick="switchTab('settings')" id="nav-settings" class="nav-btn w-full flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-on-surface-variant font-medium text-xs transition-all duration-200 active:scale-95 hover:bg-surface-container-low" title="Configuración y Ajustes">
                 <span class="material-symbols-outlined text-[20px]">settings</span>
                 <span class="font-bold tracking-wide nav-label">Ajustes</span>
-            </button>
-        </nav>
+            </button></nav>
 
         <!-- Cerrar Sesión Bottom -->
         <div class="mt-auto pt-3 border-t border-outline-variant/15 hidden md:block">

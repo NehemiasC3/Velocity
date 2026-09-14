@@ -76,6 +76,9 @@ app.get('/login', (_req, res) => {
 app.get('/technician', (_req, res) => {
     res.sendFile(path.join(__dirname, 'public/pages/technician.html'));
 });
+app.get('/especialista', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public/pages/especialista.html'));
+});
 
 
 // Asegurar que existe la carpeta de datos
@@ -971,5 +974,3 @@ app.listen(PORT, '0.0.0.0', () => {
     syncFromGoogleDrive();
     warmInventoryCache();
 });
-
-

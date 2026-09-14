@@ -412,7 +412,7 @@ window.switchTab = function(tab, subTab = 'dashboard') {
 
     // 1. Actualizar botones directos
     document.querySelectorAll('.nav-btn').forEach(btn => {
-        const isActive = btn.id === `nav-${tab}`;
+        const isActive = btn.id === `nav-${tab}` || (tab === 'contratos' && btn.id === 'nav-contracts') || (tab === 'contracts' && btn.id === 'nav-contracts') || ((tab === 'prueba' || tab === 'orders' || tab === 'work-orders') && btn.id === 'nav-work-orders');
         btn.classList.toggle('bg-primary-container', isActive);
         btn.classList.toggle('text-white', isActive);
         btn.classList.toggle('shadow-sm', isActive);
@@ -468,25 +468,34 @@ window.switchTab = function(tab, subTab = 'dashboard') {
     }
 
     // 4. Título Dinámico
-    const subTabTitles = {
-        dashboard: 'Dashboard',
-        bodegas: 'Bodegas',
-        catalog: 'Catálogo',
-        inbound: 'Ingreso Inbound',
-        traslados: 'Envíos / Traslados',
-        rma: 'Devoluciones RMA',
-        auditorias: 'Auditorías'
+        const subTabTitles = {
+        stock: 'Stock General',
+        bodegas: 'Stock General',
+        serials: 'Gestión de Seriales/MACs',
+        catalog: 'Gestión de Seriales/MACs',
+        vehicles: 'Stock por Vehículo Técnico',
+        mobile: 'Stock por Vehículo Técnico',
+        rma: 'Firma de Retiro / RMA',
+        transfers: 'Movimientos Atómicos',
+        traslados: 'Movimientos Atómicos',
+        dashboard: 'Dashboard'
     };
     const titles = { 
-        dashboard: 'Resumen', 
-        technicians: 'Técnicos', 
-        contratos: 'Contratos',
-        contracts: 'Contratos',
-        naps: 'NAPs', 
-        users: 'Cuentas', 
-        settings: 'Ajustes', 
-        prueba: 'Mesa de Órdenes', 
-        inventory: `Inventario › ${subTabTitles[subTab] || 'Dashboard'}` 
+        dashboard: 'Panel de Control', 
+        clients: 'Clientes',
+        contracts: 'Contratos y Conciliación Wispro',
+        contratos: 'Contratos y Conciliación Wispro',
+        plans: 'Planes de Internet',
+        network: 'Red & Infraestructura (MikroTik / OLT / NAP)',
+        naps: 'NAPs & Distribución de Fibra',
+        inventory: `Inventario Avanzado • ${subTabTitles[subTab] || 'Stock General'}`,
+        'work-orders': 'Soporte & Mesa de Órdenes',
+        prueba: 'Soporte & Mesa de Órdenes',
+        orders: 'Soporte & Mesa de Órdenes',
+        technicians: 'Técnicos de Campo',
+        billing: 'Facturación & Pasarela Yappy',
+        users: 'Cuentas de Usuario', 
+        settings: 'Ajustes del Sistema'
     };
     const titleEl = document.getElementById('header-title');
     if (titleEl) titleEl.textContent = titles[tab] || tab;

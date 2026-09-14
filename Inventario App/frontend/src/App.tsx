@@ -19,6 +19,13 @@ import { InventorySearch } from './components/InventorySearch';
 import { GlobalCommandPalette } from './components/GlobalCommandPalette';
 import { Login } from './components/Login';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Sidebar, WisproTab, InventorySubModule } from './components/Sidebar';
+import { ClientsPage } from './components/pages/ClientsPage';
+import { ContractsPage } from './components/pages/ContractsPage';
+import { PlansPage } from './components/pages/PlansPage';
+import { NetworkPage } from './components/pages/NetworkPage';
+import { BillingPage } from './components/pages/BillingPage';
+import { SettingsPage } from './components/pages/SettingsPage';
 import { RefreshCw, RotateCcw, ShieldAlert } from 'lucide-react';
 import { api } from './services/api';
 
@@ -26,6 +33,26 @@ const mapTabParam = (rawTab: string | null): string => {
   if (!rawTab) return 'dashboard';
   const t = rawTab.toLowerCase().trim();
   switch (t) {
+    case 'clients':
+      return 'clients';
+    case 'contracts':
+    case 'contratos':
+      return 'contracts';
+    case 'plans':
+    case 'planes':
+      return 'plans';
+    case 'network':
+    case 'red':
+      return 'network';
+    case 'billing':
+    case 'facturacion':
+      return 'billing';
+    case 'settings':
+    case 'ajustes':
+      return 'settings';
+    case 'inventory':
+    case 'inventario':
+      return 'warehouses';
     case 'bodegas':
     case 'warehouses':
       return 'warehouses';
@@ -54,7 +81,7 @@ const mapTabParam = (rawTab: string | null): string => {
     case 'client-equipment':
     case 'equipos-cliente':
     case 'clientes':
-      return 'client-equipment';
+      return 'clients';
     case 'work-orders':
     case 'mesa-ordenes':
     case 'ordenes':
@@ -262,8 +289,10 @@ const AppContent: React.FC = () => {
     return <Login onLoginSuccess={() => refreshUsers()} />;
   }
 
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
   return (
-    <div className={`min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans transition-colors ${isEmbedded ? 'p-0 bg-transparent' : ''}`}>
+    <div className={`min-h-screen bg-slate-50 text-slate-900 flex ${isEmbedded ? 'flex-col p-0 bg-transparent' : 'flex-row'} font-sans transition-colors`}>
       
       {/* Global Command Palette (Ctrl+K / Cmd+K & Universal Search) */}
       <GlobalCommandPalette
@@ -272,89 +301,177 @@ const AppContent: React.FC = () => {
         onNavigateTab={handleNavigateTab}
       />
 
-      {/* Top Header & Navbar (Oculto en modo embebido iframe) */}
+      {/* Sidebar Lateral Estándar BSS/OSS Wispro */}
       {!isEmbedded && (
-        <Header 
-          activeTab={activeTab} 
-          setActiveTab={setActiveTab} 
-          onRefreshAll={handleRefreshAll}
-          onOpenSearch={() => setIsCommandPaletteOpen(true)}
+        <Sidebar
+          activeTab={
+            ['warehouses', 'catalog', 'inbound', 'transfers', 'rma', 'audit', 'inventory-search', 'mobile', 'client-equipment'].includes(activeTab)
+              ? 'inventory'
+              : (activeTab as WisproTab)
+          }
+          activeSubModule={
+            activeTab === 'mobile' ? 'vehicles' :
+            activeTab === 'transfers' ? 'transfers' :
+            activeTab === 'rma' ? 'rma' :
+            activeTab === 'inventory-search' ? 'serials' : 'stock'
+          }
+          onNavigate={(tab, subModule) => {
+            if (tab === 'inventory' && subModule) {
+              const subMap: Record<string, string> = {
+                stock: 'warehouses',
+                serials: 'inventory-search',
+                vehicles: 'mobile',
+                rma: 'rma',
+                transfers: 'transfers'
+              };
+              handleNavigateTab(subMap[subModule] || 'warehouses');
+            } else {
+              handleNavigateTab(tab);
+            }
+          }}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
+          currentUser={currentUser}
+          onLogout={() => {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
+          }}
         />
       )}
 
-      {/* Main Content Area - Keep-Alive DOM Caching (0ms Tab Switching) with Error Boundaries */}
-      <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6">
-        <div key={refreshKey} className="w-full">
-          <div className={`w-full ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Dashboard General" onReset={handleRefreshAll}>
-              <DashboardHome onNavigateTab={handleNavigateTab} />
-            </ErrorBoundary>
+      {/* Contenedor Principal (Header + Vistas + Footer) */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top Header & Navbar */}
+        {!isEmbedded && (
+          <Header 
+            activeTab={activeTab} 
+            setActiveTab={setActiveTab} 
+            onRefreshAll={handleRefreshAll}
+            onOpenSearch={() => setIsCommandPaletteOpen(true)}
+          />
+        )}
+
+        {/* Main Content Area - Keep-Alive DOM Caching (0ms Tab Switching) with Error Boundaries */}
+        <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-6">
+          <div key={refreshKey} className="w-full">
+            {/* 1. Dashboard */}
+            <div className={`w-full ${activeTab === 'dashboard' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Dashboard General" onReset={handleRefreshAll}>
+                <DashboardHome onNavigateTab={handleNavigateTab} />
+              </ErrorBoundary>
+            </div>
+
+            {/* 2. Clientes */}
+            <div className={`w-full ${activeTab === 'clients' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Gestión de Clientes" onReset={handleRefreshAll}>
+                <ClientsPage />
+              </ErrorBoundary>
+            </div>
+
+            {/* 3. Contratos */}
+            <div className={`w-full ${activeTab === 'contracts' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Contratos de Servicio" onReset={handleRefreshAll}>
+                <ContractsPage />
+              </ErrorBoundary>
+            </div>
+
+            {/* 4. Planes */}
+            <div className={`w-full ${activeTab === 'plans' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Planes de Velocidad" onReset={handleRefreshAll}>
+                <PlansPage />
+              </ErrorBoundary>
+            </div>
+
+            {/* 5. Red & Infraestructura */}
+            <div className={`w-full ${activeTab === 'network' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Red & Infraestructura" onReset={handleRefreshAll}>
+                <NetworkPage />
+              </ErrorBoundary>
+            </div>
+
+            {/* 6. Inventario Avanzado (Subrutas Intactas) */}
+            <div className={`w-full ${activeTab === 'warehouses' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Bodegas y Sucursales" onReset={handleRefreshAll}>
+                <WarehousesModule onNavigateTab={handleNavigateTab} />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'catalog' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Catálogo de Materiales" onReset={handleRefreshAll}>
+                <CatalogModule />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'inbound' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Recepción e Ingreso Inbound" onReset={handleRefreshAll}>
+                <InboundModule />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'transfers' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Traslados y Despachos" onReset={handleRefreshAll}>
+                <TransfersModule 
+                  initialTransferData={pendingTransferIntent}
+                  onClearInitialTransferData={() => setPendingTransferIntent(null)}
+                />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'rma' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Garantías y Devoluciones RMA" onReset={handleRefreshAll}>
+                <RmaReturn />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'audit' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Auditoría Forense y Trazabilidad" onReset={handleRefreshAll}>
+                <ForensicAuditModule initialSearch={auditInitialQuery} />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'inventory-search' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Búsqueda Universal" onReset={handleRefreshAll}>
+                <InventorySearch />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'personnel' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Métricas de Cuadrillas" onReset={handleRefreshAll}>
+                <PersonnelMetricsModule />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'mobile' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="App Móvil de Cuadrillas" onReset={handleRefreshAll}>
+                <TechnicianMobileApp />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'wispro' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Sincronización Wispro Cloud" onReset={handleRefreshAll}>
+                <WisproModule />
+              </ErrorBoundary>
+            </div>
+            <div className={`w-full ${activeTab === 'client-equipment' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Equipos por Cliente" onReset={handleRefreshAll}>
+                <ClientEquipmentModule />
+              </ErrorBoundary>
+            </div>
+
+            {/* 7. Soporte & Órdenes */}
+            <div className={`w-full ${activeTab === 'work-orders' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Mesa de Órdenes" onReset={handleRefreshAll}>
+                <WorkOrdersModule />
+              </ErrorBoundary>
+            </div>
+
+            {/* 8. Facturación & Cobros */}
+            <div className={`w-full ${activeTab === 'billing' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Facturación & Cobros" onReset={handleRefreshAll}>
+                <BillingPage />
+              </ErrorBoundary>
+            </div>
+
+            {/* 9. Ajustes */}
+            <div className={`w-full ${activeTab === 'settings' ? 'block' : 'hidden'}`}>
+              <ErrorBoundary moduleName="Ajustes del Sistema" onReset={handleRefreshAll}>
+                <SettingsPage />
+              </ErrorBoundary>
+            </div>
           </div>
-          <div className={`w-full ${activeTab === 'warehouses' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Bodegas y Sucursales" onReset={handleRefreshAll}>
-              <WarehousesModule onNavigateTab={handleNavigateTab} />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'catalog' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Catálogo de Materiales" onReset={handleRefreshAll}>
-              <CatalogModule />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'inbound' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Recepción e Ingreso Inbound" onReset={handleRefreshAll}>
-              <InboundModule />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'transfers' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Traslados y Despachos" onReset={handleRefreshAll}>
-              <TransfersModule 
-                initialTransferData={pendingTransferIntent}
-                onClearInitialTransferData={() => setPendingTransferIntent(null)}
-              />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'rma' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Garantías y Devoluciones RMA" onReset={handleRefreshAll}>
-              <RmaReturn />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'audit' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Auditoría Forense y Trazabilidad" onReset={handleRefreshAll}>
-              <ForensicAuditModule initialSearch={auditInitialQuery} />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'inventory-search' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Búsqueda Universal" onReset={handleRefreshAll}>
-              <InventorySearch />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'personnel' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Métricas de Cuadrillas" onReset={handleRefreshAll}>
-              <PersonnelMetricsModule />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'mobile' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="App Móvil de Cuadrillas" onReset={handleRefreshAll}>
-              <TechnicianMobileApp />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'wispro' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Sincronización Wispro Cloud" onReset={handleRefreshAll}>
-              <WisproModule />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'client-equipment' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Equipos por Cliente" onReset={handleRefreshAll}>
-              <ClientEquipmentModule />
-            </ErrorBoundary>
-          </div>
-          <div className={`w-full ${activeTab === 'work-orders' ? 'block' : 'hidden'}`}>
-            <ErrorBoundary moduleName="Mesa de Órdenes" onReset={handleRefreshAll}>
-              <WorkOrdersModule />
-            </ErrorBoundary>
-          </div>
-        </div>
-      </main>
+        </main>
 
       {/* Footer with System Actions (Oculto en modo embebido iframe) */}
       {!isEmbedded && (
@@ -383,7 +500,7 @@ const AppContent: React.FC = () => {
           </div>
         </footer>
       )}
-
+      </div>
     </div>
   );
 };

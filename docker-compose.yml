@@ -87,7 +87,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=4000
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-velocity_admin}:${POSTGRES_PASSWORD:-VelocitySecure2026!}@postgres:5432/${POSTGRES_DB:-velocity_inventory}?schema=public&connection_limit=50&pool_timeout=10
       - JWT_SECRET=${JWT_SECRET:-velocity_secret_key_production_2026}
       - SENTRY_DSN=${SENTRY_DSN}
       - WISPRO_API_URL=${WISPRO_API_URL:-https://www.cloud.wispro.co/api/v1}
@@ -155,6 +155,11 @@ services:
     restart: always
     networks:
       - velocity-net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   velocity-net:

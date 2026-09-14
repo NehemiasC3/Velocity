@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
 import * as Sentry from '@sentry/react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
-import { Navigation } from './components/Navigation';
 import { InventorySearch } from './components/InventorySearch';
 import { SystemOverview } from './components/SystemOverview';
 import { AuthModal } from './components/AuthModal';
 import { NotificationPrompt } from './components/NotificationPrompt';
-import { NotificationPreferences } from './components/NotificationPreferences';
 import { OfflineBanner } from './components/OfflineBanner';
 import { PwaInstallPrompt } from './components/PwaInstallPrompt';
 import { UpdatePrompt } from './components/UpdatePrompt';
 import { useAuth } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { Sidebar, WisproTab } from './components/Sidebar';
+import { ClientsPage } from './components/pages/ClientsPage';
+import { ContractsPage } from './components/pages/ContractsPage';
+import { PlansPage } from './components/pages/PlansPage';
+import { NetworkPage } from './components/pages/NetworkPage';
+import { WorkOrdersPage } from './components/pages/WorkOrdersPage';
+import { BillingPage } from './components/pages/BillingPage';
+import { SettingsPage } from './components/pages/SettingsPage';
 
 const SentryFallbackView: React.FC<{ resetError?: () => void }> = ({ resetError }) => (
   <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white p-6">
@@ -43,7 +49,8 @@ const SentryFallbackView: React.FC<{ resetError?: () => void }> = ({ resetError 
 );
 
 const AppContent: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'inventory' | 'overview' | 'settings'>('inventory');
+  const [activeTab, setActiveTab] = useState<WisproTab>('dashboard');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
   const { session, loading: authLoading, error: authError, login, logout } = useAuth();
@@ -56,53 +63,83 @@ const AppContent: React.FC = () => {
     return success;
   };
 
+  const handleNavigate = (tab: WisproTab) => {
+    setActiveTab(tab);
+  };
+
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col antialiased selection:bg-blue-500 selection:text-white font-sans">
+    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-row antialiased selection:bg-blue-500 selection:text-white font-sans">
       {/* 1. Alerta de Estado Offline */}
       <OfflineBanner />
 
-      {/* 2. Banner de Instalación PWA (Móvil / PC) */}
+      {/* 2. Banner de Instalación PWA */}
       <PwaInstallPrompt />
 
-      {/* 3. Toast de Auto-Actualización de la PWA (Nueva versión disponible) */}
+      {/* 3. Toast de Auto-Actualización */}
       <UpdatePrompt />
 
-      {/* 4. Banner de Notificaciones Push / Toast */}
+      {/* 4. Banner de Notificaciones Push */}
       <NotificationPrompt userId={session?.userId} role={session?.role} />
 
-      {/* 5. Top Navbar */}
-      <Navigation
+      {/* 5. Sidebar Lateral BSS/OSS (9 Módulos Exactos) */}
+      <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
-        session={session}
+        onNavigate={handleNavigate}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(prev => !prev)}
+        currentUser={session ? { name: session.name || 'Usuario', email: session.email, role: session.role || 'SUPERVISOR' } : null}
         onLogout={logout}
-        onOpenLogin={() => setIsAuthModalOpen(true)}
       />
 
-      {/* 6. Main View Area */}
-      <main className="flex-1 pb-10">
-        <ErrorBoundary viewName={activeTab}>
-          {activeTab === 'inventory' && <InventorySearch />}
-          {activeTab === 'overview' && <SystemOverview />}
-          {activeTab === 'settings' && <NotificationPreferences />}
-        </ErrorBoundary>
-      </main>
+      {/* 6. Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto">
+        <header className="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold uppercase tracking-wider px-2.5 py-1 bg-blue-50 text-blue-600 rounded-full">
+              Velocity ISP Suite v2.1
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            {!session && (
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-xl transition shadow-sm"
+              >
+                Iniciar Sesión
+              </button>
+            )}
+          </div>
+        </header>
 
-      {/* 7. Auth Modal */}
+        <main className="flex-1 p-6">
+          <ErrorBoundary viewName={activeTab}>
+            {activeTab === 'dashboard' && <SystemOverview />}
+            {activeTab === 'clients' && <ClientsPage />}
+            {activeTab === 'contracts' && <ContractsPage />}
+            {activeTab === 'plans' && <PlansPage />}
+            {activeTab === 'network' && <NetworkPage />}
+            {activeTab === 'inventory' && <InventorySearch />}
+            {activeTab === 'work-orders' && <WorkOrdersPage />}
+            {activeTab === 'billing' && <BillingPage />}
+            {activeTab === 'settings' && <SettingsPage />}
+          </ErrorBoundary>
+        </main>
+
+        <footer className="border-t border-slate-200 py-4 px-6 text-center text-xs text-slate-500 bg-white">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="font-medium text-slate-600">Velocity ISP Suite &bull; PWA &bull; Integración Wispro Cloud</p>
+            <p className="text-slate-400">Arquitectura BSS/OSS Resiliente &bull; sub-20ms</p>
+          </div>
+        </footer>
+      </div>
+
+      {/* Auth Modal */}
       <AuthModal
         isOpen={isAuthModalOpen}
         onLogin={handleLoginSubmit}
         loading={authLoading}
         error={authError}
       />
-
-      {/* 8. Footer */}
-      <footer className="border-t border-slate-200 py-6 text-center text-xs text-slate-500 bg-white">
-        <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <p className="font-medium text-slate-600">Velocity ISP Suite &bull; PWA &bull; Integración Wispro Cloud</p>
-          <p className="text-slate-400">Wispro Cloud REST Gateway &bull; Motor de Búsqueda Instantánea</p>
-        </div>
-      </footer>
     </div>
   );
 };

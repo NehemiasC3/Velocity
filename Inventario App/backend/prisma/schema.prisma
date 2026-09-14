@@ -551,6 +551,7 @@ model ClientAssignment {
 
 enum RouterServerType {
   MIKROTIK
+  MIKROTIK_V7
   HUAWEI
   CISCO
   OTHER
@@ -559,10 +560,13 @@ enum RouterServerType {
 model Client {
   id             String        @id @default(uuid())
   name           String
-  email          String?
+  dniPassport    String?       @map("dni_passport")
+  identification String?       // Mantener para retrocompatibilidad
   phone          String?
-  identification String?
+  email          String?
   address        String?
+  lat            Float?
+  lng            Float?
   
   wisproClientId String?       @map("wispro_client_id")
   wisproClient   WisproClient? @relation("WisproClientClients", fields: [wisproClientId], references: [id])
@@ -573,6 +577,7 @@ model Client {
   updatedAt      DateTime      @updatedAt @map("updated_at")
 
   @@index([name])
+  @@index([dniPassport])
   @@index([identification])
   @@map("clients")
 }
@@ -596,7 +601,7 @@ model RouterServer {
   name      String
   ipAddress String           @map("ip_address")
   apiPort   Int              @default(8728) @map("api_port")
-  type      RouterServerType @default(MIKROTIK)
+  type      RouterServerType @default(MIKROTIK_V7)
   contracts Contract[]
 
   createdAt DateTime         @default(now()) @map("created_at")

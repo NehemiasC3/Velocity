@@ -172,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
     {
       id: 'billing' as WisproTab,
-      label: 'Facturación & Yappy',
+      label: 'Facturación & Cobros',
       icon: CreditCard,
       path: '/billing'
     },

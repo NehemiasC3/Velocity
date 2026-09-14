@@ -12,6 +12,8 @@
     "build:backend": "npm --prefix \"Inventario App/backend\" run build",
     "build:frontend": "npm --prefix \"Inventario App/frontend\" run build",
     "build:all": "npm --prefix \"Inventario App/backend\" run build && npm --prefix \"Inventario App/frontend\" run build",
+    "db:deploy": "npm --prefix \"Inventario App/backend\" run db:deploy",
+    "db:generate": "npm --prefix \"Inventario App/backend\" run db:generate",
     "docker:up": "docker compose up -d --build",
     "docker:down": "docker compose down"
   },

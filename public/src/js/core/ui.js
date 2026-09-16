@@ -607,43 +607,57 @@ function renderTab(tab, subTab) {
         return;
     }
 
-    // ── INTEGRACIÓN DINÁMICA DE REACT PARA INVENTARIO (HUB & SPOKE) ──
-    if (tab === 'inventory') {
-        const sub = subTab || state.inventorySubTab || sessionStorage.getItem('V_SubTab') || 'dashboard';
-        state.inventorySubTab = sub;
-        sessionStorage.setItem('V_SubTab', sub);
+    // ── INTEGRACIÓN DINÁMICA DE REACT PARA BSS/OSS & INVENTARIO (HUB & SPOKE) ──
+    const reactTabs = ['inventory', 'clients', 'contracts', 'contratos', 'plans', 'planes', 'network', 'red', 'billing', 'facturacion', 'settings', 'ajustes'];
+    if (reactTabs.includes(tab)) {
+        let canonicalTab = tab;
+        if (tab === 'inventory') {
+            const sub = subTab || state.inventorySubTab || sessionStorage.getItem('V_SubTab') || 'dashboard';
+            state.inventorySubTab = sub;
+            sessionStorage.setItem('V_SubTab', sub);
 
-        // Actualizar visualmente la selección en el submenú del sidebar
-        document.querySelectorAll('.subnav-btn').forEach(subBtn => {
-            const isSubActive = subBtn.id === `nav-sub-inventory-${sub}`;
-            subBtn.classList.toggle('bg-secondary', isSubActive);
-            subBtn.classList.toggle('text-white', isSubActive);
-            subBtn.classList.toggle('font-semibold', isSubActive);
-            subBtn.classList.toggle('shadow-sm', isSubActive);
-            subBtn.classList.toggle('text-on-surface-variant', !isSubActive);
-        });
+            // Actualizar visualmente la selección en el submenú del sidebar
+            document.querySelectorAll('.subnav-btn').forEach(subBtn => {
+                const isSubActive = subBtn.id === `nav-sub-inventory-${sub}`;
+                subBtn.classList.toggle('bg-secondary', isSubActive);
+                subBtn.classList.toggle('text-white', isSubActive);
+                subBtn.classList.toggle('font-semibold', isSubActive);
+                subBtn.classList.toggle('shadow-sm', isSubActive);
+                subBtn.classList.toggle('text-on-surface-variant', !isSubActive);
+            });
 
-        const tabMap = {
-            'dashboard': 'dashboard',
-            'bodegas': 'warehouses',
-            'warehouses': 'warehouses',
-            'catalog': 'catalog',
-            'catalogo': 'catalog',
-            'inbound': 'inbound',
-            'ingreso': 'inbound',
-            'traslados': 'transfers',
-            'transfers': 'transfers',
-            'rma': 'rma',
-            'devoluciones': 'rma',
-            'auditorias': 'audit',
-            'audit': 'audit'
-        };
-        const canonicalTab = tabMap[sub] || 'dashboard';
+            const tabMap = {
+                'dashboard': 'dashboard',
+                'bodegas': 'warehouses',
+                'warehouses': 'warehouses',
+                'catalog': 'catalog',
+                'catalogo': 'catalog',
+                'inbound': 'inbound',
+                'ingreso': 'inbound',
+                'traslados': 'transfers',
+                'transfers': 'transfers',
+                'rma': 'rma',
+                'devoluciones': 'rma',
+                'auditorias': 'audit',
+                'audit': 'audit'
+            };
+            canonicalTab = tabMap[sub] || 'warehouses';
+        } else if (tab === 'contratos') {
+            canonicalTab = 'contracts';
+        } else if (tab === 'planes') {
+            canonicalTab = 'plans';
+        } else if (tab === 'red') {
+            canonicalTab = 'network';
+        } else if (tab === 'facturacion') {
+            canonicalTab = 'billing';
+        } else if (tab === 'ajustes') {
+            canonicalTab = 'settings';
+        }
         
-        // En producción y desarrollo la app de inventario está montada en /inventory/
+        // En producción y desarrollo la app de inventario/BSS está montada en /inventory/
         const isLocalViteDev = window.location.hostname === 'localhost' && window.location.port === '3000' && window.__USE_VITE_DEV__;
         const baseOrigin = isLocalViteDev ? 'http://localhost:5173' : '/inventory';
-        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&_v=2.3.6`;
+        const iframeSrc = `${baseOrigin}/?tab=${encodeURIComponent(canonicalTab)}&embedded=true&_v=2.4.0`;
         
         let iframeContainer = document.getElementById('inventory-iframe-wrapper');
         if (!iframeContainer) {
@@ -654,7 +668,7 @@ function renderTab(tab, subTab) {
                         src="${iframeSrc}" 
                         class="w-full h-full border-none m-0 p-0 bg-white" 
                         allow="clipboard-read; clipboard-write;"
-                        title="Velocity ISP Inventory App"
+                        title="Velocity ISP Core App"
                         onload="try { this.contentWindow.postMessage({ type: 'NAVIGATE_TAB', tab: '${canonicalTab}' }, '*'); } catch(e){}"
                     ></iframe>
                 </div>

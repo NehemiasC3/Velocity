@@ -318,6 +318,10 @@ model SerializedItem {
   clientAssignmentId  String?            @map("client_assignment_id")
   clientAssignment    ClientAssignment?  @relation("ClientAssignmentItems", fields: [clientAssignmentId], references: [id])
 
+  // Relación directa y fuerte con Contrato BSS Unificado
+  contractId          String?            @map("contract_id")
+  contract            Contract?          @relation(fields: [contractId], references: [id])
+
   transferOrders      TransferOrder[]    @relation("TransferOrderSerializedItems")
   inventoryItem       InventoryItem?     @relation("SerializedInventoryItem")
 
@@ -329,6 +333,7 @@ model SerializedItem {
   @@index([macAddress])
   @@index([currentWarehouseId, status])
   @@index([clientAssignmentId])
+  @@index([contractId])
   @@map("serialized_items")
 }
 
@@ -518,7 +523,9 @@ model WisproConfig {
 
 model ClientAssignment {
   id               String           @id @default(uuid())
-  wisproContractId String           @map("wispro_contract_id") // ID del Contrato en Wispro (#4823)
+  wisproContractId String?          @map("wispro_contract_id") // ID del Contrato en Wispro (#4823)
+  contractId       String?          @map("contract_id")        // ID del Contrato Unificado BSS (UUID)
+  contract         Contract?        @relation(fields: [contractId], references: [id])
   clientName       String           @map("client_name")        // Nombre del Cliente
   
   // Relación con los equipos físicos de inventario (ONU, TV Box, Cámaras, etc.)
@@ -538,6 +545,7 @@ model ClientAssignment {
   updatedAt        DateTime         @updatedAt @map("updated_at")
 
   @@index([wisproContractId])
+  @@index([contractId])
   @@index([nodeId])
   @@index([technicianId])
   @@map("client_assignments")
@@ -567,6 +575,7 @@ model Client {
   address        String?
   lat            Float?
   lng            Float?
+  origin         String        @default("VELOCITY")
   
   wisproClientId String?       @map("wispro_client_id")
   wisproClient   WisproClient? @relation("WisproClientClients", fields: [wisproClientId], references: [id])
@@ -579,6 +588,7 @@ model Client {
   @@index([name])
   @@index([dniPassport])
   @@index([identification])
+  @@index([origin])
   @@map("clients")
 }
 
@@ -639,14 +649,20 @@ model Contract {
   routerServerId   String?         @map("router_server_id")
   routerServer     RouterServer?   @relation(fields: [routerServerId], references: [id])
   
+  ipAddress        String?         @map("ip_address")
+  origin           String          @default("VELOCITY")
   status           String          @default("ACTIVO")
   inventoryItems   InventoryItem[]
+  serializedItems  SerializedItem[]
+  clientAssignments ClientAssignment[]
 
   createdAt        DateTime        @default(now()) @map("created_at")
   updatedAt        DateTime        @updatedAt @map("updated_at")
 
   @@index([clientId])
   @@index([wisproContractId])
+  @@index([ipAddress])
+  @@index([origin])
   @@map("contracts")
 }
 

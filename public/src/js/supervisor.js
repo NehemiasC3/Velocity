@@ -5772,6 +5772,15 @@ window.toggleContractsSortOrder = function() {
 
 Views.contratos = () => {
     const contracts = window._cachedWisproContracts || [];
+
+    // Función auxiliar para extraer NAP de forma robusta
+    const getNap = (c) => {
+        const rawNap = c.raw?.nap_name || c.napName || c.nap;
+        if (rawNap && typeof rawNap === 'string' && rawNap.trim() !== '') return rawNap.trim();
+        const node = c.nodeName || '';
+        if (node && node !== 'OLT-Central' && node !== 'Sin NAP' && node.trim() !== '') return node.trim();
+        return null;
+    };
     const searchQuery = (state.contractsSearch || '').toLowerCase().trim();
     
     // Inicializar estados de paginación, filtros y ordenamiento
@@ -5867,8 +5876,6 @@ Views.contratos = () => {
 
     // Totales y KPIs con prioridad de Serial
     const totalActive = contracts.length;
-    const withSerial = contracts.filter(c => (c.serialNumber && c.serialNumber.trim() !== '') || (c.macAddress && c.macAddress.trim() !== '')).length;
-    const withNap = contracts.filter(c => getNap(c) !== null).length;
     const totalEnabled = contracts.filter(c => {
         const st = (c.status || c.raw?.state || '').toLowerCase();
         return st === 'enabled' || st === 'activo' || st === 'active';
@@ -5889,26 +5896,6 @@ Views.contratos = () => {
     return `
     <div class="space-y-6 animate-fade-in">
         <!-- 1. Barra de Estado y Sincronización Wispro (Sin título redundante) -->
-        <div class="flex items-center justify-between gap-4 bg-surface-container-lowest px-5 py-3.5 rounded-2xl border border-outline-variant/20 shadow-sm">
-            <div class="flex items-center gap-2">
-                <span class="text-[11px] font-bold text-emerald-500 bg-emerald-500/10 px-3 py-1 rounded-full flex items-center gap-1.5 border border-emerald-500/20">
-                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    Wispro Cloud Sincronizado
-                </span>
-            </div>
-
-            <div class="flex items-center gap-2.5">
-                <button 
-                    id="btn-sync-wispro-contracts" 
-                    onclick="window.syncWisproContracts()" 
-                    class="px-4 py-2 bg-primary text-white text-xs font-bold rounded-xl shadow-md shadow-primary/20 hover:opacity-90 active:scale-95 transition flex items-center gap-2 cursor-pointer"
-                    title="Ejecutar conciliación REST con Wispro Cloud"
-                >
-                    <span class="material-symbols-outlined text-[18px]">sync</span>
-                    <span>Sincronizar Wispro</span>
-                </button>
-            </div>
-        </div>
 
         <!-- 2. KPIs de Contratos y Conciliación -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -5919,26 +5906,6 @@ Views.contratos = () => {
                 <div>
                     <p class="text-2xl font-black text-on-surface">${window._loadingWisproContracts ? '...' : totalActive.toLocaleString()}</p>
                     <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Total Contratos</p>
-                </div>
-            </div>
-
-            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
-                <div class="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 flex items-center justify-center">
-                    <span class="material-symbols-outlined text-2xl">verified</span>
-                </div>
-                <div>
-                    <p class="text-2xl font-black text-emerald-600">${window._loadingWisproContracts ? '...' : withSerial.toLocaleString()}</p>
-                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Equipos con Serial (S/N)</p>
-                </div>
-            </div>
-
-            <div class="bg-surface-container-lowest p-5 rounded-2xl border border-outline-variant/20 shadow-sm flex items-center gap-4">
-                <div class="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-600 flex items-center justify-center">
-                    <span class="material-symbols-outlined text-2xl">lan</span>
-                </div>
-                <div>
-                    <p class="text-2xl font-black text-sky-600">${window._loadingWisproContracts ? '...' : withNap.toLocaleString()}</p>
-                    <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Con NAP</p>
                 </div>
             </div>
 
@@ -6004,44 +5971,6 @@ Views.contratos = () => {
                                 onclick="window.setContractsFilter('contractsFilterState', 'DISABLED')"
                                 class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterState === 'DISABLED' ? 'bg-slate-700 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
                             >Deshabilitados</button>
-                        </div>
-                    </div>
-
-                    <!-- Filtro Conciliación Serial -->
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Conciliación:</span>
-                        <div class="flex items-center bg-surface-container-low p-0.5 rounded-lg text-[11px]">
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterSerial', 'ALL')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${(!state.contractsFilterSerial || state.contractsFilterSerial === 'ALL') ? 'bg-surface-container-highest text-on-surface font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
-                            >Todos</button>
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterSerial', 'WITH_SERIAL')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterSerial === 'WITH_SERIAL' ? 'bg-sky-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-sky-600'}"
-                            >Con Serial</button>
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterSerial', 'WITHOUT_SERIAL')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterSerial === 'WITHOUT_SERIAL' ? 'bg-amber-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-amber-600'}"
-                            >Sin Serial</button>
-                        </div>
-                    </div>
-
-                    <!-- Filtro Infraestructura NAP -->
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-[10px] font-bold text-on-surface-variant uppercase tracking-wider">Infraestructura:</span>
-                        <div class="flex items-center bg-surface-container-low p-0.5 rounded-lg text-[11px]">
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterNap', 'ALL')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'ALL' ? 'bg-surface-container-highest text-on-surface font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
-                            >Todos</button>
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterNap', 'WITH_NAP')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'WITH_NAP' ? 'bg-indigo-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-indigo-600'}"
-                            >Con NAP</button>
-                            <button 
-                                onclick="window.setContractsFilter('contractsFilterNap', 'WITHOUT_NAP')"
-                                class="px-2 py-0.5 rounded-md font-semibold transition ${state.contractsFilterNap === 'WITHOUT_NAP' ? 'bg-slate-600 text-white font-bold shadow-xs' : 'text-on-surface-variant hover:text-on-surface'}"
-                            >Sin NAP</button>
                         </div>
                     </div>
                 </div>
@@ -9858,6 +9787,3 @@ window.closeActiveTechsModal = function() {
         modal.classList.add('hidden');
     }
 };
-
-
-

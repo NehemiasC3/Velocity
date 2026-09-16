@@ -89,4 +89,153 @@ export class ContractsController {
       });
     }
   }
+
+  /**
+   * Crear nuevo contrato (POST /api/contracts)
+   */
+  public static async createContract(req: Request, res: Response): Promise<void> {
+    try {
+      const url = `${INVENTORY_API_URL}/contracts`;
+      const response = await axios.post(url, req.body, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error('[ContractsController ❌] Error creando contrato:', error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Actualizar contrato (PUT /api/contracts/:id)
+   */
+  public static async updateContract(req: Request, res: Response): Promise<void> {
+    try {
+      const id = encodeURIComponent(req.params.id);
+      const url = `${INVENTORY_API_URL}/contracts/${id}`;
+      const response = await axios.put(url, req.body, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[ContractsController ❌] Error actualizando contrato ${req.params.id}:`, error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Planes de servicio (GET /api/plans)
+   */
+  public static async getPlans(_req: Request, res: Response): Promise<void> {
+    try {
+      const url = `${INVENTORY_API_URL}/plans`;
+      const response = await axios.get(url, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: { Accept: 'application/json' }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error('[ContractsController ❌] Error obteniendo planes:', error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Crear plan (POST /api/plans)
+   */
+  public static async createPlan(req: Request, res: Response): Promise<void> {
+    try {
+      const url = `${INVENTORY_API_URL}/plans`;
+      const response = await axios.post(url, req.body, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error('[ContractsController ❌] Error creando plan:', error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Actualizar plan (PUT /api/plans/:id)
+   */
+  public static async updatePlan(req: Request, res: Response): Promise<void> {
+    try {
+      const id = encodeURIComponent(req.params.id);
+      const url = `${INVENTORY_API_URL}/plans/${id}`;
+      const response = await axios.put(url, req.body, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[ContractsController ❌] Error actualizando plan ${req.params.id}:`, error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
+
+  /**
+   * Eliminar plan (DELETE /api/plans/:id)
+   */
+  public static async deletePlan(req: Request, res: Response): Promise<void> {
+    try {
+      const id = encodeURIComponent(req.params.id);
+      const url = `${INVENTORY_API_URL}/plans/${id}`;
+      const response = await axios.delete(url, {
+        timeout: 10000,
+        validateStatus: () => true,
+        headers: { Accept: 'application/json' }
+      });
+      res.status(response.status).json(response.data);
+    } catch (error: any) {
+      console.error(`[ContractsController ❌] Error eliminando plan ${req.params.id}:`, error.message);
+      res.status(502).json({
+        success: false,
+        error: 'Gateway Error',
+        message: error.message
+      });
+    }
+  }
 }
+
+

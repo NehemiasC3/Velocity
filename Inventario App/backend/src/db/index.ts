@@ -12,10 +12,7 @@ const basePrisma =
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
   });
 
-// Alias para soportar consultas directas tipo prisma.contract.findMany() sobre WisproClient
-(basePrisma as any).contract = (basePrisma as any).wisproClient;
-
-export const prisma = basePrisma as PrismaClient & { contract: typeof basePrisma.wisproClient };
+export const prisma = basePrisma;
 
 if (process.env.NODE_ENV !== 'production') {
   global.prisma = basePrisma;

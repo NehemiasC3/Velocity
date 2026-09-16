@@ -79,6 +79,9 @@ app.get('/technician', (_req, res) => {
 app.get('/especialista', (_req, res) => {
     res.sendFile(path.join(__dirname, 'public/pages/especialista.html'));
 });
+app.get('/health', (_req, res) => {
+    res.json({ status: 'ok', uptime: process.uptime(), timestamp: new Date().toISOString() });
+});
 
 
 // Asegurar que existe la carpeta de datos

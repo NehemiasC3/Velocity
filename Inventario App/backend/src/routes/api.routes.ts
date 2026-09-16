@@ -20,6 +20,8 @@ import authRoutes from './auth.routes';
 import assignmentRoutes from './assignment.routes';
 import workOrdersRoutes from './workOrders.routes';
 import { ContractController } from '../controllers/contract.controller';
+import { ClientController } from '../controllers/client.controller';
+import { PlanController } from '../controllers/plan.controller';
 
 
 const router = Router();
@@ -202,12 +204,45 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
       ];
     }
 
-    const wisproClients = await prisma.wisproClient.findMany({
-      where: whereClause,
-      orderBy: { name: 'asc' }
-    });
+    const [wisproClients, velocityContracts] = await Promise.all([
+      prisma.wisproClient.findMany({
+        where: whereClause,
+        orderBy: { name: 'asc' }
+      }),
+      prisma.contract.findMany({
+        where: {
+          origin: 'VELOCITY',
+          ...(status && status !== 'ALL' ? { status } : {}),
+          ...(search ? {
+            OR: [
+              { contractNumber: { contains: search, mode: 'insensitive' } },
+              { ipAddress: { contains: search, mode: 'insensitive' } },
+              { client: { name: { contains: search, mode: 'insensitive' } } },
+              { client: { dniPassport: { contains: search, mode: 'insensitive' } } },
+              { client: { address: { contains: search, mode: 'insensitive' } } }
+            ]
+          } : {})
+        },
+        include: {
+          client: true,
+          servicePlan: true,
+          serializedItems: {
+            where: {
+              status: 'INSTALADO_CLIENTE',
+              ...(category && category !== 'ALL' ? { category: category as any } : {})
+            },
+            include: {
+              product: {
+                select: { name: true, brand: true, model: true, category: true }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
 
-    // 2. Para cada cliente, buscar sus equipos instalados y tickets
+    // 2. Para cada cliente Wispro, buscar sus equipos instalados y tickets
     const clientIds = wisproClients.map(c => c.id);
 
     const [serializedItems, installationTickets] = await Promise.all([
@@ -249,8 +284,8 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
       ticketsByClient.set(tk.wisproClientId, arr);
     }
 
-    // 4. Construir respuesta enriquecida
-    const clients = wisproClients.map(client => {
+    // 4. Construir respuesta enriquecida para clientes Wispro
+    const mappedWisproClients = wisproClients.map(client => {
       const equip = equipmentByClient.get(client.id) || [];
       const tickets = ticketsByClient.get(client.id) || [];
 
@@ -269,6 +304,7 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
         nodeName: client.nodeName,
         planName: client.planName,
         status: client.status,
+        origin: 'WISPRO',
         currentOnuMac: client.currentOnuMac,
         installedEquipment: equip.map(eq => ({
           id: eq.id,
@@ -292,6 +328,42 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
       };
     });
 
+    // 4.b Mapeo enriquecido de clientes nativos Velocity
+    const mappedVelocityClients = velocityContracts.map(vc => {
+      const summary: Record<string, number> = {};
+      for (const eq of vc.serializedItems) {
+        const cat = eq.product?.category || 'OTRO';
+        summary[cat] = (summary[cat] || 0) + 1;
+      }
+
+      return {
+        id: vc.client.id,
+        name: vc.client.name,
+        contractId: vc.contractNumber || vc.id.slice(0, 8),
+        address: vc.client.address || 'Panamá',
+        nodeName: 'Velocity Core NOC',
+        planName: vc.servicePlan?.name || 'Plan Velocity',
+        status: vc.status,
+        origin: 'VELOCITY',
+        currentOnuMac: vc.serializedItems[0]?.macAddress || null,
+        installedEquipment: vc.serializedItems.map(eq => ({
+          id: eq.id,
+          serialNumber: eq.serialNumber,
+          macAddress: eq.macAddress,
+          category: eq.product?.category,
+          productName: eq.product?.name,
+          brand: eq.product?.brand,
+          model: eq.product?.model,
+          installedDate: eq.installedDate,
+          installedTicketId: eq.installedTicketId,
+        })),
+        ticketHistory: [],
+        equipmentSummary: summary,
+      };
+    });
+
+    const clients = [...mappedVelocityClients, ...mappedWisproClients];
+
     // 5. Totales globales
     const totals = {
       totalClients: clients.length,
@@ -309,11 +381,27 @@ router.get('/clients/equipment-view', authMiddleware, async (req: AuthenticatedR
 });
 
 // ==========================================
-// 12. INTEGRACIÓN WISPRO CLOUD & CONTRATOS LOCALES (POSTGRESQL SUB-50MS)
+// 11. BSS CORE: CLIENTES & PLANES (SUB-20MS)
+// ==========================================
+router.get('/clients', ClientController.getClients);
+router.get('/clients/:id', ClientController.getClientById);
+router.post('/clients', ClientController.createClient);
+router.put('/clients/:id', ClientController.updateClient);
+
+router.get('/plans', PlanController.getPlans);
+router.get('/plans/:id', PlanController.getPlanById);
+router.post('/plans', PlanController.createPlan);
+router.put('/plans/:id', PlanController.updatePlan);
+router.delete('/plans/:id', PlanController.deletePlan);
+
+// ==========================================
+// 12. BSS CORE: CONTRATOS (CRUD CONCURRENTE SEGURO)
 // ==========================================
 router.get('/contracts', ContractController.getContracts);
 router.get('/contracts/active', ContractController.getActiveContracts);
 router.get('/contracts/:id', ContractController.getContractDetails);
+router.post('/contracts', ContractController.createContract);
+router.put('/contracts/:id', ContractController.updateContract);
 router.use('/wispro', wisproRoutes);
 
 router.get('/wispro/clients', async (req: AuthenticatedRequest, res: Response) => {

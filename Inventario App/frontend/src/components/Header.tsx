@@ -141,13 +141,13 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-heading font-extrabold text-xl tracking-tight text-slate-900">
-                  ISP Fibra Inventory
+                  Velocity - Rappido Panama ISP
                 </span>
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200">
-                  {currentUser?.role || 'Hub & Spoke'}
+                  {currentUser?.role || 'BSS / NOC'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 hidden sm:block">Control de Stock Central a Móvil + Wispro API</p>
+              <p className="text-xs text-slate-500 hidden sm:block">Sistema BSS/OSS • Gestión Comercial y de Red</p>
             </div>
           </div>
 

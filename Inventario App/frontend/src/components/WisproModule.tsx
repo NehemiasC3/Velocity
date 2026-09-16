@@ -224,6 +224,7 @@ export const WisproModule: React.FC = () => {
 
       const payload: CreateAssignmentPayload = {
         wisproContractId: String(contractId),
+        contractId: selectedContract.id ? String(selectedContract.id) : String(contractId),
         clientName: String(clientName),
         nodeId: selectedWarehouseId,
         notes: assignmentNotes,
@@ -310,6 +311,7 @@ export const WisproModule: React.FC = () => {
       const clientName = selectedContract.clientName || selectedContract.name || 'Cliente Wispro';
       await api.createAssignment({
         wisproContractId: String(contractId),
+        contractId: selectedContract.id ? String(selectedContract.id) : String(contractId),
         clientName: String(clientName),
         nodeId: selectedWarehouseId,
         notes: 'Vinculación rápida',
@@ -803,6 +805,15 @@ export const WisproModule: React.FC = () => {
                           <p className="font-bold text-slate-900 dark:text-white text-xs leading-snug truncate" title={c.clientName || c.name || ''}>
                             {c.clientName || c.name}
                           </p>
+                          {c.origin === 'VELOCITY' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs" title="Cliente y contrato nativo Velocity BSS">
+                              ⚡ VELOCITY
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-800 shadow-2xs" title="Contrato importado desde Wispro Cloud">
+                              🌐 WISPRO
+                            </span>
+                          )}
                           {c.identification && (
                             <span className="font-mono text-[10px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700" title="Cédula / RUC">
                               🆔 {c.identification}
@@ -1249,13 +1260,34 @@ export const WisproModule: React.FC = () => {
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Box className="w-4 h-4 text-indigo-600" />
-                  <span>Vincular Equipos al Contrato #{selectedContract.contractId}</span>
-                </h3>
-                <span className="text-xs text-slate-500">
-                  Cliente: {selectedContract.clientName || selectedContract.name}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Box className="w-4 h-4 text-indigo-600" />
+                    <span>Vincular Equipos al Contrato #{selectedContract.contractId}</span>
+                  </h3>
+                  {selectedContract.origin === 'VELOCITY' ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shadow-2xs">
+                      ⚡ VELOCITY
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 dark:bg-sky-950/80 dark:text-sky-300 border border-sky-300 dark:border-sky-800 shadow-2xs">
+                      🌐 WISPRO
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+                  <span>Cliente: <b className="text-slate-800 dark:text-slate-200">{selectedContract.clientName || selectedContract.name}</b></span>
+                  {selectedContract.identification && (
+                    <span className="font-mono text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                      🆔 {selectedContract.identification}
+                    </span>
+                  )}
+                  {selectedContract.planName && (
+                    <span className="text-[11px] text-slate-400">
+                      • {selectedContract.planName}
+                    </span>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => setIsAssignModalOpen(false)}
@@ -1263,6 +1295,28 @@ export const WisproModule: React.FC = () => {
               >
                 <X className="w-5 h-5" />
               </button>
+            </div>
+
+            {/* Selector Rápido de Cliente/Contrato Híbrido */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/60 space-y-1.5">
+              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                <span>Cliente / Contrato destino:</span>
+                <span className="text-[10px] font-normal text-slate-400">Híbrido (Wispro & Velocity BSS)</span>
+              </label>
+              <select
+                value={selectedContract.contractId || selectedContract.id}
+                onChange={(e) => {
+                  const found = contracts.find(c => (c.contractId === e.target.value || c.id === e.target.value));
+                  if (found) setSelectedContract(found);
+                }}
+                className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white font-medium outline-hidden focus:border-indigo-500"
+              >
+                {contracts.map((c: any) => (
+                  <option key={c.id || c.contractId} value={c.contractId || c.id}>
+                    [{c.origin === 'VELOCITY' ? 'VELOCITY' : 'WISPRO'}] #{c.contractId} — {c.clientName || c.name} {c.identification ? `(${c.identification})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Filtros de Selección de Inventario */}

@@ -3,7 +3,8 @@ import {
   Package, AlertTriangle, Truck, ShieldAlert, 
   Search, ArrowRight, CheckCircle2, TrendingUp, RefreshCw,
   Building2, Radio, CheckSquare, Zap, PlusCircle, Award,
-  Flame, BarChart3, Clock, User, ShieldCheck, Camera
+  Flame, BarChart3, Clock, User, ShieldCheck, Camera,
+  Users, FileText
 } from 'lucide-react';
 import { api } from '../services/api';
 import { DashboardKPIs, AuditLog, AnalyticsKPIs, CriticalStockAlert } from '../types';
@@ -22,18 +23,44 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
   const [showLiquidationModal, setShowLiquidationModal] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Estados BSS Core ISP
+  const [clientsCount, setClientsCount] = useState<number>(0);
+  const [contractsTotal, setContractsTotal] = useState<number>(0);
+  const [contractsVelocity, setContractsVelocity] = useState<number>(0);
+  const [contractsWispro, setContractsWispro] = useState<number>(0);
+  const [plansCount, setPlansCount] = useState<number>(0);
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [kpiRes, logsRes, analyticsRes] = await Promise.all([
+      const [
+        kpiRes, 
+        logsRes, 
+        analyticsRes,
+        clientsRes,
+        contractsRes,
+        contractsVelRes,
+        contractsWispRes,
+        plansRes
+      ] = await Promise.all([
         api.getDashboardKPIs().catch(() => null),
         api.getAuditLogs().catch(() => ({ logs: [] })),
-        api.getAnalyticsKPIs().catch(() => ({ success: false, kpis: null }))
+        api.getAnalyticsKPIs().catch(() => ({ success: false, kpis: null })),
+        api.getClients({ limit: 1 }).catch(() => ({ total: 0 })),
+        api.getContracts({ limit: 1 }).catch(() => ({ total: 0 })),
+        api.getContracts({ origin: 'VELOCITY', limit: 1 }).catch(() => ({ total: 0 })),
+        api.getContracts({ origin: 'WISPRO', limit: 1 }).catch(() => ({ total: 0 })),
+        api.getPlans().catch(() => ({ total: 0, data: [] }))
       ]);
 
       if (kpiRes) setKpis(kpiRes);
       if (analyticsRes?.kpis) setAnalytics(analyticsRes.kpis);
       setRecentLogs(logsRes?.logs?.slice(0, 6) || []);
+      setClientsCount(clientsRes?.total || 0);
+      setContractsTotal(contractsRes?.total || 0);
+      setContractsVelocity(contractsVelRes?.total || 0);
+      setContractsWispro(contractsWispRes?.total || 0);
+      setPlansCount(plansRes?.total ?? plansRes?.data?.length ?? 0);
     } catch (err) {
       console.error('Error cargando KPIs:', err);
     } finally {
@@ -84,21 +111,21 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
   return (
     <div className="space-y-6">
       
-      {/* Top Welcome & Quick Actions (Clean Corporate Light Mode) */}
+      {/* Top Welcome & Quick Actions (ISP NOC & BSS) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm p-4 md:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         
         <div className="max-w-3xl">
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-              <Radio className="w-3 h-3 animate-pulse text-emerald-600 dark:text-emerald-400" /> Sistema Operativo
+            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+              <Radio className="w-3 h-3 animate-pulse text-blue-600 dark:text-blue-400" /> ISP NOC & BSS Activo
             </span>
-            <span className="text-xs text-slate-400">Hub & Spoke • Wispro Sync • Auditoría Forense</span>
+            <span className="text-xs text-slate-400">Velocity • Rappido Panama • Fibra Óptica GPON</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-heading font-bold text-slate-900 dark:text-white">
-            Panel Gerencial & Mesa de Control ISP
+            Velocity - Rappido Panama ISP
           </h1>
           <p className="mt-0.5 text-xs sm:text-sm text-slate-500 leading-relaxed">
-            Control de hardware en bodegas, cuadrillas móviles y consumo de materiales de fibra óptica en tiempo real.
+            Mesa de control NOC & BSS: Gestión centralizada de abonados, contratos de servicio, perfiles de velocidad e infraestructura de red.
           </p>
           {kpis?.scopedNodeName && (
             <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-700/60 text-amber-900 dark:text-amber-200 text-xs font-bold shadow-2xs">
@@ -111,18 +138,27 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
         {/* Quick Actions & Search Box */}
         <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full md:w-auto">
           <button
-            onClick={() => setShowLiquidationModal(true)}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95"
+            onClick={() => onNavigateTab('clients')}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
           >
-            <Zap className="w-4 h-4" />
-            <span>+ Liquidar Material</span>
+            <Users className="w-4 h-4" />
+            <span>+ Nuevo Abonado</span>
           </button>
 
           <button
-            onClick={() => onNavigateTab('rma')}
-            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95"
+            onClick={() => onNavigateTab('contracts')}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
           >
-            <span>🔄 Retiro RMA</span>
+            <FileText className="w-4 h-4" />
+            <span>+ Emitir Contrato</span>
+          </button>
+
+          <button
+            onClick={() => onNavigateTab('plans')}
+            className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm active:scale-95 cursor-pointer"
+          >
+            <Zap className="w-4 h-4" />
+            <span>⚡ Planes</span>
           </button>
 
           <form 
@@ -132,7 +168,7 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
             <Search className="w-4 h-4 text-sky-500 ml-2 mr-1.5 shrink-0" />
             <input
               type="text"
-              placeholder="Buscar MAC, ONU, Cliente..."
+              placeholder="Buscar Abonado, Contrato, MAC..."
               value={quickMacSearch}
               onChange={(e) => setQuickMacSearch(e.target.value)}
               onClick={() => {
@@ -145,14 +181,14 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
             <button
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-sky-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition mr-1"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-sky-500 hover:bg-slate-200 dark:hover:bg-slate-700 transition mr-1 cursor-pointer"
               title="Abrir Escáner de Cámara / Búsqueda Global (Ctrl+K)"
             >
               <Camera className="w-3.5 h-3.5" />
             </button>
             <button
               type="submit"
-              className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0 shadow-xs"
+              className="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0 shadow-xs cursor-pointer"
             >
               Buscar
             </button>
@@ -168,17 +204,113 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
         onRefresh={loadData}
       />
 
-      {/* 4 Tarjetas de Resumen Gerencial (KPIs) */}
+      {/* 4 Tarjetas de Resumen Gerencial ISP (NOC & BSS KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         
-        {/* KPI 1: ONUs Activas en Operación (Verde) */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-emerald-200 dark:border-emerald-950 p-5 shadow-xs relative overflow-hidden group hover:border-emerald-400 transition-all">
+        {/* KPI 1: Total Clientes Registrados (Azul) */}
+        <div 
+          onClick={() => onNavigateTab('clients')}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-blue-200 dark:border-blue-950 p-5 shadow-xs relative overflow-hidden group hover:border-blue-400 transition-all cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+              Total Abonados
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+              <Users className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white font-heading">
+              {clientsCount}
+            </h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
+              <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />
+              <span>Padrón oficial registrado</span>
+            </p>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-blue-600 dark:text-blue-400 font-medium">
+            <span>Gestionar Abonados</span>
+            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
+
+        {/* KPI 2: Contratos Activos con Desglose Velocity / Wispro (Verde) */}
+        <div 
+          onClick={() => onNavigateTab('contracts')}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-emerald-200 dark:border-emerald-950 p-5 shadow-xs relative overflow-hidden group hover:border-emerald-400 transition-all cursor-pointer"
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-              ONUs Activas
+              Contratos Activos
             </span>
             <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+              <FileText className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white font-heading">
+              {contractsTotal}
+            </h3>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                {contractsVelocity} VELOCITY
+              </span>
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                {contractsWispro} WISPRO
+              </span>
+            </div>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+            <span>Ver Contratos de Fibra</span>
+            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
+
+        {/* KPI 3: Planes de Servicio / Ancho de Banda (Ámbar) */}
+        <div 
+          onClick={() => onNavigateTab('plans')}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-950 p-5 shadow-xs relative overflow-hidden group hover:border-amber-400 transition-all cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Zap className="w-4 h-4 text-amber-500" />
+              Planes de Servicio
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+              <Zap className="w-5 h-5" />
+            </div>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-baseline gap-1.5">
+              <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white font-heading font-mono">
+                {plansCount}
+              </h3>
+              <span className="text-sm font-bold text-slate-400">perfiles</span>
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+              Velocidades simétricas y asimétricas
+            </p>
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+            <span>Configurar Tarifas</span>
+            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
+          </div>
+        </div>
+
+        {/* KPI 4: Equipos ONUs en Operación / Hardware de Red (Índigo) */}
+        <div 
+          onClick={() => onNavigateTab('warehouses')}
+          className="bg-white dark:bg-slate-900 rounded-2xl border border-indigo-200 dark:border-indigo-950 p-5 shadow-xs relative overflow-hidden group hover:border-indigo-400 transition-all cursor-pointer"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Package className="w-4 h-4 text-indigo-500" />
+              Equipos de Red
+            </span>
+            <div className="w-9 h-9 rounded-xl bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
               <Package className="w-5 h-5" />
             </div>
           </div>
@@ -187,105 +319,13 @@ export const DashboardHome: React.FC<DashboardHomeProps> = ({ onNavigateTab }) =
               {analytics?.total_active_onus ?? kpis?.totalSerializedActive ?? 0}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1">
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-              <span>En Bodegas y Camionetas</span>
+              <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" />
+              <span>ONUs & Routers en Bodegas / Red</span>
             </p>
           </div>
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Instaladas en Clientes:</span>
-            <strong className="text-slate-800 dark:text-slate-200 font-mono">
-              {analytics?.total_installed_onus ?? kpis?.onusByStatus.instaladoCliente ?? 0}
-            </strong>
-          </div>
-        </div>
-
-        {/* KPI 2: Equipos en Cuarentena / RMA (Rojo) */}
-        <div 
-          onClick={() => onNavigateTab('rma')}
-          className="bg-white dark:bg-slate-900 rounded-2xl border border-rose-200 dark:border-rose-950 p-5 shadow-xs relative overflow-hidden group hover:border-rose-400 transition-all cursor-pointer"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-rose-700 dark:text-rose-400 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldAlert className="w-4 h-4 text-rose-500" />
-              Cuarentena / RMA
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 flex items-center justify-center">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white font-heading">
-              {analytics?.total_quarantine_onus ?? kpis?.rmaCount ?? 0}
-            </h3>
-            <p className="text-xs text-rose-600 dark:text-rose-400 mt-1 flex items-center gap-1 font-medium">
-              Equipos defectuosos o dañados
-            </p>
-          </div>
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-rose-600 dark:text-rose-400">
-            <span>Gestionar Garantías</span>
+          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-indigo-600 dark:text-indigo-400 font-medium">
+            <span>Ver Stock de Infraestructura</span>
             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-          </div>
-        </div>
-
-        {/* KPI 3: Consumo Mensual de Cable Drop (Azul / Cian) */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-sky-200 dark:border-sky-950 p-5 shadow-xs relative overflow-hidden group hover:border-sky-400 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-sky-700 dark:text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
-              <TrendingUp className="w-4 h-4 text-sky-500" />
-              Consumo de Cable
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-sky-100 dark:bg-sky-950/60 text-sky-600 dark:text-sky-400 flex items-center justify-center">
-              <Flame className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="flex items-baseline gap-1.5">
-              <h3 className="text-3xl font-extrabold text-slate-900 dark:text-white font-heading font-mono">
-                {analytics?.monthly_cable_consumption ?? 0}
-              </h3>
-              <span className="text-sm font-bold text-slate-400">metros</span>
-            </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Descontados en liquidaciones este mes
-            </p>
-          </div>
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500">
-            <span>Tickets Cerrados:</span>
-            <strong className="text-slate-800 dark:text-slate-200 font-mono">
-              {analytics?.total_tickets_month ?? 0}
-            </strong>
-          </div>
-        </div>
-
-        {/* KPI 4: Top Técnicos / Cuadrillas (Dorado / Índigo) */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-amber-200 dark:border-amber-950 p-5 shadow-xs relative overflow-hidden group hover:border-amber-400 transition-all">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-amber-500" />
-              Líderes de Campo
-            </span>
-            <div className="w-9 h-9 rounded-xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
-              <Award className="w-5 h-5" />
-            </div>
-          </div>
-          <div className="mt-2 space-y-1.5">
-            {analytics?.top_technicians && analytics.top_technicians.length > 0 ? (
-              analytics.top_technicians.slice(0, 3).map((t, idx) => (
-                <div key={t.technicianId || idx} className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5 truncate">
-                    <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400 text-[10px] font-bold flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{t.technicianName}</span>
-                  </div>
-                  <span className="text-[11px] font-bold text-amber-600 dark:text-amber-400 shrink-0 font-mono">
-                    {t.closedTickets} {t.closedTickets === 1 ? 'ord.' : 'ords.'}
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-slate-400 italic py-2">Sin liquidaciones registradas este mes</p>
-            )}
           </div>
         </div>
 

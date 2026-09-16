@@ -70,7 +70,18 @@ const ClientDetailModal: React.FC<{
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <p className="text-xs text-slate-400 font-mono mb-0.5">{client.contractId}</p>
-              <h2 className="text-xl font-bold truncate">{client.name}</h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-xl font-bold truncate">{client.name}</h2>
+                {client.origin === 'VELOCITY' ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+                    ⚡ VELOCITY
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/40">
+                    🌐 WISPRO
+                  </span>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2 mt-2">
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColors[client.status] || 'bg-slate-200 text-slate-700 border-slate-300'}`}>
                   {client.status.replace(/_/g, ' ')}
@@ -477,7 +488,18 @@ export const ClientEquipmentModule: React.FC = () => {
                           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </td>
                         <td className="py-3 px-4">
-                          <p className="font-semibold text-slate-900">{client.name}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-semibold text-slate-900">{client.name}</p>
+                            {client.origin === 'VELOCITY' ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                ⚡ VELOCITY
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-300">
+                                🌐 WISPRO
+                              </span>
+                            )}
+                          </div>
                           <p className="font-mono text-[11px] text-sky-600 mt-0.5">{client.contractId}</p>
                           {client.currentOnuMac && <p className="font-mono text-[10px] text-slate-400 mt-0.5">{client.currentOnuMac}</p>}
                         </td>

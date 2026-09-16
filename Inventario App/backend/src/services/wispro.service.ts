@@ -39,6 +39,7 @@ export interface WisproContract {
   status: string;
   model?: string;
   ip?: string;
+  origin?: 'VELOCITY' | 'WISPRO' | string;
   wisproUpdatedAt?: Date | null;
   createdAt?: Date | null;
   raw?: any;
@@ -726,8 +727,29 @@ export class WisproService {
       { createdAt: sortDir }
     ];
 
-    // 6. Consultas concurrentes en PostgreSQL
-    const [rows, total, config, totalAll, withSerialCount, withNapCount, enabledCount] = await Promise.all([
+    // 6. Consultas concurrentes en PostgreSQL (Wispro Mirror y Contratos Nativos Velocity)
+    const velocityWhere: any = { origin: 'VELOCITY' };
+    if (options?.search && options.search.trim()) {
+      const q = options.search.trim();
+      velocityWhere.OR = [
+        { contractNumber: { contains: q, mode: 'insensitive' } },
+        { ipAddress: { contains: q, mode: 'insensitive' } },
+        { client: { name: { contains: q, mode: 'insensitive' } } },
+        { client: { dniPassport: { contains: q, mode: 'insensitive' } } },
+        { client: { phone: { contains: q, mode: 'insensitive' } } },
+        { client: { email: { contains: q, mode: 'insensitive' } } },
+        { client: { address: { contains: q, mode: 'insensitive' } } }
+      ];
+    }
+    if (options?.filterState && options.filterState !== 'ALL') {
+      if (options.filterState === 'ENABLED') {
+        velocityWhere.status = 'ACTIVO';
+      } else if (options.filterState === 'DISABLED') {
+        velocityWhere.status = { not: 'ACTIVO' };
+      }
+    }
+
+    const [rows, totalWispro, config, totalAll, withSerialCount, withNapCount, enabledCount, velocityContracts, velocityTotal] = await Promise.all([
       prisma.wisproClient.findMany({
         where,
         orderBy,
@@ -757,18 +779,61 @@ export class WisproService {
             { status: WisproClientStatus.ACTIVO }
           ]
         }
-      })
+      }),
+      prisma.contract.findMany({
+        where: velocityWhere,
+        include: {
+          client: true,
+          servicePlan: true,
+          serializedItems: {
+            select: { serialNumber: true, macAddress: true, id: true },
+            take: 1
+          }
+        },
+        orderBy: { createdAt: 'desc' },
+        take: isLoadAll ? 500 : 50
+      }),
+      prisma.contract.count({ where: velocityWhere })
     ]);
 
+    // Mapeo contratos nativos Velocity
+    const velocityMapped: WisproContract[] = velocityContracts.map(vc => ({
+      id: vc.id,
+      contractId: vc.contractNumber || vc.id.slice(0, 8),
+      publicId: null,
+      clientName: vc.client.name,
+      clientId: vc.clientId,
+      identification: vc.client.dniPassport,
+      phone: vc.client.phone,
+      email: vc.client.email,
+      address: vc.client.address || 'Panamá',
+      planName: vc.servicePlan?.name || 'Plan Velocity',
+      nodeName: 'Velocity Core NOC',
+      macAddress: vc.serializedItems[0]?.macAddress || undefined,
+      serialNumber: vc.serializedItems[0]?.serialNumber || undefined,
+      model: 'Terminal Velocity',
+      ip: vc.ipAddress || undefined,
+      status: vc.status === 'ACTIVO' ? 'enabled' : 'disabled',
+      origin: 'VELOCITY',
+      createdAt: vc.createdAt,
+      wisproUpdatedAt: vc.updatedAt,
+      raw: {
+        origin: 'VELOCITY',
+        contract_number: vc.contractNumber,
+        client_name: vc.client.name,
+        state: vc.status === 'ACTIVO' ? 'enabled' : 'disabled'
+      }
+    }));
+
     // Si la BD está vacía y no hay filtro activo de búsqueda, disparar volcado inicial en background
-    if (total === 0 && !options?.search && wisproApiKey) {
+    if (totalWispro === 0 && !options?.search && wisproApiKey) {
       WisproService.syncWisproContractsIncremental({ forceFullDump: true }).catch(err => {
         console.warn('[WisproService] Error en volcado inicial en segundo plano:', err.message);
       });
     }
 
     // 7. Mapeo a WisproContract compatible con frontend
-    const contracts: WisproContract[] = rows.map(r => {
+    const wisproMapped: WisproContract[] = rows.map(r => {
       const isEnabled = (r.wisproState === 'enabled' || r.wisproState === 'active' || r.status === 'ACTIVO');
       const stateStr = r.wisproState || (isEnabled ? 'enabled' : 'disabled');
 
@@ -789,9 +854,11 @@ export class WisproService {
         model: r.model || 'ONU / ONT GPON',
         ip: r.ipAddress || undefined,
         status: stateStr,
+        origin: 'WISPRO',
         createdAt: r.createdAt,
         wisproUpdatedAt: r.wisproUpdatedAt,
         raw: {
+          origin: 'WISPRO',
           public_id: r.publicId,
           state: stateStr,
           nap_name: r.nodeName,
@@ -807,8 +874,11 @@ export class WisproService {
       };
     });
 
+    const contracts = [...velocityMapped, ...wisproMapped];
+    const total = totalWispro + velocityTotal;
+
     const elapsed = Date.now() - startTime;
-    console.log(`[WisproService ⚡ Sub-20ms] ${contracts.length} contratos recuperados de PostgreSQL en ${elapsed}ms (Total filtrado: ${total})`);
+    console.log(`[WisproService ⚡ Sub-20ms] ${contracts.length} contratos híbridos recuperados de PostgreSQL en ${elapsed}ms (Total filtrado: ${total})`);
 
     const computedTotalPages = isLoadAll ? 1 : (Math.ceil(total / reqPerPage) || 1);
 
@@ -820,10 +890,10 @@ export class WisproService {
       totalPages: computedTotalPages,
       lastSyncedAt: config?.lastSyncedAt || config?.lastSyncTimestamp || null,
       kpis: {
-        total: totalAll,
+        total: totalAll + velocityTotal,
         withSerial: withSerialCount,
         withNap: withNapCount,
-        enabled: enabledCount
+        enabled: enabledCount + velocityTotal
       }
     };
   }

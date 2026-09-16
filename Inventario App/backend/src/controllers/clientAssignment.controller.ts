@@ -76,8 +76,82 @@ export class ClientAssignmentController {
       }
 
       const responsibleUser = await resolveResponsibleUser(req);
-      const cleanContractId = String(wisproContractId).trim();
-      const cleanClientName = String(clientName).trim();
+      const targetIdentifier = String(req.body.contractId || wisproContractId).trim();
+      let cleanContractId = String(wisproContractId || req.body.contractId).trim();
+      let cleanClientName = String(clientName).trim();
+
+      // ── Puente Híbrido: Resolver Contrato Unificado BSS por UUID local o ID Wispro ──
+      let unifiedContract = await prisma.contract.findFirst({
+        where: {
+          OR: [
+            { id: targetIdentifier },
+            { contractNumber: targetIdentifier },
+            { wisproContractId: targetIdentifier }
+          ]
+        },
+        include: { client: true }
+      });
+
+      // Si no existe Contrato unificado pero existe en wisproClient, inicializar registro puente
+      if (!unifiedContract) {
+        const wClient = await prisma.wisproClient.findFirst({
+          where: {
+            OR: [
+              { contractId: targetIdentifier },
+              { id: targetIdentifier }
+            ]
+          }
+        });
+
+        if (wClient) {
+          cleanContractId = wClient.contractId;
+          cleanClientName = cleanClientName || wClient.name;
+
+          try {
+            // Upsert cliente y contrato unificados con origin WISPRO para blindar la relación con UUID
+            let bridgeClient = await prisma.client.findFirst({
+              where: {
+                OR: [
+                  ...(wClient.identification ? [{ dniPassport: wClient.identification }] : []),
+                  { name: wClient.name }
+                ]
+              }
+            });
+
+            if (!bridgeClient) {
+              bridgeClient = await prisma.client.create({
+                data: {
+                  name: wClient.name,
+                  dniPassport: wClient.identification || null,
+                  phone: wClient.phone || null,
+                  email: wClient.email || null,
+                  address: wClient.address || null,
+                  origin: 'WISPRO'
+                }
+              });
+            }
+
+            unifiedContract = await prisma.contract.create({
+              data: {
+                contractNumber: `WISP-${wClient.publicId || wClient.contractId}`,
+                wisproContractId: wClient.contractId,
+                clientId: bridgeClient.id,
+                ipAddress: wClient.ipAddress || null,
+                origin: 'WISPRO',
+                status: wClient.status === 'ACTIVO' ? 'ACTIVO' : 'SUSPENDIDO'
+              },
+              include: { client: true }
+            });
+          } catch (bridgeErr) {
+            console.warn('[Bridge Contract] No se pudo crear contrato espejo unificado:', bridgeErr);
+          }
+        }
+      }
+
+      if (unifiedContract) {
+        cleanClientName = unifiedContract.client?.name || cleanClientName;
+        cleanContractId = unifiedContract.wisproContractId || unifiedContract.contractNumber || cleanContractId;
+      }
 
       // Determinar nodeId responsable: si no se especifica, tomar del nodo asignado al usuario o la bodega del primer equipo
       let targetNodeId = nodeId;
@@ -134,7 +208,10 @@ export class ClientAssignmentController {
         // 1. Buscar si ya existe una asignación activa para este contrato o crear una nueva
         let assignment = await tx.clientAssignment.findFirst({
           where: {
-            wisproContractId: cleanContractId,
+            OR: [
+              ...(unifiedContract ? [{ contractId: unifiedContract.id }] : []),
+              { wisproContractId: cleanContractId }
+            ],
             status: 'ACTIVO'
           }
         });
@@ -144,6 +221,7 @@ export class ClientAssignmentController {
             where: { id: assignment.id },
             data: {
               clientName: cleanClientName,
+              ...(unifiedContract ? { contractId: unifiedContract.id } : {}),
               ...(technicianId ? { technicianId } : {}),
               ...(nodeId ? { nodeId: targetNodeId } : {}),
               ...(notes ? { notes: assignment.notes ? `${assignment.notes} | ${notes}` : notes } : {})
@@ -153,6 +231,7 @@ export class ClientAssignmentController {
           assignment = await tx.clientAssignment.create({
             data: {
               wisproContractId: cleanContractId,
+              contractId: unifiedContract?.id || null,
               clientName: cleanClientName,
               nodeId: targetNodeId,
               technicianId: technicianId || responsibleUser.id,
@@ -162,15 +241,17 @@ export class ClientAssignmentController {
           });
         }
 
-        // 2. Actualizar cada SerializedItem y registrar auditoría forense
+        // 2. Actualizar cada SerializedItem e InventoryItem con la clave foránea fuerte al contrato unificado
         const updatedItems: any[] = [];
         for (const item of itemsToAssign) {
           const updated = await tx.serializedItem.update({
             where: { id: item.id },
             data: {
               clientAssignmentId: assignment.id,
+              contractId: unifiedContract?.id || null,
               status: SerializedStatus.INSTALADO_CLIENTE,
               installedContractId: cleanContractId,
+              installedClientId: unifiedContract?.clientId || item.installedClientId,
               installedClientName: cleanClientName,
               installedDate: new Date(),
               notes: notes ? `${item.notes ? item.notes + ' | ' : ''}Asignado contrato #${cleanContractId}: ${notes}` : item.notes
@@ -179,6 +260,23 @@ export class ClientAssignmentController {
           });
           updatedItems.push(updated);
 
+          // Si existe un registro en inventory_items para este equipo, actualizar su contractId
+          if (unifiedContract?.id) {
+            await tx.inventoryItem.updateMany({
+              where: {
+                OR: [
+                  { serializedItemId: item.id },
+                  { serialNumber: item.serialNumber },
+                  ...(item.macAddress ? [{ macAddress: item.macAddress }] : [])
+                ]
+              },
+              data: {
+                contractId: unifiedContract.id,
+                status: 'INSTALADO_CLIENTE'
+              }
+            });
+          }
+
           await tx.auditLog.create({
             data: {
               macAddress: item.macAddress,
@@ -186,7 +284,7 @@ export class ClientAssignmentController {
               eventType: AuditEventType.INSTALACION_CLIENTE,
               fromWarehouseId: item.currentWarehouseId,
               userId: responsibleUser.id,
-              details: `Asignación multi-equipo a cliente ${cleanClientName} (Contrato #${cleanContractId}) - Equipo: ${item.product.name} S/N: ${item.serialNumber}`
+              details: `Asignación multi-equipo a cliente ${cleanClientName} (Contrato #${cleanContractId}) - Equipo: ${item.product.name} S/N: ${item.serialNumber} [Origen: ${unifiedContract?.origin || 'WISPRO'}]`
             }
           });
         }
@@ -228,17 +326,29 @@ export class ClientAssignmentController {
     try {
       const contractId = req.params.wisproContractId || req.params.contractId;
       if (!contractId) {
-        res.status(400).json({ success: false, error: 'wisproContractId es requerido' });
+        res.status(400).json({ success: false, error: 'wisproContractId o contractId es requerido' });
         return;
       }
 
       const cleanContractId = String(contractId).trim();
 
-      // Buscar asignaciones registradas para este contrato
+      // Buscar asignaciones registradas para este contrato (por UUID local o ID Wispro)
       const assignments = await prisma.clientAssignment.findMany({
-        where: { wisproContractId: cleanContractId },
+        where: {
+          OR: [
+            { contractId: cleanContractId },
+            { wisproContractId: cleanContractId },
+            { contract: { contractNumber: cleanContractId } }
+          ]
+        },
         orderBy: { createdAt: 'desc' },
         include: {
+          contract: {
+            include: {
+              client: true,
+              servicePlan: true
+            }
+          },
           items: {
             include: {
               product: true,
@@ -254,14 +364,17 @@ export class ClientAssignmentController {
       const assignedItems = await prisma.serializedItem.findMany({
         where: {
           OR: [
+            { contractId: cleanContractId, status: SerializedStatus.INSTALADO_CLIENTE },
             { installedContractId: cleanContractId, status: SerializedStatus.INSTALADO_CLIENTE },
+            { clientAssignment: { contractId: cleanContractId } },
             { clientAssignment: { wisproContractId: cleanContractId } }
           ]
         },
         include: {
           product: true,
           currentWarehouse: { select: { id: true, name: true, code: true } },
-          clientAssignment: true
+          clientAssignment: true,
+          contract: true
         },
         orderBy: { updatedAt: 'desc' }
       });

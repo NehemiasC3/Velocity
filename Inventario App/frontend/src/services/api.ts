@@ -4,7 +4,8 @@ import {
   DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
   UniversalSearchResults, ClientEquipmentResponse,
   ClientAssignment, CreateAssignmentPayload,
-  WorkOrderListResponse, WorkOrderDetail, WorkOrderCompletePayload
+  WorkOrderListResponse, WorkOrderDetail, WorkOrderCompletePayload,
+  Client, Contract, ServicePlan, PaginatedResponse
 } from '../types';
 
 
@@ -537,22 +538,27 @@ class ApiService {
 
   public async getContracts(params?: { 
     page?: number; 
+    limit?: number;
     perPage?: number | string; 
     loadAll?: boolean;
     search?: string;
+    status?: string;
+    origin?: string;
     filterState?: string;
     filterSerial?: string;
     filterNap?: string;
     sortOrder?: string;
     forceRefresh?: boolean;
-  }): Promise<{ 
-    success: boolean; 
-    count: number; 
-    total?: number; 
+  }): Promise<PaginatedResponse<Contract> & { 
+    success?: boolean; 
+    count?: number; 
+    total: number; 
     totalPages?: number; 
-    page?: number; 
+    page: number; 
+    limit: number; 
     perPage?: number; 
-    contracts: any[];
+    contracts: Contract[];
+    data: Contract[];
     lastSyncedAt?: string | null;
   }> {
     const cleanParams: Record<string, string> = {};
@@ -707,6 +713,122 @@ class ApiService {
 
   public async getRetrievalChecklist(contractId: string): Promise<any> {
     return this.request<any>(`/work-orders/contract/${contractId}/checklist`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // BSS Core: Clientes, Contratos y Planes
+  // ──────────────────────────────────────────────────────────────────────────
+
+  public async getClients(params?: { page?: number; limit?: number; search?: string; origin?: string }): Promise<PaginatedResponse<Client>> {
+    const qs = params ? new URLSearchParams(
+      Object.entries(params)
+        .filter(([_, v]) => v !== undefined && v !== '')
+        .map(([k, v]) => [k, String(v)])
+    ).toString() : '';
+    return this.request<PaginatedResponse<Client>>(`/clients${qs ? `?${qs}` : ''}`);
+  }
+
+  public async getClientById(id: string): Promise<{ success: boolean; data: Client }> {
+    return this.request<{ success: boolean; data: Client }>(`/clients/${encodeURIComponent(id)}`);
+  }
+
+  public async createClient(data: {
+    name: string;
+    dni_passport?: string;
+    dniPassport?: string;
+    phone?: string;
+    email?: string;
+    address?: string;
+    lat?: number;
+    lng?: number;
+    origin?: string;
+  }): Promise<{ success: boolean; data: Client; message?: string }> {
+    return this.request<{ success: boolean; data: Client; message?: string }>('/clients', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async updateClient(id: string, data: Partial<Client>): Promise<{ success: boolean; data: Client; message?: string }> {
+    return this.request<{ success: boolean; data: Client; message?: string }>(`/clients/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async getContractById(id: string): Promise<{ success: boolean; data: Contract }> {
+    return this.request<{ success: boolean; data: Contract }>(`/contracts/${encodeURIComponent(id)}`);
+  }
+
+  public async createContract(data: {
+    clientId: string;
+    servicePlanId?: string;
+    ip_address?: string;
+    ipAddress?: string;
+    status?: string;
+    routerServerId?: string;
+    origin?: string;
+  }): Promise<{ success: boolean; data: Contract; message?: string }> {
+    return this.request<{ success: boolean; data: Contract; message?: string }>('/contracts', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async updateContract(id: string, data: {
+    clientId?: string;
+    servicePlanId?: string;
+    ip_address?: string;
+    ipAddress?: string;
+    status?: string;
+    routerServerId?: string;
+  }): Promise<{ success: boolean; data: Contract; message?: string }> {
+    return this.request<{ success: boolean; data: Contract; message?: string }>(`/contracts/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async getPlans(): Promise<{ success: boolean; total: number; data: ServicePlan[] }> {
+    return this.request<{ success: boolean; total: number; data: ServicePlan[] }>('/plans');
+  }
+
+  public async getPlanById(id: string): Promise<{ success: boolean; data: ServicePlan }> {
+    return this.request<{ success: boolean; data: ServicePlan }>(`/plans/${encodeURIComponent(id)}`);
+  }
+
+  public async createPlan(data: {
+    name: string;
+    download_speed?: number;
+    downloadSpeed?: number;
+    upload_speed?: number;
+    uploadSpeed?: number;
+    price: number;
+  }): Promise<{ success: boolean; data: ServicePlan; message?: string }> {
+    return this.request<{ success: boolean; data: ServicePlan; message?: string }>('/plans', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async updatePlan(id: string, data: {
+    name?: string;
+    download_speed?: number;
+    downloadSpeed?: number;
+    upload_speed?: number;
+    uploadSpeed?: number;
+    price?: number;
+  }): Promise<{ success: boolean; data: ServicePlan; message?: string }> {
+    return this.request<{ success: boolean; data: ServicePlan; message?: string }>(`/plans/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  }
+
+  public async deletePlan(id: string): Promise<{ success: boolean; message?: string }> {
+    return this.request<{ success: boolean; message?: string }>(`/plans/${encodeURIComponent(id)}`, {
+      method: 'DELETE'
+    });
   }
 }
 

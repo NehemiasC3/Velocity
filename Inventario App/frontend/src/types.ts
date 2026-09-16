@@ -281,6 +281,7 @@ export interface WisproClient {
   planName: string;
   currentOnuMac?: string;
   status: 'ACTIVO' | 'PENDIENTE_INSTALACION' | 'SUSPENDIDO';
+  origin?: 'VELOCITY' | 'WISPRO' | string;
 }
 
 export interface CriticalStockAlert {
@@ -425,6 +426,7 @@ export interface ClientEquipmentView {
   nodeName: string;
   planName: string;
   status: 'ACTIVO' | 'PENDIENTE_INSTALACION' | 'SUSPENDIDO';
+  origin?: 'VELOCITY' | 'WISPRO' | string;
   currentOnuMac?: string;
   installedEquipment: InstalledEquipmentItem[];
   ticketHistory: ClientTicketSummary[];
@@ -464,7 +466,9 @@ export interface UniversalSearchResults {
 
 export interface ClientAssignment {
   id: string;
-  wisproContractId: string;
+  wisproContractId?: string | null;
+  contractId?: string | null;
+  contract?: Contract | null;
   clientName: string;
   assignedAt: string;
   technicianId?: string | null;
@@ -479,11 +483,82 @@ export interface ClientAssignment {
 }
 
 export interface CreateAssignmentPayload {
-  wisproContractId: string;
+  wisproContractId?: string;
+  contractId?: string;
   clientName: string;
   nodeId?: string;
   technicianId?: string;
   notes?: string;
   itemIds: string[];
 }
+
+// ──────────────────────────────────────────────
+// BSS CORE INTERFACES (CLIENTES, PLANES, CONTRATOS)
+// ──────────────────────────────────────────────
+
+export interface Client {
+  id: string;
+  name: string;
+  dniPassport?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  origin?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  _count?: {
+    contracts: number;
+  };
+}
+
+export interface ServicePlan {
+  id: string;
+  name: string;
+  downloadSpeed: number;
+  uploadSpeed: number;
+  price: number | string;
+  createdAt?: string;
+  updatedAt?: string;
+  _count?: {
+    contracts: number;
+  };
+}
+
+export interface Contract {
+  id: string;
+  contractNumber?: string | null;
+  clientId: string;
+  client?: {
+    id: string;
+    name: string;
+    dniPassport?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+  };
+  servicePlanId?: string | null;
+  servicePlan?: {
+    id: string;
+    name: string;
+    downloadSpeed: number;
+    uploadSpeed: number;
+    price: number | string;
+  } | null;
+  routerServerId?: string | null;
+  ipAddress?: string | null;
+  origin?: string;
+  status: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PaginatedResponse<T> {
+  total: number;
+  page: number;
+  limit: number;
+  data: T[];
+}
+
 

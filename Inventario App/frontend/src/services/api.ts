@@ -4,7 +4,8 @@ import {
   DashboardKPIs, TechnicianMetric, ProductCatalog, AnalyticsKPIs,
   UniversalSearchResults, ClientEquipmentResponse,
   ClientAssignment, CreateAssignmentPayload,
-  WorkOrderListResponse, WorkOrderDetail, WorkOrderCompletePayload
+  WorkOrderListResponse, WorkOrderDetail, WorkOrderCompletePayload,
+  DispatchBoardResponse, WorkOrderLiquidatePayload
 } from '../types';
 
 
@@ -647,8 +648,16 @@ class ApiService {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Mesa de Órdenes (Work Orders)
+  // Mesa de Órdenes (Work Orders & Dispatch)
   // ──────────────────────────────────────────────────────────────────────────
+
+  public async getDispatchBoard(params: { date?: string; typeFilter?: string } = {}): Promise<DispatchBoardResponse> {
+    const qs = new URLSearchParams();
+    if (params.date) qs.append('date', params.date);
+    if (params.typeFilter && params.typeFilter !== 'ALL') qs.append('typeFilter', params.typeFilter);
+    const query = qs.toString();
+    return this.request<DispatchBoardResponse>(`/work-orders/dispatch${query ? '?' + query : ''}`);
+  }
 
   public async getWorkOrders(params: Record<string, string> = {}): Promise<WorkOrderListResponse> {
     const qs = new URLSearchParams(params).toString();
@@ -657,6 +666,13 @@ class ApiService {
 
   public async getWorkOrderDetail(id: string): Promise<WorkOrderDetail> {
     return this.request<WorkOrderDetail>(`/work-orders/${id}`);
+  }
+
+  public async liquidateWorkOrder(id: string, payload: WorkOrderLiquidatePayload): Promise<any> {
+    return this.request<any>(`/work-orders/${id}/liquidate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
   }
 
   public async completeWorkOrder(id: string, payload: WorkOrderCompletePayload = {}): Promise<any> {
@@ -675,6 +691,14 @@ class ApiService {
 
   public async getRetrievalChecklist(contractId: string): Promise<any> {
     return this.request<any>(`/work-orders/contract/${contractId}/checklist`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Auditoría Forense & Timeline
+  // ──────────────────────────────────────────────────────────────────────────
+
+  public async getSerializedItemTimeline(identifier: string): Promise<any> {
+    return this.request<any>(`/inventory/timeline/${encodeURIComponent(identifier)}`);
   }
 }
 

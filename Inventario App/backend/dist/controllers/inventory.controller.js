@@ -814,6 +814,29 @@ class InventoryController {
             });
         }
     }
+    /**
+     * Obtiene la línea de tiempo forense completa de un equipo por MAC o Serial
+     * GET /api/inventory/timeline/:identifier
+     */
+    static async getSerializedTimeline(req, res) {
+        try {
+            const identifier = String(req.params.identifier || req.query.q || '');
+            if (!identifier.trim()) {
+                res.status(400).json({ success: false, error: 'Identificador (MAC o Serial) requerido' });
+                return;
+            }
+            const data = await inventory_service_1.inventoryService.searchForensicHistory(identifier);
+            res.status(200).json(data);
+        }
+        catch (error) {
+            console.error('[InventoryController.getSerializedTimeline] Error:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error al consultar trazabilidad forense',
+                details: error.message
+            });
+        }
+    }
 }
 exports.InventoryController = InventoryController;
 exports.inventoryController = new InventoryController();

@@ -94,14 +94,16 @@ export interface BulkItem {
 
 export interface BulkStock {
   id: string;
-  bulkItemId: string;
-  bulkItemName: string;
-  bulkItemCode: string;
-  unitOfMeasure: 'METROS' | 'UNIDADES' | 'ROLLOS';
-  warehouseId: string;
+  productId?: string;
+  product?: ProductCatalog;
+  bulkItemId?: string;
+  bulkItemName?: string;
+  bulkItemCode?: string;
+  unitOfMeasure?: string;
+  warehouseId?: string;
   warehouseName?: string;
   quantity: number;
-  updatedAt: string;
+  updatedAt?: string;
 }
 
 export type TransferStatus = 'PENDIENTE' | 'EN_TRANSITO' | 'RECIBIDO' | 'RECHAZADO' | 'CANCELADO';
@@ -219,12 +221,70 @@ export interface WorkOrderRetrievalItem {
   status: SerializedStatus;
 }
 
+export interface DispatchGroupStats {
+  total: number;
+  instalaciones: number;
+  visitas: number;
+  factibilidades: number;
+  bajas: number;
+}
+
+export interface DispatchVehicleSummary {
+  id: string;
+  name: string;
+  code: string;
+  vehiclePlate?: string;
+  serializedCount: number;
+  batchSummary: {
+    id?: string;
+    productName: string;
+    currentQuantity: number;
+    batchNumber: string;
+    unitOfMeasure: string;
+  }[];
+  bulkSummary: {
+    productId?: string;
+    productName: string;
+    quantity: number;
+  }[];
+}
+
+export interface DispatchGroup {
+  technician: {
+    id: string;
+    name: string;
+    email: string;
+    phone?: string;
+    role: string;
+  };
+  vehicle: DispatchVehicleSummary | null;
+  orders: InstallationTicket[];
+  zones?: string[];
+  scheduledDate?: string;
+  stats: DispatchGroupStats;
+}
+
+export interface DispatchBoardResponse {
+  success: boolean;
+  groups: DispatchGroup[];
+  unassigned: InstallationTicket[];
+  totalOrders: number;
+  allowedTypes: { value: string; label: string }[];
+}
+
+export interface VehicleInventoryDetail {
+  serials: Array<SerializedItem & { product?: ProductCatalog }>;
+  batches: Array<BatchItem & { product?: ProductCatalog }>;
+  bulks: Array<BulkStock & { product?: ProductCatalog }>;
+}
+
 export interface WorkOrderDetail {
   success: boolean;
   ticket: InstallationTicket;
   retrievalChecklist: WorkOrderRetrievalItem[];
   contractAssignment: ClientAssignment | null;
   retrievalCount: number;
+  vehicleInventory?: VehicleInventoryDetail | null;
 }
 
 export interface WorkOrderListResponse {
@@ -236,6 +296,21 @@ export interface WorkOrderListResponse {
     limit: number;
     totalPages: number;
   };
+}
+
+export interface WorkOrderLiquidatePayload {
+  serialNumber?: string;
+  macAddress?: string;
+  batchUsage?: {
+    batchId?: string;
+    batchNumber?: string;
+    metersUsed: number;
+  };
+  bulkUsage?: {
+    productId: string;
+    quantity: number;
+  }[];
+  notes?: string;
 }
 
 export interface WorkOrderCompletePayload {
@@ -302,6 +377,31 @@ export interface CriticalStockAlert {
   isExhausted: boolean;
 }
 
+export interface ProductReconciliation {
+  productId: string;
+  productName: string;
+  category: string;
+  brand?: string;
+  model?: string;
+  sku: string;
+  totalRegistered: number;
+  inHubWarehouse: number;
+  inBranches: number;
+  inVehicles: number;
+  inTransit: number;
+  installedClient: number;
+  inRMA: number;
+  unaccountedLoss: number;
+  reconciliationRate: number;
+}
+
+export interface MovementKPIs {
+  equipmentInStreet: number;
+  installedToday: number;
+  totalInHub: number;
+  totalTraceableRate: number;
+}
+
 export interface DashboardKPIs {
   scopedNodeId?: string | null;
   scopedNodeName?: string | null;
@@ -320,6 +420,9 @@ export interface DashboardKPIs {
   totalWarehouses: number;
   pendingTransfersCount: number;
   pendingTransfers: TransferOrder[];
+  reconciliationReport?: ProductReconciliation[];
+  movementKPIs?: MovementKPIs;
+  recentAuditLogs?: AuditLog[];
 }
 
 export interface TechnicianMetric {

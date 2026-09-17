@@ -4,14 +4,18 @@ const express_1 = require("express");
 const workOrders_controller_1 = require("../controllers/workOrders.controller");
 const auth_middleware_1 = require("../middlewares/auth.middleware");
 const router = (0, express_1.Router)();
+// Vista de Despacho: tickets agrupados por técnico con resumen
+router.get('/dispatch', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.dispatch);
 // Listado con filtros
 router.get('/', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.list);
 // Checklist de retiro en tiempo real para un contrato (antes del endpoint genérico /:id)
 router.get('/contract/:contractId/checklist', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.retrievalChecklist);
-// Detalle de una orden (incluye checklist si es BAJA_SERVICIO)
+// Detalle de una orden (incluye checklist si es BAJA_SERVICIO y stock vehicular)
 router.get('/:id', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.getOne);
 // Crear nueva orden
 router.post('/', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.create);
+// Liquidar orden de campo (transacción atómica: serial en vehículo + cable + granel + Wispro)
+router.post('/:id/liquidate', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.liquidate);
 // Completar orden (flujo transaccional para BAJA_SERVICIO)
 router.post('/:id/complete', auth_middleware_1.authMiddleware, workOrders_controller_1.WorkOrdersController.complete);
 // Actualizar estado / notas de la orden

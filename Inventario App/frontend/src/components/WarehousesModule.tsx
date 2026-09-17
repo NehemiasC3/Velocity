@@ -430,20 +430,12 @@ export const WarehousesModule: React.FC<WarehousesModuleProps> = ({ onNavigateTa
           <button
             onClick={loadData}
             title="Refrescar lista"
-            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition cursor-pointer"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
-
-      {/* ── PANEL SUPERIOR DESTACADO: VEHÍCULOS / SUCURSALES CON STOCK CRÍTICO (PUNTO DE REORDEN) ── */}
-      <CriticalStockAlertsWidget
-        alerts={criticalAlerts}
-        isLoading={loading}
-        onDispatch={handleDispatchAlert}
-        onRefresh={loadData}
-      />
 
       {/* ── Grid de Tarjetas de Bodegas (Jerarquía Visual Hub & Spoke) ── */}
       <div>
@@ -996,9 +988,7 @@ export const WarehousesModule: React.FC<WarehousesModuleProps> = ({ onNavigateTa
                           {stock.warehouseName}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`text-sm font-bold font-mono ${
-                            isCritical ? 'text-rose-600 dark:text-rose-400' : 'text-slate-900 dark:text-white'
-                          }`}>
+                          <span className="text-sm font-bold font-mono text-slate-900 dark:text-white">
                             {stock.quantity.toLocaleString()}
                           </span>
                         </td>
@@ -1006,15 +996,9 @@ export const WarehousesModule: React.FC<WarehousesModuleProps> = ({ onNavigateTa
                           {stock.unitOfMeasure}
                         </td>
                         <td className="py-3 px-4">
-                          {isCritical ? (
-                            <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-800 text-xs font-bold px-2 py-0.5 rounded-full dark:bg-rose-950 dark:text-rose-300">
-                              <AlertCircle className="w-3 h-3" /> Stock Crítico (&lt; {itemDef?.minStockAlert})
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-xs font-medium px-2 py-0.5 rounded-full dark:bg-emerald-950 dark:text-emerald-300">
-                              <Check className="w-3 h-3" /> Óptimo
-                            </span>
-                          )}
+                          <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-300">
+                            Stock: {stock.quantity.toLocaleString()}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-right text-slate-400 text-[11px]">
                           {stock.updatedAt ? new Date(stock.updatedAt).toLocaleDateString() : 'N/A'}

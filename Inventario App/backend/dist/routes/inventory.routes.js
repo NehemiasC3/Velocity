@@ -23,4 +23,7 @@ router.get('/inventory/bulk', inventory_controller_1.InventoryController.getBulk
 router.get('/bulk', inventory_controller_1.InventoryController.getBulkInventory);
 router.post('/inventory/bulk/adjust', inventory_controller_1.InventoryController.adjustBulkStock);
 router.post('/bulk/adjust', inventory_controller_1.InventoryController.adjustBulkStock);
+// Timeline Forense por Serial o MAC
+router.get('/inventory/timeline/:identifier', inventory_controller_1.InventoryController.getSerializedTimeline);
+router.get('/timeline/:identifier', inventory_controller_1.InventoryController.getSerializedTimeline);
 exports.default = router;

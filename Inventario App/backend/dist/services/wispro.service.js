@@ -1058,44 +1058,164 @@ class WisproService {
             return this.cache.tickets;
         }
         const technicians = await db_1.prisma.user.findMany({
+            where: {
+                role: { in: [client_1.Role.TECNICO, client_1.Role.SUPERVISOR_MESA, client_1.Role.SUPERADMIN] }
+            },
             include: {
                 managedWarehouses: {
                     where: { type: client_1.WarehouseType.VEHICULO }
                 }
             }
         });
+        const tech1 = technicians.find(t => t.name.toLowerCase().includes('luis') || t.name.toLowerCase().includes('david')) || technicians[0];
+        const tech2 = technicians.find(t => t.name.toLowerCase().includes('mario') || t.name.toLowerCase().includes('barria')) || technicians[1] || technicians[0];
         let rawTickets = [];
         if (wisproApiKey) {
             try {
-                const response = await this.request('/issues?filter[status]=opened&per_page=100');
-                rawTickets = Array.isArray(response) ? response : (response.data || []);
+                const [issuesRes, jobsRes] = await Promise.allSettled([
+                    this.request('/issues?filter[status]=opened&per_page=100'),
+                    this.request('/jobs?filter[status]=pending&per_page=100')
+                ]);
+                const issues = issuesRes.status === 'fulfilled' ? (Array.isArray(issuesRes.value) ? issuesRes.value : issuesRes.value?.data || []) : [];
+                const jobs = jobsRes.status === 'fulfilled' ? (Array.isArray(jobsRes.value) ? jobsRes.value : jobsRes.value?.data || []) : [];
+                rawTickets = [...issues, ...jobs];
             }
             catch (err) {
-                console.warn('[WisproService] Error consultando /issues en Wispro:', err.message);
+                console.warn('[WisproService] Error consultando Wispro:', err.message);
             }
         }
+        const todayStr = new Date().toISOString().split('T')[0];
         if (rawTickets.length === 0) {
             rawTickets = [
-                { id: 'TICK-101', subject: 'Sin señal Óptica - Alarma LOS', client_name: 'Carlos Mendoza', address: 'Calle 50, Edif Tower', assigned_to_id: technicians[0]?.id || null, created_at: new Date().toISOString() },
-                { id: 'TICK-102', subject: 'Lentitud y Cortes Intermitentes', client_name: 'María Fernández', address: 'San Francisco, Calle 74', assigned_to_id: null, created_at: new Date().toISOString() },
-                { id: 'TICK-103', subject: 'Cable Drop Roto por Camión', client_name: 'Roberto Gómez', address: 'Costa del Este, Ave Centenario', assigned_to_id: technicians[1]?.id || null, created_at: new Date().toISOString() },
-                { id: 'TICK-104', subject: 'Cambio de Clave WiFi / Router', client_name: 'Ana Patricia Solís', address: 'Betania, El Dorado', assigned_to_id: null, created_at: new Date().toISOString() }
+                // Cuadrilla 1 - Luis David
+                {
+                    id: '101',
+                    number: 'TCK-101',
+                    kind: 'visita tecnica',
+                    subject: 'Visita técnica - Alarma LOS / Sin señal óptica',
+                    client_name: 'Carlos Mendoza',
+                    contract_id: 'CTR-4821',
+                    address: 'Calle 50, Obarrio, Edif Tower',
+                    node: 'Nodo Bella Vista / Obarrio',
+                    assigned_to_id: tech1?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: '102',
+                    number: 'INST-201',
+                    kind: 'instalacion',
+                    subject: 'Instalación nueva FTTH 500 Mbps Residencial',
+                    client_name: 'David Villarreal',
+                    contract_id: 'CTR-4822',
+                    address: 'Las Cumbres, Villa Zaita, Calle 4ta',
+                    node: 'Nodo Las Cumbres',
+                    assigned_to_id: tech1?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: '103',
+                    number: 'FACT-301',
+                    kind: 'factibilidad',
+                    subject: 'Factibilidad técnica y relevamiento de red GPON',
+                    client_name: 'Corporación MetroTech S.A.',
+                    contract_id: 'CTR-4823',
+                    address: 'Costa del Este, Ave Centenario, Torre Financial',
+                    node: 'Nodo Costa del Este',
+                    assigned_to_id: tech1?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                // Cuadrilla 2 - Mario Barria
+                {
+                    id: '104',
+                    number: 'BAJA-401',
+                    kind: 'baja de servicio',
+                    subject: 'Baja de servicio y retiro de hardware en campo',
+                    client_name: 'Roberto Gómez',
+                    contract_id: 'CTR-4824',
+                    address: 'San Francisco, Calle 74, PH Sky Vista',
+                    node: 'Nodo San Francisco',
+                    assigned_to_id: tech2?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: '105',
+                    number: 'TCK-105',
+                    kind: 'visita tecnica',
+                    subject: 'Visita técnica - Atenuación alta en roseta óptica',
+                    client_name: 'María Fernández',
+                    contract_id: 'CTR-4825',
+                    address: 'San Francisco, Calle 50 final',
+                    node: 'Nodo San Francisco',
+                    assigned_to_id: tech2?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: '106',
+                    number: 'INST-202',
+                    kind: 'instalacion',
+                    subject: 'Instalación nueva FTTH 1 Gbps Corporativo',
+                    client_name: 'Lucía Morales',
+                    contract_id: 'CTR-4826',
+                    address: 'Metetí, Centro Urbano, Plaza Central',
+                    node: 'Nodo Metetí',
+                    assigned_to_id: tech2?.id || null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                // Sin Asignar (Para despacho en tiempo real)
+                {
+                    id: '107',
+                    number: 'INST-203',
+                    kind: 'instalacion',
+                    subject: 'Instalación nueva FTTH 300 Mbps Residencial',
+                    client_name: 'Ana Patricia Solís',
+                    contract_id: 'CTR-4827',
+                    address: 'Betania, El Dorado, Calle 15',
+                    node: 'Nodo Betania',
+                    assigned_to_id: null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                },
+                {
+                    id: '108',
+                    number: 'BAJA-402',
+                    kind: 'baja de servicio',
+                    subject: 'Baja de servicio por mudanza — Retiro de ONT',
+                    client_name: 'Fernando Arango',
+                    contract_id: 'CTR-4828',
+                    address: 'Tocumen, Belén, Sector 3',
+                    node: 'Nodo Tocumen',
+                    assigned_to_id: null,
+                    scheduled_date: todayStr,
+                    created_at: new Date().toISOString()
+                }
             ];
         }
         const enrichedTickets = rawTickets.map(t => {
-            const assignId = String(t.assigned_to_id || t.assignable_id || '');
+            const assignId = String(t.assigned_to_id || t.assignable_id || t.technician_id || '');
             const matchedTech = technicians.find(u => u.id === assignId ||
-                u.email?.toLowerCase() === assignId.toLowerCase() ||
-                (t.assigned_to_name && u.name.toLowerCase().includes(t.assigned_to_name.toLowerCase())));
+                (u.email && u.email.toLowerCase() === assignId.toLowerCase()) ||
+                (t.assigned_to_name && u.name.toLowerCase().includes(t.assigned_to_name.toLowerCase())) ||
+                (t.tech_name && u.name.toLowerCase().includes(t.tech_name.toLowerCase())));
             const vehicle = matchedTech?.managedWarehouses?.[0] || null;
             return {
                 id: String(t.id),
                 ticketNumber: t.number || `TCK-${t.id}`,
-                title: t.subject || t.title || 'Reporte de Soporte',
+                title: t.subject || t.title || 'Orden de Trabajo',
                 description: t.description || '',
+                kind: t.kind || t.type || t.category || '',
                 clientName: t.client_name || t.client?.name || 'Cliente Residencial',
+                contractId: t.contract_id || t.contract?.id || `CTR-${t.id}`,
                 clientAddress: t.address || t.client?.address || 'Panamá',
+                wisproNode: t.node || t.zone || 'Panamá Centro',
+                node: t.node || t.zone || 'Panamá Centro',
                 status: t.status || 'OPEN',
+                scheduledDate: t.scheduled_date || todayStr,
                 createdAt: t.created_at || new Date().toISOString(),
                 assignedToId: matchedTech ? matchedTech.id : null,
                 assignedToName: matchedTech ? matchedTech.name : 'Sin asignar',

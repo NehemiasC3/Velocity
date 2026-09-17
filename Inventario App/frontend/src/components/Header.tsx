@@ -3,7 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { 
   Boxes, UserCheck, ShieldAlert, ShieldCheck, RefreshCw, Smartphone, 
   Layers, Search, Users, Wifi, AlertTriangle, Truck, Server,
-  PackagePlus, ArrowDownToLine, RotateCcw, LogOut, Building2, ClipboardList
+  PackagePlus, ArrowDownToLine, RotateCcw, LogOut, Building2, ClipboardList,
+  LayoutDashboard
 } from 'lucide-react';
 
 import { api } from '../services/api';
@@ -46,8 +47,8 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, onRefre
   const navTabs = [
     { 
       id: 'dashboard', 
-      label: 'Panel General', 
-      icon: Layers,
+      label: 'Centro de Control', 
+      icon: LayoutDashboard,
       roleLimit: ['SUPERADMIN', 'ADMIN_BODEGA', 'SUPERVISOR_MESA', 'AUDITOR_INTERNO', 'ENCARGADO_PERSONAL'] 
     },
     { 

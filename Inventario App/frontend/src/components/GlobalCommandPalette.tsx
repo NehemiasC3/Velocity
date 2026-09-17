@@ -334,14 +334,15 @@ export const GlobalCommandPalette: React.FC<GlobalCommandPaletteProps> = ({
 
                         <button
                           onClick={() => {
+                            const ident = item.serialNumber || item.macAddress;
                             onClose();
-                            onNavigateTab('audit', item.macAddress);
+                            window.dispatchEvent(new CustomEvent('open-forensic-timeline', { detail: ident }));
                           }}
-                          className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition inline-flex items-center gap-1 shadow-2xs"
-                          title="Ver Trazabilidad Forense Completa"
+                          className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition inline-flex items-center gap-1 shadow-2xs cursor-pointer"
+                          title="Ver Línea de Tiempo Forense Completa"
                         >
                           <ShieldCheck className="w-3 h-3" />
-                          <span>Trazabilidad</span>
+                          <span>Timeline</span>
                         </button>
                       </div>
                     </div>
